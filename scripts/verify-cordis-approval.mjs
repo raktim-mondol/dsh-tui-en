@@ -1,22 +1,26 @@
 #!/usr/bin/env node
 /**
- * verify-cordis-approval.mjs — 审批服务配置回归（issue #49 尾巴）。
+ * verify-cordis-approval.mjs — approval-service config regression
+ * (issue #49 leftover).
  *
- * 覆盖裸组合 cordis.yml 与 profile cordis.patch.yml 两个启动入口的
- * approval 配置一致性：
- *   - 裸组合必须挂载 @deepseek-ai/dsh-user-approval 行（缺了它，
- *     approval/request waterfall 无服务可答，sandbox_permissions 升级
- *     fail-closed 成 unavailable —— #49 在开发路径的复现根因）
- *   - 两个入口的 policy 表达式逐场景同值（入口语义不漂移）：
- *       linux + 默认（workspace-write）      → 'ask'
- *       linux + DSH_PERMISSION_MODE 全放行    → 'never'（无需再问）
- *       win32                                 → 'never'（无沙箱，终端信任模型）
+ * Covers approval-config consistency across the two launch entries
+ * (bare-combo cordis.yml and profile cordis.patch.yml):
+ *   - the bare combo must mount the @deepseek-ai/dsh-user-approval row
+ *     (without it the approval/request waterfall has no service, so a
+ *     sandbox_permissions escalate fail-closes as unavailable — the
+ *     #49 repro root cause on the dev path)
+ *   - both entries evaluate the policy expression to the same value in
+ *     each scenario (entry semantics must not drift):
+ *       linux + default (workspace-write)     → 'ask'
+ *       linux + DSH_PERMISSION_MODE full-allow → 'never' (nothing left to ask)
+ *       win32                                  → 'never' (no sandbox — the terminal's trust model)
  *
- * 不引入 YAML 解析依赖：按本仓库自述的固定行布局提取 !!js 表达式文本，
- * 用 mock process（platform/env）求值。布局变动导致提取失败时 FAIL 而非
- * 静默跳过——这正是要守的回归。
+ * Introduces no YAML-parsing dependency: extracts the !!js expression text
+ * per this repo's documented fixed line layout, and evaluates it against a
+ * mock process (platform/env). A layout change that breaks extraction FAILs
+ * rather than silently skipping — that's exactly the regression this guards.
  *
- * 运行：node scripts/verify-cordis-approval.mjs
+ * Run: node scripts/verify-cordis-approval.mjs
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

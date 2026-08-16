@@ -175,7 +175,7 @@ if [ "$1" = "--version" ]; then echo "wl-paste stub 1.0"; exit 0; fi
 case "$STUB_WL" in
   text)
     if [ "$1" = "--list-types" ]; then printf 'text/plain;charset=utf-8\\ntext/plain\\n'; exit 0; fi
-    # 剪贴板 (E5 89 AA E8 B4 B4 E6 9D BF) split mid-character across writes.
+    # "clipboard" (E5 89 AA E8 B4 B4 E6 9D BF) split mid-character across writes.
     printf '\\345'; sleep 0.1; printf '\\211\\252\\350\\264\\264\\346\\235\\277'
     exit 0
     ;;
