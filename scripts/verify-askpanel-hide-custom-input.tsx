@@ -1,13 +1,16 @@
 /**
- * AskUserQuestionPanel `hideCustomInput` 行为回归（/provider 向导引入）。
- * 覆盖复核确认的无测试分支：
- *   1. 纯选择题 + hide：不渲染「自定义回答」输入行，hint 无输入提示；
- *      Tab 与可打印字符被忽略，Enter 只提交 selected（无 custom）。
- *   2. 无选项纯文本题 + hide：hide 被忽略，输入行仍在，文本照常提交
- *      （否则题变死局）。
- *   3. 多选题不带 hide（向导的模型选择题形态）：输入行保留，
- *      勾选 + 自定义补充同时生效（issue #9 默认行为不回退）。
- * 运行：node --import tsx/esm scripts/verify-askpanel-hide-custom-input.tsx
+ * AskUserQuestionPanel `hideCustomInput` behavior regression (introduced by
+ * the /provider wizard). Covers the untested branches confirmed in review:
+ *   1. Pure multiple-choice + hide: the "Custom answer" input row does not
+ *      render, and the hint shows no input prompt; Tab and printable keys
+ *      are ignored, Enter only submits selected (no custom).
+ *   2. Text-only question with no options + hide: hide is ignored, the
+ *      input row stays, and the text submits normally (otherwise the
+ *      question would be a dead end).
+ *   3. Multi-select without hide (the wizard's model-selection question
+ *      shape): the input row stays, and checkbox selection + custom text
+ *      both take effect together (issue #9's default behavior does not regress).
+ * Run: node --import tsx/esm scripts/verify-askpanel-hide-custom-input.tsx
  */
 process.env.FORCE_COLOR = '3'
 
@@ -51,7 +54,7 @@ const app = await render(
     position: 1, total: 1, answered: 0,
     onAnswer: (selection: unknown) => { answer = selection },
     onCancel: () => { cancelled = true },
-    question: { question: '占位', options: [{ label: 'x' }] },
+    question: { question: 'placeholder', options: [{ label: 'x' }] },
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
 )
@@ -79,54 +82,54 @@ async function mount(question: Record<string, unknown>): Promise<void> {
   await sleep(200)
 }
 
-// ── 1. 纯选择题 + hideCustomInput ─────────────────────────────────────
+// ── 1. Pure multiple-choice + hideCustomInput ─────────────────────────
 await mount({
-  question: '要添加哪种模型提供方？',
-  options: [{ label: '内置 provider' }, { label: '自定义 API 端点' }],
+  question: 'Which model provider do you want to add?',
+  options: [{ label: 'Built-in provider' }, { label: 'Custom API endpoint' }],
   hideCustomInput: true,
 })
-check('1 hide: 无「自定义回答」输入行', !screen().includes('自定义回答'))
-check('1 hide: hint 无输入提示', !screen().includes('输入回答') && !screen().includes('输入文字附带回答'))
-check('1 hide: 选项照常渲染', screen().includes('内置 provider') && screen().includes('自定义 API 端点'))
+check('1 hide: no "Custom answer" input row', !screen().includes('Custom answer'))
+check('1 hide: hint has no input prompt', !screen().includes('Type answer') && !screen().includes('Type text to attach an answer'))
+check('1 hide: options render normally', screen().includes('Built-in provider') && screen().includes('Custom API endpoint'))
 
-stdin.write('\x1b[B') // ↓ → 第二项
+stdin.write('\x1b[B') // ↓ → second item
 await sleep(100)
-stdin.write('\t')    // Tab 应被忽略（无输入行可跳）
+stdin.write('\t')    // Tab should be ignored (no input row to jump to)
 await sleep(100)
-stdin.write('x')     // 可打印字符应被忽略
+stdin.write('x')     // printable characters should be ignored
 await sleep(100)
-stdin.write('\r')    // Enter 提交焦点项
+stdin.write('\r')    // Enter submits the focused item
 await sleep(200)
-check('1 hide: Enter 只提交 selected，无 custom',
-  eq(answer, { selected: ['自定义 API 端点'] }), JSON.stringify(answer))
+check('1 hide: Enter only submits selected, no custom',
+  eq(answer, { selected: ['Custom API endpoint'] }), JSON.stringify(answer))
 
-// ── 2. 无选项纯文本题 + hideCustomInput（hide 必须被忽略）─────────────
+// ── 2. Text-only question with no options + hideCustomInput (hide must be ignored)
 await mount({
-  question: '输入 API key',
+  question: 'Enter your API key',
   hideCustomInput: true,
 })
-check('2 text-only: hide 被忽略，输入行仍在', screen().includes('自定义回答'))
+check('2 text-only: hide is ignored, input row stays', screen().includes('Custom answer'))
 stdin.write('sk-secret')
 await sleep(100)
 stdin.write('\r')
 await sleep(200)
-check('2 text-only: 文本照常提交',
+check('2 text-only: text submits normally',
   eq(answer, { selected: [], custom: 'sk-secret' }), JSON.stringify(answer))
 
-// ── 3. 多选题不带 hide（模型选择题形态）：默认行为不回退 ──────────────
+// ── 3. Multi-select without hide (the model-selection question shape): default behavior does not regress
 await mount({
-  question: '选择要启用的模型',
+  question: 'Select the models to enable',
   options: [{ label: 'deepseek-chat' }, { label: 'deepseek-reasoner' }],
   multiSelect: true,
 })
-check('3 multi: 输入行保留', screen().includes('自定义回答'))
-stdin.write(' ')      // 勾选第一项
+check('3 multi: input row stays', screen().includes('Custom answer'))
+stdin.write(' ')      // check the first item
 await sleep(100)
-stdin.write('extra-model') // 输入行补充
+stdin.write('extra-model') // supplement via the input row
 await sleep(100)
 stdin.write('\r')
 await sleep(200)
-check('3 multi: 勾选 + 自定义补充同时生效',
+check('3 multi: checkbox selection + custom text both take effect',
   eq(answer, { selected: ['deepseek-chat'], custom: 'extra-model' }), JSON.stringify(answer))
 
 app.unmount()
