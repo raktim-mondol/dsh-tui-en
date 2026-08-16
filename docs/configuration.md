@@ -1,60 +1,66 @@
-# 配置参考
+# Configuration
 
-[文档索引](README.md) · [English](configuration.en.md)
+[Documentation index](README.md)
 
-## Profile 与补丁层
+## Profiles and patch layers
 
-通过 npm/profile 机制安装后，用户配置位于：
+After an npm/profile installation, user configuration lives at:
 
 ```text
 $DSH_HOME/profiles/dsh-tui/cordis.patch.yml
 ```
 
-`DSH_HOME` 未设置时通常为 `~/.dsh`。该文件是顶层 YAML 数组，可使用 DSH
-支持的 `!!js` 表达式。
+When `DSH_HOME` is unset, it normally defaults to `~/.dsh`. The file is a
+top-level YAML array and may use the `!!js` expressions supported by DSH.
 
-Profile 启动按顺序叠加 `dsh-base`、已安装 bundle、`@deepseek-harness-tui/dsh-tui`
-的包内 `cordis.patch.yml`，最后再应用用户补丁。用户配置通常通过相同 `id` 覆盖已有行；
-只有确实新增服务时才使用 `insert`。
+Profile startup layers `dsh-base`, installed bundles, the package's
+`cordis.patch.yml`, and finally the user patch. A user configuration normally
+overrides an existing row by `id`; use `insert` only for a genuinely new
+service.
 
-> 覆盖某一行时，`config` 是整块替换，不是逐字段深合并。需要继续生效的字段必须
-> 在用户补丁中全部重写。
+> When a row is overridden, its `config` block is replaced as a whole. It is
+> not deep-merged, so repeat every key that must remain active.
 
-## TUI 配置
+## TUI configuration
 
-下面是完整的常用覆盖示例：
+A complete common override looks like this:
 
 ```yaml
 - id: dsh-tui
   config:
     provider: deepseek-official
     model: deepseek-v4-flash
-    cwd: !!js process.cwd()
+    # Prefer leaving cwd unset — the default resolves to the git worktree
+    # root containing the launch directory. To pin a fixed workspace, use an
+    # absolute path (e.g. cwd: /repo/packages/app), NOT `!!js process.cwd()`
+    # (that pins the workspace to the launch subdirectory, issue #96).
     effort: max
     activity: true
     activityFrames: claude
     contextBar: true
     fullscreen: false
-    preset: !!js process.env.CC_TUI_PRESET ?? undefined
-    sessionId: !!js process.env.DSH_CC_RESUME_SESSION ?? undefined
+    preset: !!js process.env.DSH_TUI_PRESET ?? undefined
+    sessionId: !!js process.env.DSH_TUI_RESUME_SESSION ?? undefined
 ```
 
-| 字段 | 默认/来源 | 说明 |
+| Field | Default/source | Meaning |
 | --- | --- | --- |
-| `provider` | `deepseek-official` | DSH 模型路由名称 |
-| `model` | `deepseek-v4-flash` | 启动模型；`/model` 可通过 session fork 实时切换 |
-| `cwd` | `process.cwd()` | Agent 工作目录与文件策略根目录 |
-| `effort` | 配置层通常为 `max` | 每个请求实际生效的推理等级（按模型档位校验，deepseek 仅 off/high/max，非法档位静默回落默认；优先于 Shift+Tab 持久化选择），兼作顶栏启动显示 |
-| `activity` | `true` | 是否显示实时工作状态行 |
-| `activityFrames` | 持久化选择或 `claude` | 工作状态动画预设；也可通过 `/activity` 修改 |
-| `contextBar` | `true` | 输入框下方的分段上下文进度条；`false` 隐藏该行 |
-| `fullscreen` | `false` | `true` 使用 alternate screen、应用内滚动和鼠标选区；`false` 使用 inline 模式 |
-| `preset` | 名册默认 `standard` | 新会话 Agent preset；显式配置优先于持久化偏好 |
-| `sessionId` | 未设置 | 要恢复的会话 ID，通常由 Windows `--resume` 启动器注入 |
+| `provider` | `deepseek-official` | DSH model route |
+| `model` | `deepseek-v4-flash` | Startup model; `/model` can switch through a session fork |
+| `cwd` | git worktree root containing the launch directory (`process.cwd()` when outside any worktree; a dotfiles repo at `$HOME` does not count) | TUI-side session workspace: agent meta, `@` completion/mention expansion, /resume filtering, statusline; resuming an existing session adopts that session's persisted cwd. Note the bash/fs-policy/sandbox roots are still owned by the composition layer's cordis config (default: the launch directory, governed by dsh-base) and may differ from this session-side cwd |
+| `effort` | normally `max` in the bundle | Reasoning effort actually applied to every request (validated against model levels; deepseek supports only off/high/max and invalid levels silently fall back to the adapter default; wins over the persisted `/effort` choice), also shown in the header at startup |
+| `modes` | built-in trio | Shift+Tab session-mode cycle (plan/sandbox/approval atom bundles); defaults to default → plan → full-access |
+| `activity` | `true` | Show the live activity row |
+| `activityFrames` | persisted choice or `claude` | Activity animation preset; `/activity` changes it at runtime |
+| `contextBar` | `true` | Segmented context-usage bar below the input box; `false` hides the row |
+| `fullscreen` | `false` | `true` uses the alternate screen, app scrolling, and mouse selection; `false` uses inline mode |
+| `preset` | roster default `standard` | Agent preset for new sessions; explicit configuration wins over persisted preference |
+| `sessionId` | unset | Session to resume, normally injected by the Windows `--resume` launcher |
 
-## 工作状态行
+## Live activity row
 
-`dsh-working-activity` 随包安装，并由本包 patch 插入。只需要按 ID 覆盖参数：
+`dsh-working-activity` is installed with the package and inserted by its patch.
+Override only the existing ID when tuning it:
 
 ```yaml
 - id: working-activity
@@ -62,44 +68,50 @@ Profile 启动按顺序叠加 `dsh-base`、已安装 bundle、`@deepseek-harness
     publishIntervalMs: 500
 ```
 
-不要再次 `insert` 同名行，也不要对同一 profile 单独执行
-`dsh plugin ... add dsh-working-activity`。
+Do not insert a second row and do not separately run
+`dsh plugin ... add dsh-working-activity` for the same profile.
 
-## Agent Preset
+## Agent presets
 
-每个会话通过 `@deepseek-ai/dsh-agent-presets` 组合模型可见的工具和提示词：
+Each session composes its model-visible tools and prompt through
+`@deepseek-ai/dsh-agent-presets`:
 
-| ID | 名称 | 能力 |
+| ID | Name | Capability |
 | --- | --- | --- |
-| `standard` | 标准模式（默认） | 编辑、Shell、检索、Skills、计划、Goals、子代理与工作流 |
-| `code` | PTC 模式 | 标准能力，加 Code Mode SDK 呈现工具，可用 TypeScript 组合多步操作 |
-| `minimal` | 极简模式 | 仅持久 Bash 与 `str_replace_editor`，不带 compaction |
-| `cordis` | 创造模式 | 标准能力，加运行时检查与插件实验工具 |
+| `standard` | Standard (default) | Editing, shell, search, skills, planning, goals, subagents, and workflows |
+| `code` | PTC | Standard plus Code Mode SDK presentation for composing operations in TypeScript |
+| `minimal` | Minimal | Persistent Bash and `str_replace_editor` only, without compaction |
+| `cordis` | Creation | Standard plus runtime inspection and plugin-experimentation tools |
 
-使用方式：
+Usage rules:
 
-- `/preset` 打开选择器。
-- `/preset <id>` 直接选择；`/preset status` 查看当前状态。
-- 空白会话可以原地切换。已经产生对话的会话遵循官方 blank-only 规则，选择只会
-  保存为新默认值，在 `/new` 或下一次启动时生效。
-- 默认值保存在 `~/.dsh-cc/agent-preset.json`。
-- 优先级为：显式 `config.preset` 或 `CC_TUI_PRESET`，然后持久化偏好，最后名册
-  默认值 `standard`。
-- 恢复旧会话时，以该会话日志记录的 preset 为准，不读取当前默认值覆盖它。
+- `/preset` opens the picker.
+- `/preset <id>` selects directly; `/preset status` reports the current state.
+- A blank session can switch in place. Once a conversation has started, the
+  official blank-only rule stores the choice as the new default for `/new` or
+  the next launch.
+- The default is stored in `~/.dsh-tui/agent-preset.json`.
+- Precedence is explicit `config.preset` or `DSH_TUI_PRESET`, then persisted
+  preference, then the roster default `standard`.
+- Resuming a session restores the preset recorded in that session's log and
+  does not overwrite it with the current default.
 
-自定义 preset 放在 `$DSH_HOME/.agent-presets/<name>/`，目录中应包含
-`agent.cordis.yml`。默认 `DSH_HOME` 下的路径即 `~/.dsh/.agent-presets/`。
+Place a custom preset at `$DSH_HOME/.agent-presets/<name>/` with an
+`agent.cordis.yml` file. Under the default DSH home this is
+`~/.dsh/.agent-presets/`.
 
-从 0.3 起，模型侧工具、plan、compaction、delegation 等由 preset 自己组合。
-Profile 模式不再使用旧的 `CC_TUI_COMPACT_RATIO`、
-`CC_TUI_COMPACT_RETAIN` 或旧版 TUI 的深度限制；这些策略应在 preset 中配置。
+Since 0.3, model-side tools, planning, compaction, and delegation are owned by
+the preset. Profile mode no longer uses the old `DSH_TUI_COMPACT_RATIO`,
+`DSH_TUI_COMPACT_RETAIN`, or the former TUI's subagent-depth customization; configure
+those policies in the preset instead.
 
 ## MCP
 
-官方 `@deepseek-ai/dsh-mcp-client` 同时支持 stdio 与 streamable HTTP。
-每个服务挂载后，工具以 `mcp__<server>__<tool>` 注册并自动进入模型工具集。
+The official `@deepseek-ai/dsh-mcp-client` supports both stdio and streamable
+HTTP. Mounted tools are registered as `mcp__<server>__<tool>` and enter the
+model tool set automatically.
 
-在用户 `cordis.patch.yml` 中插入：
+Insert servers in the user `cordis.patch.yml`:
 
 ```yaml
 - insert:
@@ -121,44 +133,57 @@ Profile 模式不再使用旧的 `CC_TUI_COMPACT_RATIO`、
           Authorization: !!js process.env.MCP_TOKEN
 ```
 
-运行 `/mcp` 查看已连接服务与工具数量。完整字段以
-[DeepSeek Harness 配置目录](https://deepseek-harness.github.io/deepseek-harness/reference/config-catalog#deepseek-ai-dsh-mcp-client)
-为准。
+Run `/mcp` to inspect connected servers and tool counts. Consult the
+[DeepSeek Harness configuration catalog](https://deepseek-harness.github.io/deepseek-harness/reference/config-catalog#deepseek-ai-dsh-mcp-client)
+for the complete field reference.
 
-## 环境变量
+## Environment variables
 
-| 变量 | 用途 |
+| Variable | Purpose |
 | --- | --- |
-| `DEEPSEEK_API_KEY` | DeepSeek 凭证；运行模型的必需项 |
-| `DEEPSEEK_BASE_URL` | 覆盖 DeepSeek 兼容 API 端点 |
-| `CC_TUI_PERSONA` | 覆盖组合注入的 Agent persona |
-| `CC_TUI_PRESET` | 覆盖新会话默认 Agent preset |
-| `CC_TUI_THEME` | 锁定内置或自定义主题，优先于持久化选择 |
-| `CC_TUI_DISABLE_MOUSE` | 在 fullscreen 模式临时关闭鼠标处理 |
-| `DSH_CC_RESUME_SESSION` | 启动时恢复指定会话，通常由启动器设置 |
-| `DSH_CC_SESSION_ROOT` | 覆盖会话持久化位置；profile 安装时是 SQLite 数据库路径，裸 `cordis.yml` 启动时是 JSONL 根目录 |
-| `DSH_PERMISSION_MODE` | 非 Windows 平台覆盖 sandbox policy，例如 `workspace-write` 或 `danger-full-access` |
-| `DSH_CC_WORKSPACE` | Windows `dsh-tui.cmd` 采用的工作目录 |
-| `CC_TUI_DEBUG` | 启用写往 stderr 的 dsh-tui 调试日志 |
-| `DSH_CC_RENDER_LOG` | 指定文件路径，记录原始 ANSI 渲染帧用于取证 |
+| `DEEPSEEK_API_KEY` | Required DeepSeek credential |
+| `DEEPSEEK_BASE_URL` | Override the compatible DeepSeek API endpoint |
+| `DSH_TUI_PERSONA` | Override the Agent persona injected by the composition |
+| `DSH_TUI_PRESET` | Override the default Agent preset for new sessions |
+| `DSH_TUI_THEME` | Pin a built-in (`auto`/`light`/`dark`/`dark-ansi`) or custom theme ahead of persisted selection |
+| `DSH_TUI_DISABLE_MOUSE` | Temporarily disable mouse handling in fullscreen mode |
+| `DSH_TUI_RESUME_SESSION` | Resume a session at startup, normally set by a launcher |
+| `DSH_TUI_SESSION_ROOT` | Override the session persistence location; the profile uses a SQLite database path, while bare `cordis.yml` uses a JSONL root directory |
+| `DSH_PERMISSION_MODE` | Override non-Windows sandbox policy, such as `workspace-write` or `danger-full-access` |
+| `DSH_TUI_WORKSPACE` | Working directory used by the Windows `dsh-tui.cmd` launcher |
+| `DSH_TUI_DEBUG` | Enable dsh-tui diagnostics on stderr |
+| `DSH_TUI_RENDER_LOG` | File path for raw ANSI frame capture |
 
-`DSH_CC_RENDER_LOG` 可能捕获屏幕上可见的提示词、工具参数和输出，不应上传到
-公开 issue，除非已经检查并脱敏。
+The old `DSH_TUI_*` and `DSH_TUI_*` names no longer take effect as of this
+release; startup prints one warning line whenever a legacy name is still set
+(repeated on every launch while it remains set). The only exception is
+`DSH_TUI_RESUME_SESSION`: the reader prefers the new name but still accepts
+the old `DSH_TUI_RESUME_SESSION`, and the writer sets both variables to ease
+the transition for older launchers.
 
-## 组合约束
+`DSH_TUI_RENDER_LOG` may capture visible prompts, tool arguments, and output.
+Do not attach it to a public issue without reviewing and redacting it.
 
-- `user-interaction` 服务通常由 `dsh-base` 提供。本插件会在裸装时兜底创建，
-  但 profile patch 不应重复插入。
-- 自定义插入 subagent provider 时，核心 `subagent` 服务必须先挂载。
-- 自定义覆盖 `plan-mode` 时，`section` 必须是非空文本。
-- Profile 使用本包的 SQLite `sessions` 行，并禁用 base 的 JSONL 持久化，避免
-  同一会话出现两个写入所有者。
-- `cordis.yml` 是裸组合示例，服务拓扑可能与 profile patch 不同。正常安装和用户
-  覆盖应以 `cordis.patch.yml` 为准。
+## Composition constraints
 
-`DSH_CC_SESSION_ROOT` 的解释也随组合而变：`dsh --profile dsh-tui` 使用本包 patch
-插入的 SQLite 行，默认文件为 `~/.dsh-cc/sessions.sqlite`；直接运行
-`dsh --config cordis.yml` 时，示例挂载的是 JSONL 持久化，默认目录为
-`~/.dsh-cc/sessions/`。两种启动方式不要混用同一个已有数据目录。
+- `user-interaction` normally comes from `dsh-base`. The plugin creates a
+  fallback in a bare composition, but the profile patch must not insert a
+  duplicate.
+- When manually inserting a subagent provider, mount the core `subagent`
+  service first.
+- A custom `plan-mode` override requires a non-empty `section`.
+- Profile mode uses this package's SQLite `sessions` row and disables base
+  JSONL persistence so one writer owns each session.
+- `cordis.yml` is a bare-composition example and may have a different service
+  topology. Normal installation and user overrides should follow
+  `cordis.patch.yml`.
 
-权限相关配置与平台差异见[架构与限制](architecture.md#权限与安全边界)。
+`DSH_TUI_SESSION_ROOT` is interpreted by the active composition: `dsh --profile
+dsh-tui` uses the SQLite row inserted by this package and defaults to
+`~/.dsh-tui/sessions.sqlite`; direct `dsh --config cordis.yml` uses the example's
+JSONL persistence and defaults to `$DSH_HOME/sessions` (i.e. `~/.dsh/sessions/`).
+Do not point both
+startup modes at the same existing data directory.
+
+See [Architecture and limitations](architecture.md#permissions-and-security-boundary)
+for permission behavior and platform differences.

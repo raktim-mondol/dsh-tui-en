@@ -1,66 +1,83 @@
-# 贡献指南
+# Contributing
 
-[文档索引](README.md) · [English](contributing.en.md)
+[Documentation index](README.md)
 
-感谢你考虑为 dsh-TUI 做贡献！本文档是 `@deepseek-harness-tui/dsh-tui` 的共享开发
-契约，适用于在本仓库工作的所有人与编码 Agent。
+Thanks for considering contributing to dsh-TUI! This guide is the shared
+development contract for humans and coding agents working on `@deepseek-harness-tui/dsh-tui`.
 
-## 如何贡献
+## How To Contribute
 
-- **报告 bug 或请求功能**：提交 issue，附上清晰的复现步骤与你使用的终端环境。
-- **提交 PR**：base 指向 `main`。保持改动聚焦——一个 PR 只做一个逻辑改动，
-  标题用中文或中英对照，描述写清动机、改动点与验证方式。
-- **请求 review 前先跑验证矩阵**：CI 运行的就是下面这些命令。
-- 新功能应附带或扩展一个聚焦的回归脚本。
+- **Report bugs or request features** by opening an issue with a clear
+  reproduction and the terminal environment you use.
+- **Open a pull request** against `main`. Keep changes focused: one logical
+  change per PR, with a title and a description that
+  covers motivation, what changed, and how it was verified.
+- **Run the verification matrix** below before requesting a review; CI runs
+  the same commands.
+- New features should include or extend a focused regression script.
 
-## 范围（Scope）
 
-`@deepseek-harness-tui/dsh-tui` 是单包、纯 ESM 的 TypeScript 项目：为 DeepSeek Harness 提供
-React 终端 UI 前门（通过 Cordis 挂载）。包内拥有 TUI、本地命令面、打包技能
-以及移植的 Ink/Yoga 渲染器；Agent、会话、模型、工具、持久化与策略域由
-DeepSeek Harness 拥有，TUI 只消费它们。
 
-做大改动前，先读 `package.json`、相关 README 章节和你将要编辑的每个源文件。
-优先复用仓库现有的服务边界与辅助函数，而不是引入平行的抽象。
+## Scope
 
-## 仓库地图（Repository Map）
+This file applies to the entire repository. It is the shared development
+contract for humans and coding agents working on `@deepseek-harness-tui/dsh-tui`.
 
-- `src/index.ts`：公共 Cordis 插件入口、配置 Schema，与对运行时插件的惰性移交。
-- `src/plugin.ts`：TTY 校验、服务注册、Agent 创建/恢复、React 树挂载，以及
-  终端/进程的收尾清理。
-- `src/channel.ts`：事件到视图的投影 + 非 React 的动作面。把 DSH 会话事件
-  翻译成 transcript 行，实现 submit、steer、rewind、resume、模型/preset 切换、
-  本地报告及相关状态迁移。
-- `src/screens/Chat.tsx`：顶层交互协调器。负责模态优先级、全局键盘、滚动/
-  搜索/选区状态、slash 命令分发与聊天屏组装。
-- `src/screens/StatusLine.tsx` 与 `src/screens/StatusMetrics.ts`：底部状态栏
-  呈现与指标推导。
-- `src/components/`：功能组件。`components/design-system/` 是主题感知原语；
-  `components/messages/` 是 transcript 行；`components/questions/` 是
-  `ask_user_question` 的 UI。
-- `src/ui.ts`：本地渲染器、主题化 `Box`/`Text`、hooks 与公共 TUI 原语的
-  首选门面。
-- `src/ink/`：移植的低层 Ink 渲染器与终端实现。**敏感基础设施**：改动要聚焦，
-  并附渲染器专用回归覆盖。
-- `src/native-ts/yoga-layout/`：渲染器使用的移植布局引擎。
-- `src/cc/`：为 Claude Code 风格 UI 适配的终端格式化与呈现辅助。
-- `src/*Prefs.ts`、`src/customTheme.ts`、`src/sessionHistory.ts`：持久化的
-  用户偏好与 `~/.dsh-cc` 下的本地会话元数据。
-- `skills/*/SKILL.md`：随 npm 包分发的技能，由 `src/packaged-skills.ts` 注册。
-- `cordis.patch.yml`：profile 安装时使用的包级 bundle 覆盖层。行的顺序、行 ID、
-  被禁用的 host 行、insert/override 语义都很关键。
-- `cordis.yml`：直接 Cordis/DSH 启动的完整裸组合示例。
-- `scripts/`：无头回归、复现环境、探针与诊断。运行前先读脚本头部说明。
-- `lib/types/`：`tsc` 的入库产物（JavaScript、声明与声明映射），由 `src/`
-  生成并随 npm 分发。
-- `lib/invariant.js`：`./invariant` 的独立打包运行时导出；普通 `pnpm build`
-  不会重新生成它。
-- `README.md` 与 `README_EN.md`：中英文用户文档。行为、配置、快捷键与限制
-  必须两版同步。
+`@deepseek-harness-tui/dsh-tui` is a single-package, ESM-only TypeScript project. It provides a
+React terminal UI front door for DeepSeek Harness through Cordis. The package
+owns the TUI, its local command surface, packaged skills, and a ported Ink/Yoga
+renderer. DeepSeek Harness owns the agent, session, model, tool, persistence,
+and policy domains that the TUI consumes.
 
-## 运行时形态（Runtime Shape）
+Before making a broad change, read `package.json`, the relevant README section,
+and every source file being edited. Prefer the repository's existing service
+boundaries and helpers over introducing parallel abstractions.
 
-核心运行时链路：
+## Repository Map
+
+- `src/index.ts`: public Cordis plugin entry point, configuration schema, and
+  lazy handoff to the runtime plugin.
+- `src/plugin.ts`: TTY validation, service registration, agent creation/resume,
+  React tree mounting, and terminal/process teardown.
+- `src/channel.ts`: event-to-view projection and the non-React action surface.
+  It translates DSH session events into transcript rows and implements submit,
+  steering, rewind, resume, model/preset switching, local reports, and related
+  state transitions.
+- `src/screens/Chat.tsx`: top-level interaction coordinator. It owns modal
+  precedence, global keyboard handling, scroll/search/selection state, slash
+  command dispatch, and composition of the chat screen.
+- `src/screens/StatusLine.tsx` and `src/screens/StatusMetrics.ts`: terminal
+  status presentation and metric derivation.
+- `src/components/`: feature components. `components/design-system/` contains
+  theme-aware primitives; `components/messages/` contains transcript rows;
+  `components/questions/` contains the `ask_user_question` UI.
+- `src/ui.ts`: preferred facade for the local renderer, themed `Box`/`Text`,
+  hooks, and public TUI primitives.
+- `src/ink/`: ported, low-level Ink renderer and terminal implementation.
+  Treat it as sensitive infrastructure: keep changes focused and accompany
+  them with renderer-specific regression coverage.
+- `src/native-ts/yoga-layout/`: ported layout engine used by the renderer.
+- `src/cc/`: terminal formatting and presentation helpers adapted for the
+  Claude Code-style UI.
+- `src/*Prefs.ts`, `src/customTheme.ts`, and `src/sessionHistory.ts`: persisted
+  user preferences and local session metadata under `~/.dsh-tui`.
+- `skills/*/SKILL.md`: skills shipped in the npm package and registered by
+  `src/packaged-skills.ts`.
+- `cordis.patch.yml`: package bundle overlay used by profile installation.
+  Ordering, row IDs, disabled host rows, and insert/override semantics matter.
+- `cordis.yml`: full bare-composition example for direct Cordis/DSH startup.
+- `scripts/`: headless regressions, reproduction harnesses, probes, and
+  diagnostics. Read each script's header before running it.
+- `lib/types/`: checked-in output from `tsc` (JavaScript, declarations, and
+  declaration maps). It is generated from `src/` and ships to npm.
+- `lib/invariant.js`: separate bundled runtime export for `./invariant`; the
+  normal `pnpm build` does not regenerate this file.
+- `README.md`: user documentation. Keep behavior, configuration, shortcuts,
+  and limitations synchronized with the guides in `docs/`.
+
+## Runtime Shape
+
+The central runtime path is:
 
 ```text
 Cordis config
@@ -75,58 +92,82 @@ Cordis config
   -> terminal ANSI output
 ```
 
-职责归属在各层，不要越权：
+Keep ownership in the layer where it belongs:
 
-- Agent/会话/工具事实来自 DSH 服务与持久化会话事件。
-- 投影与 TUI 动作属于 `channel.ts`，不属于呈现组件。
-- 交互模式与按键优先级属于 `Chat.tsx` 或当前聚焦的模态/输入组件。
-- 可复用的视觉行为属于 `components/` 与主题感知原语。
-- 终端协议、布局、命中测试、选区与帧差分行为属于 `ink/`。
+- Agent/session/tool facts come from DSH services and durable session events.
+- Projection and TUI actions belong in `channel.ts`, not in presentation
+  components.
+- Interaction modes and key precedence belong in `Chat.tsx` or the focused
+  modal/input component.
+- Reusable visual behavior belongs in `components/` and theme-aware primitives.
+- Terminal protocol, layout, hit-testing, selection, and frame-diff behavior
+  belong in `ink/`.
 
-不要仅仅为了让某个界面更好写，就在 TUI 里重新实现 DSH 域服务。通过 channel
-或既有注册表缝隙去适配服务。
+Do not reimplement a DSH domain service in the TUI merely to make a screen
+easier to build. Adapt the service through the channel or an existing registry
+seam.
 
-## 工具链（Toolchain）
+## Toolchain
 
-- 支持 Node `^22.19 || >=24`；CI 用 Node 24。
-- CI 与发布用 pnpm 11；开发也请用 pnpm。
-- 干净检出安装：`pnpm install --frozen-lockfile`。
-- `pnpm-lock.yaml` 是 CI 锁文件。`package-lock.json` 为 npm 用户跟踪但当前
-  落后于包版本；不要把它当作依赖真源，也不要顺手改写。
-- 有意改依赖时：更新 `pnpm-lock.yaml`，检查完整 lockfile diff，避免无关升级。
-  只有任务明确包含 npm-install 兼容性时才动 `package-lock.json`。
-- `@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-invariants` 同时是 peer 与 dev
-  依赖，便于本地类型检查；改版本时保持这两组声明兼容。
-- 不要暴露、持久化或打印凭证。交互启动读取 `DEEPSEEK_API_KEY`；诊断可以
-  报告是否已设置，但绝不能泄露完整值。
+- Supported Node versions are `^22.19 || >=24`; CI uses Node 24.
+- CI and publishing use pnpm 11. Use pnpm as the development package manager.
+- Install a clean checkout with:
 
-## 构建与生成产物（Build And Generated Files）
+  ```sh
+  pnpm install --frozen-lockfile
+  ```
 
-常规构建与类型检查关口：`pnpm build`（`tsc -p tsconfig.json`，把 `src/` 输出
-到 `lib/types/`）。仓库提交这些产物，因为发布的包直接执行它们。
+- `pnpm-lock.yaml` is the CI lockfile. `package-lock.json` is tracked for npm
+  consumers but currently trails the package version; do not use it as the
+  dependency source of truth or rewrite it opportunistically.
+- When intentionally changing dependencies, update `pnpm-lock.yaml`, inspect
+  the full lockfile diff, and avoid unrelated upgrades. Touch
+  `package-lock.json` only when the task explicitly includes npm-install
+  compatibility.
+- `@deepseek-ai/cordis` and `@deepseek-ai/dsh-invariants` are both peer and dev
+  dependencies so the package can type-check locally. Keep those declarations
+  compatible when changing their versions.
+- Do not expose, persist, or print credentials. Interactive startup reads
+  `DEEPSEEK_API_KEY`; diagnostics may report whether it is set but must not
+  reveal the complete value.
 
-生成产物规则：
+## Build And Generated Files
 
-- 改 `src/`，**绝不直接改 `lib/types/`**。
-- 任何源码改动后运行 `pnpm build`，并提交对应的 `lib/types/` JavaScript、
-  `.d.ts` 与 `.d.ts.map` 变更。
-- `tsc` 不清理 `outDir`。重命名或删除源模块后，检查 `lib/types/` 并只删除该
-  模块的过期输出。
-- 审查生成的 diff。意外变化通常意味着编译器/配置或依赖的意外漂移。
-- 纯文档、纯 workflow、纯 YAML 改动不需要重建（除非同时改了 TypeScript 输入）。
-- `lib/invariant.js` 不由 `pnpm build` 生成。若 `src/invariant.ts` 或
-  `./invariant` 导出契约变化，显式保持打包文件与 `lib/types/invariant.d.ts`
-  对齐，并验证包导出。
+The normal build and type-check gate is:
 
-`scripts/build.sh` 是面向本地 DeepSeek Harness 源码检出的备用构建器（定位 DSH
-检出并重连依赖），不是本独立仓库的默认构建命令。
+```sh
+pnpm build
+```
 
-## 验证（Verification）
+This runs `tsc -p tsconfig.json` and emits `src/` into `lib/types/`. The project
+commits these artifacts because the published package executes them.
 
-仓库没有根级 `test` 或 `lint` 脚本；不要声称跑过它们。TypeScript 构建是通用
-静态关口，随后是聚焦的可执行回归。
+Rules for generated output:
 
-CI 在安装后运行：
+- Edit `src/`, never `lib/types/`, to implement behavior.
+- After any source change, run `pnpm build` and include the corresponding
+  `lib/types/` JavaScript, `.d.ts`, and `.d.ts.map` changes.
+- `tsc` does not clean `outDir`. After renaming or deleting a source module,
+  inspect `lib/types/` and remove only the stale outputs for that module.
+- Review generated diffs. Unexpected changes usually indicate an accidental
+  compiler/configuration or dependency shift.
+- Documentation-only, workflow-only, and YAML-only changes do not require a
+  rebuild unless they also alter TypeScript inputs.
+- `lib/invariant.js` is not produced by `pnpm build`. If `src/invariant.ts` or
+  the `./invariant` export contract changes, explicitly keep the bundled file
+  and `lib/types/invariant.d.ts` aligned and verify the package export.
+
+`scripts/build.sh` is an alternate builder for a local DeepSeek Harness source
+checkout. It locates a DSH checkout and rewires dependencies to that checkout.
+It is not the default build command for this standalone repository.
+
+## Verification
+
+There is no root `test` or `lint` script. Do not claim that either ran. The
+TypeScript build is the universal static gate, followed by focused executable
+regressions.
+
+CI runs these commands after installation:
 
 ```sh
 pnpm build
@@ -135,153 +176,192 @@ node --import tsx/esm scripts/verify-askpanel-layout.tsx
 node --import tsx/esm scripts/repro-toolcards.tsx
 ```
 
-改动共享渲染、`Chat`、提示/问卷布局、工具卡、主题原语或 Ink core 时，三个
-CI 回归都要跑。窄改动还要跑最近的聚焦脚本：
+Run all three CI regressions for changes to shared rendering, `Chat`, prompt or
+question layout, tool cards, theme primitives, or the Ink core. For a narrow
+change, also run the closest focused script:
 
-| 改动区域 | 聚焦验证 |
+| Change area | Focused verification |
 | --- | --- |
-| 通用无头屏幕组装 | `pnpm smoke` |
-| Channel submit/steer/pending 行为 | `node scripts/verify-submit.mjs` |
-| 提示队列行为 | `node scripts/verify-queue.mjs` |
-| Goal/todo 投影与渲染 | `node scripts/verify-channel-goal-todo.mjs` + `node scripts/verify-goal-todo.mjs` |
-| Compaction 与折叠 transcript 行 | `node scripts/verify-compact.mjs` |
-| 主题加载与持久化 | `node --import tsx/esm scripts/verify-themes.mjs` |
-| 滚动/粘底行为 | `node scripts/verify-scroll.mjs`、`node scripts/verify-resticky.mjs` 及对应 `repro-*` 环境 |
-| 全屏复制即选区 | `node scripts/verify-copy-on-select.mjs` |
+| General headless screen composition | `pnpm smoke` |
+| Channel submit/steer/pending behavior | `node scripts/verify-submit.mjs` |
+| Prompt queue behavior | `node scripts/verify-queue.mjs` |
+| Goal/todo projection and rendering | `node scripts/verify-channel-goal-todo.mjs` and `node scripts/verify-goal-todo.mjs` |
+| Compaction and folded transcript rows | `node scripts/verify-compact.mjs` |
+| Theme loading and persistence | `node --import tsx/esm scripts/verify-themes.mjs` |
+| Scrolling/sticky-bottom behavior | `node scripts/verify-scroll.mjs`, `node scripts/verify-resticky.mjs`, and the matching `repro-*` harness |
+| Fullscreen copy-on-select | `node scripts/verify-copy-on-select.mjs` |
 
-多数用普通 `node` 调用的脚本 import `lib/types/`——先跑 `pnpm build`。import
-TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式。不要凭
-扩展名推断输入层：例如 `verify-themes.mjs` 其实通过 tsx import `src/`。
+Most focused scripts invoked with plain `node` import `lib/types/`; run
+`pnpm build` first. Scripts that import TypeScript sources declare the
+`node --import tsx/esm <script>` form in their header. Do not infer the input
+layer from the file extension: `verify-themes.mjs`, for example, imports
+`src/` through `tsx`.
 
-部分脚本是取证/交互工具而非有界测试：堆/泄漏脚本、PTY 探针、回放捕获、
-性能探针与 `scripts/run.ts` 可能依赖特定 OS、终端、原生依赖、DSH 检出或长时
-进程。读头部与前置条件，不要把 `scripts/` 当套件全跑。
+Some scripts are forensic or interactive tools, not bounded tests. In
+particular, heap/leak scripts, PTY probes, replay capture, performance probes,
+and `scripts/run.ts` can require a specific OS, terminal, native dependency,
+DSH checkout, or long-running process. Read the header and prerequisites; do
+not run every file in `scripts/` as a blanket suite.
 
-终端可见改动：无头断言必要但不充分。环境可用时，在 inline 与 fullscreen 两种
-模式、窄终端宽度下手动走一遍受影响流程：启动、resize、滚动、输入、取消与干净
-退出。Windows ConPTY、tmux、OSC 剪贴板与同步输出有独立路径，改动它们时用对应
-探针。
+For terminal-visible changes, headless assertions are necessary but not always
+sufficient. When the environment is available, manually exercise the affected
+flow in both inline and fullscreen modes and at a narrow terminal width. Check
+startup, resize, scrolling, input, cancellation, and clean exit. Windows
+ConPTY, tmux, OSC clipboard behavior, and synchronized output have distinct
+paths, so use the matching probe when changing one of them.
 
-`pnpm tui` 调用 `scripts/run.ts`，它假定包位于 DeepSeek Harness monorepo
-（`apps/cli` + `packages/*`）布局内，不是可移植的独立冒烟命令。端到端集成检查：
-把插件装进 DSH profile，在真实 TTY 用所需凭证运行 `dsh --profile dsh-tui`。
+`pnpm tui` invokes `scripts/run.ts`, which assumes the package lives inside a
+DeepSeek Harness monorepo layout with `apps/cli` and `packages/*`. It is not a
+portable standalone smoke command. For an end-user integration check, install
+the plugin into a DSH profile and run `dsh --profile dsh-tui` in a real TTY with
+the required credentials.
 
-## TypeScript 与风格（TypeScript And Style）
+## TypeScript And Style
 
-- 包是 ESM。TypeScript 相对导入用 `.js` 后缀（如
-  `import { Chat } from './screens/Chat.js'`）。保持此规则。
-- 仓库自写 TypeScript 遵循现有风格：两空格缩进、单引号、无分号、多行结构
-  尾逗号。移植的 Ink 文件可保留上游的 tab 或引号风格，不要批量格式化。
-- 纯类型依赖优先 `import type`。
-- 不要因为 `tsconfig.json` 放宽了 `noImplicitAny` 就引入 `any`。那些放宽是
-  为了编译移植的 Ink core，不能成为新应用代码的质量基准。用 `unknown` 并收窄，
-  或在外部缝隙定义小型结构化接口。
-- 周边 API 用只读数据的地方保持只读。状态变更放在 channel/store 实现内，
-  不要在组件里改值。
-- 导出的 API 用简洁 JSDoc 说明契约与非显然的不变量，不要逐行解释机制。
-- 避免一次性抽象与无关重构。只有一个调用点且不阐明真正不变量的琐碎辅助函数
-  就地内联。
-- 保护环境敏感 import 的初始化顺序。`FORCE_COLOR`、`NODE_ENV`、终端能力标志
-  常在模块求值时读取；把 import 移到它们初始化之前会无类型错误地改变行为。
+- The package is ESM. Relative imports in TypeScript use `.js` specifiers,
+  for example `import { Chat } from './screens/Chat.js'`. Preserve this rule.
+- In repository-authored TypeScript, follow the prevailing style: two-space
+  indentation, single quotes, no semicolons, and trailing commas in multiline
+  constructs. The ported Ink files may retain their upstream tabs or quoting;
+  do not mass-format them.
+- Prefer `import type` for type-only dependencies.
+- Do not introduce `any` merely because `tsconfig.json` relaxes
+  `noImplicitAny`. Those relaxations exist to compile the ported Ink core and
+  must not become the quality bar for new application code. Use `unknown` and
+  narrow it, or define a small structural interface at an external seam.
+- Preserve readonly data where the surrounding API uses it. Keep state
+  mutations inside the channel/store implementation rather than mutating
+  values from components.
+- Keep exported APIs documented with concise JSDoc. Explain contracts and
+  non-obvious invariants, not line-by-line mechanics.
+- Avoid one-use abstractions and unrelated refactors. Inline a trivial helper
+  when it has one call site and does not clarify a real invariant.
+- Preserve initialization ordering around environment-sensitive imports.
+  `FORCE_COLOR`, `NODE_ENV`, and terminal capability flags are often read at
+  module evaluation time; moving an import above their setup can change
+  behavior without a type error.
 
-## 架构不变量（Architectural Invariants）
+## Architectural Invariants
 
-### Cordis 生命周期与配置
+### Cordis Lifecycle And Configuration
 
-- 保持 `src/index.ts` 是小的公共插件契约、`src/plugin.ts` 是运行时实现。
-  除非任务有意改插件加载契约，否则保留惰性移交。
-- 资源通过 Cordis 注册，用 `ctx.effect` 或既有单一退出漏斗清理。渲染失败必须
-  响亮且非零退出；正常退出必须在进程退出前恢复终端状态。
-- `cordis.patch.yml` 叠加在 `dsh-base` 上。不要重复 base 已挂载的服务行。
-  区分 ID 覆盖与 `insert`，一个服务依赖另一个时保持顺序。
-- profile 覆盖会替换整个 `config` 块。文档展示覆盖时，包含替换后必须存活的
-  每个键。
-- 新增或重命名插件选项时，同步更新 `src/index.ts` 的 `Config` 接口与 Schema、
-  运行时消费、`cordis.patch.yml` 与 `cordis.yml` 的相应行，以及双 README。
+- Keep `src/index.ts` as the small public plugin contract and `src/plugin.ts`
+  as the runtime implementation. Preserve the lazy handoff unless the task
+  intentionally changes the plugin-loading contract.
+- Register resources through Cordis and clean them up through `ctx.effect` or
+  the existing single exit funnel. A render failure must remain loud and
+  non-zero; normal exit must restore terminal state before process exit.
+- `cordis.patch.yml` is layered over `dsh-base`. Do not duplicate a service row
+  that the base already mounts. Distinguish an ID override from an `insert`,
+  and preserve ordering when one service depends on another.
+- A profile override replaces an entire `config` block. When documentation
+  shows an override, include every key that must survive the replacement.
+- When adding or renaming a plugin option, update the `Config` interface and
+  Schema in `src/index.ts`, its consumption in runtime code, the applicable
+  rows in `cordis.patch.yml` and `cordis.yml`, and `README.md`.
 
-### 会话与通道状态
+### Session And Channel State
 
-- 持久化的 DSH 会话事件日志是 transcript 真源。行从事件回放/投影而来；不要
-  插入可能与持久化分歧的乐观助手/工具事实。
-- 保留事件顺序、序列锚点与 call-ID 匹配。rewind、resume、折叠、工具结果关联
-  与导出都依赖它们。
-- 每个可观察的 channel 变更必须走恰当的同步或帧合并 emitter，让 `version`
-  推进、订阅者被通知。
-- 保持长会话内存有界。不要在没有实测替代方案时移除 transcript 折叠、回放
-  合并、虚拟化或缓存上限。
-- resume、rewind、模型切换、preset 切换等 Agent 变更必须一起重置所有会话级
-  投影。审计行、goals、todos、标题、pending 消息、指标与已加载上下文的陈旧
-  状态。
-- 通过已挂载的 DSH 服务与注册表解析 agent/model/tool/preset 能力。不要猜测
-  外部 API 形状；改集成时查看已安装包的类型。
+- The durable DSH session event log is the transcript source of truth. Rows are
+  replayed/projected from events; do not insert optimistic assistant or tool
+  facts that can diverge from persistence.
+- Preserve event ordering, sequence anchors, and call-ID matching. Rewind,
+  resume, folding, tool result association, and exports depend on them.
+- Every observable channel mutation must use the appropriate synchronous or
+  frame-coalesced emitter so `version` advances and subscribers are notified.
+- Keep long-session memory bounded. Do not remove transcript folding, replay
+  coalescing, virtualization, or cache limits without a measured replacement.
+- Agent changes such as resume, rewind, model switch, and preset switch must
+  reset all session-scoped projections together. Audit rows, goals, todos,
+  titles, pending messages, metrics, and loaded context for stale state.
+- Resolve agent/model/tool/preset capabilities through the mounted DSH
+  services and registries. Do not guess external API shapes; inspect the
+  installed package types when changing an integration.
 
-### 交互与命令
+### Interaction And Commands
 
-- 按键优先级是行为，不是偶然的控制流。聚焦的问卷或模态先于全局处理器消费
-  按键；鼠标文本选区先于 rewind/clear 消费 Escape；提示词只在无浮层时拥有
-  文本编辑。
-- 不要在单个组件里硬编码新快捷键就完事。同步更新相关帮助 UI 与双 README
-  快捷键表，并为与既有模式的冲突新增或扩展回归。
-- 本地 slash 命令在 `src/commands.ts` 声明、`Chat.tsx` 分发；注册表命令运行时
-  合并。新增命令时同步更新声明、分发、帮助/文档、i18n 描述（`src/i18n.ts` 的
-  `cmd-desc-<name>`，只写 zh——en 回退声明原文）与打包技能映射。
-- 技能命令拼写不总等于目录拼写（如本地 `/pr_comments` 激活打包的
-  `pr-comments` 技能）。保留显式映射与 host 命名约束。
-- `ask_user_question` 必须经 `QuestionStore` 串行化；并发问题刻意 FIFO 呈现，
-  结束后汇总。
+- Keyboard precedence is behavior, not incidental control flow. A focused
+  questionnaire or modal consumes its keys before global handlers; mouse text
+  selection consumes Escape before rewind/clear behavior; the prompt owns text
+  editing only when no overlay is active.
+- Do not hardcode a new shortcut in one component and stop there. Update the
+  relevant help UI and the README shortcut tables, and add or extend a
+  regression for conflicts with existing modes.
+- Local slash commands are declared in `src/commands.ts` and dispatched in
+  `Chat.tsx`; registry commands are merged at runtime. When adding a command,
+  update declaration, dispatch, help/documentation, the i18n description
+  (`cmd-desc-<name>` in `src/i18n.ts`, zh only — en falls back to the
+  declaration), and any packaged skill mapping together.
+- Skill command spelling is not always the directory spelling. For example,
+  the local `/pr_comments` command activates the packaged `pr-comments` skill.
+  Preserve explicit mappings and host naming constraints.
+- Keep `ask_user_question` serialized through `QuestionStore`; concurrent
+  questions are intentionally presented FIFO and summarized after completion.
 
-### 终端渲染
+### Terminal Rendering
 
-- 优先用 `src/ui.ts` 导出的主题原语与 hooks。只有门面刻意不暴露的行为才深入
-  `src/ink/`。
-- 终端宽度是显示单元宽度，不是 JS 字符串长度。考虑 ANSI 转义、组合字符、
-  emoji 与东亚宽字符；用仓库的宽度/切片/换行/ANSI 辅助函数。
-- 保持帧输出缓冲、常规运行安静。TUI 活动期间不要加 `console.log` 或 stdout
-  诊断。用 opt-in 的 stderr/调试路径（如 `CC_TUI_DEBUG`）或既有
-  `DSH_CC_RENDER_LOG` 帧捕获。
-- 在成功、错误、中断与收尾时都保持 raw 模式、光标、alt-screen、同步输出、
-  鼠标、焦点与终端查询的清理。
-- 避免渲染期无界集合或每 token/每帧分配。流式会话长命，本仓库对先前的 OOM
-  与滚动性能失败有明确回归。
-- 布局改动不得让 transcript 内容挤掉输入行与状态行。改动相关路径时演练
-  resize 风暴、超长无断内容、流式行、上滚状态与粘底恢复。
-- 平台检测保持窄。Windows Terminal/ConPTY、WSL、tmux、VS Code 与支持或不支持
-  truecolor/DEC 2026 的终端走不同协议路径。
+- Prefer themed primitives and hooks exported by `src/ui.ts`. Reach into
+  `src/ink/` only for behavior that the facade intentionally does not expose.
+- Terminal width is display-cell width, not JavaScript string length. Account
+  for ANSI escapes, combining characters, emoji, and East Asian wide glyphs;
+  use the repository's width, slicing, wrapping, and ANSI helpers.
+- Keep frame output buffered and normal runs quiet. Do not add `console.log` or
+  stdout diagnostics while the TUI is active. Use an opt-in stderr/debug path
+  such as `DSH_TUI_DEBUG`, or the existing `DSH_TUI_RENDER_LOG` frame capture.
+- Preserve raw-mode, cursor, alternate-screen, synchronized-output, mouse,
+  focus, and terminal-query cleanup on success, error, interrupt, and teardown.
+- Avoid render-time unbounded collections or per-token/per-frame allocations.
+  Streaming sessions are long lived, and this repository has explicit
+  regressions for prior OOM and scroll-performance failures.
+- Layout changes must not allow transcript content to displace the input and
+  status line. Exercise resize storms, long unbroken content, streaming rows,
+  scrolled-up state, and sticky-bottom restoration when those paths change.
+- Keep platform detection narrow. Windows Terminal/ConPTY, WSL, tmux, VS Code,
+  and terminals with or without truecolor/DEC 2026 support follow different
+  protocol paths.
 
-### 偏好、主题与文件
+### Preferences, Themes, And Files
 
-- 遵循既有可配置偏好优先级：显式部署配置或环境覆盖 > 持久化用户选择 >
-  检测/默认值。改变该顺序要记录。
-- 用户数据持久化在既有 `~/.dsh-cc` 位置下。校验并安全解析外部 JSON；损坏的
-  可选状态应警告或回退，而不是让 TUI 崩溃。
-- 把主题名与文件内容当不可信输入。保留路径包含检查与损坏主题文件的
-  全有或全无校验。
-- 主题新增必须完整覆盖 `Theme` 契约与每个内置色板。组件用语义主题键，不要用
-  孤立的字面颜色。
+- Follow the existing precedence for configurable preferences: explicit
+  deployment config or environment override, then persisted user choice, then
+  detected/default value. Document any change to that order.
+- Persist user data beneath the existing `~/.dsh-tui` locations. Validate and
+  safely parse external JSON; malformed optional state should warn or fall
+  back rather than crash the TUI.
+- Treat theme names and file contents as untrusted input. Preserve path
+  containment checks and all-or-nothing validation of malformed theme files.
+- Keep theme additions complete across the `Theme` contract and every built-in
+  palette. Use semantic theme keys in components instead of isolated literal
+  colors.
 
-## 跨文件修改清单（Cross-File Change Checklist）
+## Cross-File Change Checklist
 
-| 改动 | 需要同步 |
+| If you change | Keep these in sync |
 | --- | --- |
-| 插件配置或环境行为 | `src/index.ts`、运行时消费、`cordis.patch.yml`、`cordis.yml`、`README.md`、`README_EN.md` |
-| Slash 命令或快捷键 | `src/commands.ts`、`src/screens/Chat.tsx`、帮助/输入组件、双 README、相关技能映射/测试 |
-| 主题契约或持久化主题行为 | `src/theme.ts`、所有色板、主题 provider/picker、自定义主题解析器、主题验证、双 README |
-| 会话/channel 行为 | `src/channel.ts`、受影响的 UI 投影、编译产物、聚焦 channel/回放回归 |
-| 渲染器/布局行为 | `src/ink/` 或 Yoga 源、编译产物、CI 回归、聚焦滚动/resize/PTY 探针 |
-| 打包技能 | `skills/<name>/SKILL.md`、`src/packaged-skills.ts` 假设、暴露为 slash 命令时的提示/映射 |
-| 用户可见的文档化行为 | 中英文 README，外加适用的配置注释/帮助文本 |
-| 包版本或依赖 | `package.json`、`pnpm-lock.yaml`、适用时的生成/发布产物；不要顺手搅动旧 npm 锁文件 |
+| Plugin config or environment behavior | `src/index.ts`, runtime consumer, `cordis.patch.yml`, `cordis.yml`, `README.md` |
+| Slash commands or shortcuts | `src/commands.ts`, `src/screens/Chat.tsx`, help/input components, `README.md`, relevant skill mapping/tests |
+| Theme contract or persisted theme behavior | `src/theme.ts`, all palettes, theme provider/picker, custom-theme parser, theme verification, `README.md` |
+| Session/channel behavior | `src/channel.ts`, affected UI projections, compiled output, focused channel/replay regression |
+| Renderer/layout behavior | `src/ink/` or Yoga source, compiled output, CI regressions, focused scroll/resize/PTY probe |
+| Packaged skill | `skills/<name>/SKILL.md`, `src/packaged-skills.ts` assumptions, command prompt/mapping if exposed as a slash command |
+| User-facing documented behavior | `README.md`, plus config comments/help text where applicable |
+| Package version or dependency | `package.json`, `pnpm-lock.yaml`, generated/published artifacts as applicable; do not churn the legacy npm lock incidentally |
 
-## Git 与发布安全（Git And Release Safety）
+## Git And Release Safety
 
-- 工作树可能含有他人的改动。编辑前检查 `git status` 与相关 diff，保留无关
-  改动，绝不丢弃不是你创建的工作。
-- 不要运行破坏性清理命令（`git reset --hard`、`git checkout .`、
-  `git clean -fd`）。不要用 `git stash` 隐藏他人会话的工作。
-- 只暂存显式路径，绝不在共享工作树用 `git add .` 或 `git add -A`。
-- 未经用户要求，不 commit、不打 tag、不 push、不发布、不建 Release。
-- 发布由 tag 驱动：`.github/workflows/publish.yml` 要求 `v*` tag 与
-  `package.json` 版本完全一致，随后构建、跑聚焦回归并发布 npm。版本变更与
-  tag 是发布操作，不是日常清理。
-- 移交代码改动前检查 `git diff --check`、源码 diff、生成 diff 与 `git status`，
-  并如实报告跑了哪些验证、哪些平台/凭证相关的检查没跑。
+- The worktree may contain another person's changes. Inspect `git status` and
+  relevant diffs before editing, preserve unrelated changes, and never discard
+  work you did not create.
+- Do not run destructive cleanup commands such as `git reset --hard`,
+  `git checkout .`, or `git clean -fd`. Do not use `git stash` to hide another
+  session's work.
+- Stage explicit paths only; never use `git add .` or `git add -A` in a shared
+  worktree.
+- Do not commit, tag, push, publish, or create a release unless the user asks.
+- Publishing is tag-driven. `.github/workflows/publish.yml` requires a `v*`
+  tag whose version exactly matches `package.json`, then builds, runs focused
+  regressions, and publishes to npm. Treat version changes and tags as release
+  operations, not routine cleanup.
+- Before handing off a code change, inspect `git diff --check`, the source diff,
+  the generated diff, and `git status`. Report exactly which verification ran
+  and any platform or credential-dependent checks that could not run.

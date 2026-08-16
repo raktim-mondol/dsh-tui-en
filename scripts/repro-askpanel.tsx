@@ -55,8 +55,8 @@ const app = await render(
     ...panelProps,
     key: 'q1',
     question: {
-      question: '你有 API Key 吗？',
-      options: [{ label: '我有' }, { label: '我没有' }],
+      question: 'Do you have an API key?',
+      options: [{ label: 'I have one' }, { label: "I don't" }],
     },
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
@@ -72,23 +72,23 @@ const check = (name: string, ok: boolean) => {
 
 // 1. Initial render: the input row is visible INSIDE the option list.
 const s1 = screen()
-check('选项列表里直接可见「自定义回答」输入行', s1.includes('自定义回答'))
-check('提示行说明可直接输入', s1.includes('输入文字附带回答'))
+check('option list shows the Custom answer input row', s1.includes('Custom answer'))
+check('hint says you can type an attached answer', s1.includes('Type text to attach an answer'))
 
-// 2. Type on the focused "我有" option: text lands in the input row, the
+// 2. Type on the focused "I have one" option: text lands in the input row, the
 //    option list stays (no jump), and the label is attached.
 stdin.write('sk-test123')
 await sleep(300)
 const s2 = screen()
-check('输入内容出现在输入行', s2.includes('sk-test123'))
-check('视图不跳转（选项列表仍在）', s2.includes('我没有'))
-check('输入行标注附加标签「我有」', s2.includes('（附加：我有）'))
+check('typed text appears on the input row', s2.includes('sk-test123'))
+check('view does not jump (option list still visible)', s2.includes("I don't"))
+check('input row shows attached label I have one', s2.includes('(attached: I have one)'))
 
 // 3. Enter right there → the answer carries BOTH the label and the text.
 stdin.write('\r')
 await sleep(300)
 const a1 = answer as { selected?: string[]; custom?: string } | undefined
-check('提交同时携带 selected + custom', a1?.selected?.join() === '我有' && a1?.custom === 'sk-test123')
+check('submit carries both selected + custom', a1?.selected?.join() === 'I have one' && a1?.custom === 'sk-test123')
 
 // 4. Pure custom: focus the input row itself (↓↓) and type → no label.
 answer = undefined
@@ -96,21 +96,21 @@ app.rerender(
   React.createElement(AskUserQuestionPanel, {
     ...panelProps,
     key: 'q2',
-    question: { question: '还有别的要说吗？', options: [{ label: '有' }, { label: '没有' }] },
+    question: { question: 'Anything else to add?', options: [{ label: 'Yes' }, { label: 'No' }] },
   }),
 )
 await sleep(300)
 stdin.write('[B') // ↓
 stdin.write('[B') // ↓ → input row
 await sleep(200)
-stdin.write('随便说说')
+stdin.write('just rambling')
 await sleep(200)
 const s4 = screen()
-check('输入行内联编辑（视图仍不跳转）', s4.includes('随便说说') && s4.includes('没有'))
+check('inline edit on the input row (view still does not jump)', s4.includes('just rambling') && s4.includes('No'))
 stdin.write('\r')
 await sleep(300)
 const a2 = answer as { selected?: string[]; custom?: string } | undefined
-check('输入行直接提交为纯自定义（无标签）', a2?.selected?.length === 0 && a2?.custom === '随便说说')
+check('input-row submit is pure custom (no label)', a2?.selected?.length === 0 && a2?.custom === 'just rambling')
 
 // 5. Multi-select: Space checks an option, typing appends, Enter on the
 //    option row carries checked labels + text.
@@ -120,21 +120,21 @@ app.rerender(
     ...panelProps,
     key: 'q3',
     question: {
-      question: '要哪些口味？',
+      question: 'Which flavors do you want?',
       multiSelect: true,
-      options: [{ label: '甜' }, { label: '辣' }],
+      options: [{ label: 'Sweet' }, { label: 'Spicy' }],
     },
   }),
 )
 await sleep(300)
-stdin.write(' ') // check 甜
+stdin.write(' ') // check Sweet
 await sleep(150)
-stdin.write('少放糖')
+stdin.write('less sugar')
 await sleep(200)
 stdin.write('\r')
 await sleep(300)
 const a3 = answer as { selected?: string[]; custom?: string } | undefined
-check('多选：勾选 + 文本一起提交', a3?.selected?.join() === '甜' && a3?.custom === '少放糖')
+check('multi-select: checked label + text submitted together', a3?.selected?.join() === 'Sweet' && a3?.custom === 'less sugar')
 
 app.unmount()
 await sleep(100)

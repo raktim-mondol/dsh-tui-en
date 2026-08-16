@@ -50,8 +50,8 @@ const agent = {
   id: 'a1',
   status: 'idle',
   session: { id: 's1', seq: 0, events: [] },
-  // bindAgent 挂 installModelSelection 需要 agent.ctx 提供"可订阅、返回
-  // 解除函数"的最小面（0.3.6 Shift+Tab 推理等级）。
+  // bindAgent hooks installModelSelection; agent.ctx needs the minimal
+  // "subscribe and return an unsubscribe" surface (0.3.6 Shift+Tab effort).
   ctx: { on: () => () => {} },
   followup() {},
   steer() {},
@@ -71,7 +71,7 @@ const SYSTEM = 'SYSTEM-PROMPT-ABCDEFGH'
 const USER_TEXT = 'user question here'
 const ASSISTANT_TEXT = 'assistant answer text'
 const SUMMARY = 'Summary of the entire conversation history up to this point.'
-const LONG_SUMMARY = '这是一个很长的压缩摘要，用来验证折叠后预览会被截断，不会把全文都显示在一行里。'.repeat(3)
+const LONG_SUMMARY = 'This is a very long compacted summary used to verify that the folded preview is truncated and does not show the full text on one line. '.repeat(3)
 
 emit({ type: 'request/context', seq: 1, data: { contextWindow: 100000 } })
 emit({ type: 'request/header', seq: 2, data: { header: { system: SYSTEM } } })
@@ -197,7 +197,7 @@ const listProps = (expanded) => ({
   )
   await sleep(200)
   const frame = toPlain(stdout.frames.at(-1) ?? '')
-  check('folded summary shows the fold line', frame.includes('摘要已折叠'), '')
+  check('folded summary shows the fold line', frame.includes('Summary folded'), '')
   check('folded summary hides the full text', !frame.includes(LONG_SUMMARY), '')
   instance.unmount()
 }
@@ -211,8 +211,8 @@ const listProps = (expanded) => ({
   await sleep(200)
   // Terminal wrap inserts newlines mid-string, so flatten before matching.
   const frame = toPlain(stdout.frames.at(-1) ?? '').replace(/\n/g, '')
-  check('expanded summary shows the full text', frame.includes('压缩摘要'), '')
-  check('expanded summary hides the fold line', !frame.includes('摘要已折叠'), '')
+  check('expanded summary shows the full text', frame.includes('compacted summary'), '')
+  check('expanded summary hides the fold line', !frame.includes('Summary folded'), '')
   instance.unmount()
 }
 

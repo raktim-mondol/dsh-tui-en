@@ -9,11 +9,11 @@ const path = require('path')
 
 const CC = 'D:\\code\\projects\\test-ccch1mneyyy\\packages\\ui\\cc-tui'
 const COMMIT_LOG = 'D:\\tmp\\commit-log.txt'
-const HEAP_WATCH = process.env.USERPROFILE + '\\.dsh-cc\\heap-watch.log'
+const HEAP_WATCH = process.env.USERPROFILE + '\\.dsh-tui\\heap-watch.log'
 const ROUNDS = Number(process.argv[2] || 2)
 const MSG =
   process.env.PERF_MSG ||
-  '用 markdown 写一篇关于终端渲染管线优化的长文，至少 300 行，包含多个代码块（每个代码块至少 40 行 JS 代码）、表格、标题层级、列表。直接输出全文不要省略。'
+  'Write a long markdown article about terminal render-pipeline optimization, at least 300 lines, with several code blocks (each at least 40 lines of JS), tables, heading levels, and lists. Output the full text with no omissions.'
 
 fs.mkdirSync('D:\\tmp', { recursive: true })
 fs.writeFileSync(COMMIT_LOG, '')
@@ -124,20 +124,20 @@ async function waitFor(re, timeoutMs, label) {
   const sorted = [...frameGaps].sort((a, b) => a - b)
   const pct = p => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : 0
 
-  console.log('\n===== 流畅度分析 =====')
-  console.log(`PTY 输出事件: ${outLen}, 间隔 p50=${pct(0.5)}ms p95=${pct(0.95)}ms p99=${pct(0.99)}ms max=${sorted[sorted.length - 1] || 0}ms`)
-  console.log(`commit 速率样本: ${rates.length} 个秒级窗口`)
+  console.log('\n===== smoothness analysis =====')
+  console.log(`PTY output events: ${outLen}, interval p50=${pct(0.5)}ms p95=${pct(0.95)}ms p99=${pct(0.99)}ms max=${sorted[sorted.length - 1] || 0}ms`)
+  console.log(`commit-rate samples: ${rates.length} one-second windows`)
   if (rates.length) {
     const avg = rates.reduce((a, b) => a + b, 0) / rates.length
     const max = Math.max(...rates)
-    console.log(`commits/s: avg=${avg.toFixed(1)} max=${max}  (修复前峰值 100-300/s; 帧对齐后应 ≤65)`)
+    console.log(`commits/s: avg=${avg.toFixed(1)} max=${max}  (pre-fix peak 100-300/s; after frame-align should be ≤65)`)
   }
-  console.log(`慢 reconcile (>20ms): ${slow.length} 次`)
-  if (slow.length) console.log('  示例:', slow.slice(0, 3).join(' | '))
-  console.log(`慢 yoga (>20ms): ${slowYoga.length} 次`)
-  if (slowYoga.length) console.log('  示例:', slowYoga.slice(0, 2).join(' | '))
-  console.log(`大批量节点创建 (>50): ${bigCreates.length} 次`)
-  console.log('\n判定: ' + (rates.length && Math.max(...rates) <= 70 && slow.length <= rates.length * 0.2 ? 'PASS ✅ 帧对齐生效且慢 commit 可控' : '需人工看数据'))
+  console.log(`slow reconcile (>20ms): ${slow.length}`) 
+  if (slow.length) console.log('  samples:', slow.slice(0, 3).join(' | '))
+  console.log(`slow yoga (>20ms): ${slowYoga.length}`) 
+  if (slowYoga.length) console.log('  samples:', slowYoga.slice(0, 2).join(' | '))
+  console.log(`bulk node creates (>50): ${bigCreates.length}`) 
+  console.log('\nverdict: ' + (rates.length && Math.max(...rates) <= 70 && slow.length <= rates.length * 0.2 ? 'PASS ✅ frame-align is on and slow commits are in check' : 'needs a human look at the numbers'))
 })().catch(e => {
   console.error('[perf] FAIL:', e.message)
   pty.kill()

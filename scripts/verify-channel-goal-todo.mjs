@@ -114,8 +114,8 @@ const agent = {
   id: 'a1',
   status: 'idle',
   session: { id: 's1', seq: 4, events: seed },
-  // bindAgent 挂 installModelSelection 需要 agent.ctx 提供"可订阅、返回
-  // 解除函数"的最小面（0.3.6 Shift+Tab 推理等级）。
+  // bindAgent hooks installModelSelection; agent.ctx needs the minimal
+  // "subscribe and return an unsubscribe" surface (0.3.6 Shift+Tab effort).
   ctx: { on: () => () => {} },
 }
 

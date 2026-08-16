@@ -22,6 +22,14 @@ export interface LocalCommand {
   tag?: string
   /** True when a DSH plugin registered this command (not built in). */
   external?: boolean
+  /**
+   * True when the entry is a user-invocable skill discovered by the DSH
+   * skill registry (issue #86). Skill entries are completion-only: dispatch
+   * falls through to the model as plain text, where dsh-tool-skill's
+   * pre-step hook injects the skill body — the same path a hand-typed
+   * `/skill-name` takes. The help menu hides them (chrome commands only).
+   */
+  skill?: boolean
 }
 
 /**
@@ -37,6 +45,8 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   { name: 'rename', description: 'Rename the current session' },
   { name: 'rewind', description: 'Rewind the conversation to a previous message' },
   { name: 'export', description: 'Export the conversation to a markdown file' },
+  { name: 'btw', description: 'Ask a quick side question without interrupting the conversation' },
+  { name: 'trace', description: 'Show the session event trace timeline' },
   // Session / environment
   { name: 'status', description: 'Show session status' },
   { name: 'cost', description: 'Show session token usage' },
@@ -47,9 +57,10 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   // Model / display
   { name: 'activity', description: 'Switch the working-activity indicator preset' },
   { name: 'preset', description: 'Switch the agent preset (standard/code/minimal/cordis)' },
-  { name: 'theme', description: 'Switch the color theme (built-in or custom)' },
-  { name: 'lang', description: 'Switch the UI language (en / zh)' },
+  { name: 'theme', description: 'Switch the color theme (auto, built-in or custom)' },
+  { name: 'lang', description: 'Show the UI language' },
   { name: 'model', description: 'Show the active model' },
+  { name: 'effort', description: 'Adjust the reasoning effort (slider)' },
   { name: 'thinking', description: 'Toggle extended thinking display' },
   { name: 'tokens', description: 'Show session token usage' },
   // Account / policy
@@ -76,14 +87,15 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   // Help / exit
   { name: 'help', description: 'Show shortcuts and commands' },
   { name: 'exit', description: 'Exit dsh-tui' },
+  { name: 'quit', description: 'Exit dsh-tui', tag: 'alias of /exit' },
+  { name: 'q', description: 'Exit dsh-tui', tag: 'alias of /exit' },
 ]
 
 /**
- * Resolve a command's description in the active UI language. The en text in
- * `LOCAL_COMMANDS` (and the registry's own text for external commands) is
- * the fallback; zh translations live in the i18n dict under
- * `cmd-desc-<name>`. Resolved at call time — components call this during
- * render, so a `/lang` switch repaints descriptions immediately.
+ * Resolve a command's description in the active UI language. English in
+ * `LOCAL_COMMANDS` is the source of truth; optional i18n overrides live
+ * under `cmd-desc-<name>`. Resolved at call time — components call this
+ * during render, so a `/lang` switch repaints descriptions immediately.
  * @param command - The command whose description to localize.
  */
 export function localizedDescription(command: LocalCommand): string {

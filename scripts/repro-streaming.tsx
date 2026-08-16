@@ -67,7 +67,7 @@ const channel: any = {
   responseChars: 0,
   activeToolCount: 1,
   turnStart: Date.now(),
-  lastUserText: '看看这个项目',
+  lastUserText: 'Look at this project',
   pending: [],
   commandList: [],
   notifications: [],
@@ -87,8 +87,8 @@ const bump = () => { channel.version++; for (const cb of listeners) cb() }
 let id = 0
 // --- pre-seed resumed history: 2 full turns (~2.5 viewports) ---------------
 for (let turn = 0; turn < 2; turn++) {
-  channel.rows.push({ id: id++, kind: 'user', text: `历史问题 ${turn}：检查一下构建配置` })
-  channel.rows.push({ id: id++, kind: 'reasoning', text: '用户想看构建配置，先找配置文件。'.repeat(3), streaming: false, durationMs: 1200 })
+  channel.rows.push({ id: id++, kind: 'user', text: `History question ${turn}: check the build config` })
+  channel.rows.push({ id: id++, kind: 'reasoning', text: 'The user wants the build config; find the config file first.'.repeat(3), streaming: false, durationMs: 1200 })
   for (let t = 0; t < 4; t++) {
     channel.rows.push({
       id: id++, kind: 'tool', text: '',
@@ -97,11 +97,11 @@ for (let turn = 0; turn < 2; turn++) {
         argsText: t % 2 ? `{"file_path": "/home/sisct/Code/projects/FlutterProjects/jotsy/lib/history${turn}_${t}.dart"}` : `{"command": "git log --oneline -15 && echo \\"---STATUS---\\" && git status --short && git branch --show-current", "description": "Show recent commits and working tree status"}`,
         argsFull: '{}',
         status: 'ok', startedAt: Date.now() - 60000, durationMs: 30,
-        resultText: Array.from({ length: 8 + t * 5 }, (_, i) => `eb33e0${i} ci: separate runtime properties 历史结果行 ${turn}-${t}-${i} (cikeseven, 2026-07-12)`).join('\n'),
+        resultText: Array.from({ length: 8 + t * 5 }, (_, i) => `eb33e0${i} ci: separate runtime properties History result line ${turn}-${t}-${i} (cikeseven, 2026-07-12)`).join('\n'),
       },
     })
   }
-  channel.rows.push({ id: id++, kind: 'assistant', text: `历史回答 ${turn}：\n\n- 构建配置在 \`pubspec.yaml\`\n- CI 在 \`.github/workflows/\`\n\n| 项 | 值 |\n| --- | --- |\n| SDK | ^3.7.0 |\n| riverpod | ^3.2.1 |`, streaming: false })
+  channel.rows.push({ id: id++, kind: 'assistant', text: `History answer ${turn}:\n\n- Build config is in \`pubspec.yaml\`\n- CI is in \`.github/workflows/\`\n\n| Item | Value |\n| --- | --- |\n| SDK | ^3.7.0 |\n| riverpod | ^3.2.1 |`, streaming: false })
 }
 
 const stdin = new FakeStdin()
@@ -122,12 +122,12 @@ await sleep(800)
 
 // --- live turn ---------------------------------------------------------------
 const add = (row: any) => { channel.rows.push({ id: id++, ...row }); bump() }
-add({ kind: 'user', text: '看看这个项目，给个概览' })
+add({ kind: 'user', text: 'Look at this project and give an overview' })
 await sleep(120)
 
 const think1 = { id: id++, kind: 'reasoning', text: '', streaming: true, durationMs: undefined }
 channel.rows.push(think1); bump()
-for (const chunk of ['先看目录结构', '，读 README 和 pubspec', '，然后汇总。']) {
+for (const chunk of ['Look at the directory layout first', ', read README and pubspec', ', then summarize.']) {
   think1.text += chunk; bump(); await sleep(140)
 }
 think1.streaming = false; think1.durationMs = 1000; bump()
@@ -163,27 +163,27 @@ for (let t = 2; t <= 4; t++) {
   await sleep(140)
 }
 
-const think2 = { id: id++, kind: 'reasoning', text: '结构清楚了，整理概览，含表格。', streaming: true, durationMs: undefined }
+const think2 = { id: id++, kind: 'reasoning', text: 'Structure is clear; write an overview with a table.', streaming: true, durationMs: undefined }
 channel.rows.push(think2); bump(); await sleep(500)
 think2.streaming = false; think2.durationMs = 7000; bump(); await sleep(150)
 
 const finalMsg = { id: id++, kind: 'assistant', text: '', streaming: true }
 channel.rows.push(finalMsg); bump()
 const doc = [
-  '项目看完了，给你一份概览：\n',
-  '\n## 项目概况\n\n',
-  'Jotsy（Jot）—— 一款完全本地化、注重隐私的 Android 日记应用（开源，早期版本）。\n\n',
-  '| 方面 | 选型 |\n| --- | --- |\n',
-  '| 框架 | Flutter / Dart SDK ^3.7.0 |\n',
-  '| 状态管理 | flutter_riverpod ^3.2.1 |\n',
-  '| 数据库 | Drift (SQLite), schema v7, 按 query/write/migration/tag ops 拆分 |\n',
-  '| 目录结构 | （与 AGENTS.md 分层规范一致） |\n',
-  '| 编辑器 | flutter_quill + extensions（图文混排） |\n\n',
-  '- `lib/app/` — App 装配、主题系统、WebDAV 同步、archive\n',
-  '- `lib/core/` — database/ 与 services/（设置、定位、天气、备份、封面/媒体存储等）\n',
-  '- `lib/ui/` — 按 feature 划分：diaries、home、calendar、explore、settings、widgets\n',
-  '\n## 近期动态\n\n',
-  '- 最新提交集中在：日记卡片标签显示配置（tag limit 功能）、CI 发布流程改进\n',
+  'Finished looking at the project; here is an overview:\n',
+  '\n## Project overview\n\n',
+  'Jotsy (Jot) — a fully local, privacy-first Android journal app (open source, early version).\n\n',
+  '| Area | Choice |\n| --- | --- |\n',
+  '| Framework | Flutter / Dart SDK ^3.7.0 |\n',
+  '| State | flutter_riverpod ^3.2.1 |\n',
+  '| Database | Drift (SQLite), schema v7, split by query/write/migration/tag ops |\n',
+  '| Layout | (matches the AGENTS.md layering rules) |\n',
+  '| Editor | flutter_quill + extensions (mixed text and images) |\n\n',
+  '- `lib/app/` — app assembly, theme system, WebDAV sync, archive\n',
+  '- `lib/core/` — database/ and services/ (settings, location, weather, backup, cover/media storage)\n',
+  '- `lib/ui/` — split by feature: diaries, home, calendar, explore, settings, widgets\n',
+  '\n## Recent activity\n\n',
+  '- Latest commits: diary-card tag display (tag limit), CI release-flow improvements\n',
 ]
 for (const chunk of doc) {
   finalMsg.text += chunk

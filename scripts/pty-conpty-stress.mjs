@@ -1,9 +1,10 @@
 /**
- * conpty 增量透传压力探测（issue #16/#10）：pty-target-stream.tsx 在真实
- * conpty 里做多帧流式渲染 + 中途弹问卷，conpty 重编码后的字节流喂给
- * xterm-headless 重建屏幕，断言问卷面板完整、无行缺失。
- * 与 pty-conpty-probe.mjs（静态一帧）互补，针对增量 diff 序列的保真度。
- * 运行：node scripts/pty-conpty-stress.mjs
+ * Incremental conpty passthrough stress probe (issue #16/#10):
+ * pty-target-stream.tsx streams many frames and pops a questionnaire mid-way
+ * inside a real conpty; the re-encoded bytes go to xterm-headless to rebuild
+ * the screen and assert the panel is complete with no missing rows.
+ * Complements pty-conpty-probe.mjs (one static frame) for incremental diffs.
+ * Run: node scripts/pty-conpty-stress.mjs
  */
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
@@ -33,21 +34,21 @@ const check = (name, ok, extra = '') => {
   if (!ok) failed += 1
 }
 
-// 问卷面板完整性（与静态探测同一组要素）。
-const REQUIRED = ['随便问问 2', '再测一次', '宅家打游戏/看剧', '出去浪一圈', '学习或写代码', '纯躺平休息', '很有成就感', '换换脑子', '卷王本王', '睡到自然醒', '自定义回答', '↑/↓ 选择', 'Esc 中断']
+// Questionnaire panel completeness (same set as the static probe).
+const REQUIRED = ['Quick question 2', 'Try again', 'Stay in and game/watch shows', 'Go out and wander', 'Study or write code', 'Just rest and do nothing', 'very satisfying', 'clear your head', 'grind mode', 'sleep in naturally', 'Custom answer', '↑/↓ select', 'Esc cancel']
 const missing = REQUIRED.filter(t => !screen.includes(t))
-check('问卷面板经增量透传后完整', missing.length === 0, missing.length ? `缺失: ${missing.join(' | ')}` : '')
+check('questionnaire panel complete after incremental passthrough', missing.length === 0, missing.length ? `missing: ${missing.join(' | ')}` : '')
 
-// 视口内问卷要素无重复（残影会让 label 出现两次）。
-for (const t of ['随便问问 2', '宅家打游戏/看剧', '睡到自然醒']) {
+// No duplicate questionnaire items in the viewport (ghosts double a label).
+for (const t of ['Quick question 2', 'Stay in and game/watch shows', 'sleep in naturally']) {
   const n = viewport.filter(l => l.includes(t)).length
-  check(`「${t}」视口内至多一次`, n <= 1, `实际 ${n}`)
+  check(`'${t}' appears at most once in the viewport`, n <= 1, `got ${n}`)
 }
 
-console.log('exit:', JSON.stringify(code), ' buffer 总行数:', total, ' scrollback:', total - ROWS)
+console.log('exit:', JSON.stringify(code), ' buffer rows:', total, ' scrollback:', total - ROWS)
 if (failed > 0) {
-  console.log('=== 视口 ===')
+  console.log('=== viewport ===')
   viewport.forEach((l, y) => console.log(`${String(y).padStart(3)}|${l}`))
 }
-console.log(failed === 0 ? 'ALL PASS' : `${failed} 项失败`)
+console.log(failed === 0 ? 'ALL PASS' : `${failed} check(s) failed`)
 process.exit(failed === 0 ? 0 : 1)

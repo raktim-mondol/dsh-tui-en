@@ -1,18 +1,21 @@
 /**
- * 全屏模式残影复现（issue #39 DECSTBM 快速路径假设 + #38/#19 滚动场景）：
- * 两套预言机——
- * 1. 终态等价：同一份最终 UI 状态，增量流式渲染出的终端屏幕（xterm A）
- *    与全新挂载渲染出的屏幕（xterm B）必须一致；差异 = 差分管线 bug。
- * 2. 屏内自洽：滚动（SGR 滚轮注入 stdin）后的每一帧里，唯一标记行至多
- *    出现一次、且出现顺序符合文档序；重复/乱序 = 残影。
+ * Fullscreen ghost repro (issue #39 DECSTBM fast-path hypothesis + #38/#19
+ * scroll scenes). Two oracles —
+ * 1. Final-state equivalence: the same final UI, incrementally streamed
+ *    (xterm A) vs freshly mounted (xterm B) must match; a diff is a
+ *    differential-pipeline bug.
+ * 2. In-screen coherence: after SGR wheel injects into stdin, each unique
+ *    marker row appears at most once and in document order; a repeat or
+ *    reorder is a ghost.
  *
- * 病理条件（照 #39 假设）：尾部流式增长的同时，中部 reasoning 行折叠
- * （高度收缩）——制造"高度增长量与 scrollTop delta 不一致"的帧。
- * 运行：node --import tsx/esm scripts/repro-fullscreen-ghost.tsx
+ * Pathological condition (per #39): the tail streams taller while a mid
+ * reasoning row folds (height shrink) — frames whose height growth and
+ * scrollTop delta disagree.
+ * Run: node --import tsx/esm scripts/repro-fullscreen-ghost.tsx
  */
 process.env.FORCE_COLOR = '3'
-process.env.TERM_PROGRAM = 'WezTerm'  // DEC-2026 同步输出，使 DECSTBM 滚动优化生效
-process.env.CC_TUI_THEME = 'dark'
+process.env.TERM_PROGRAM = 'WezTerm'  // DEC-2026 sync output so DECSTBM scroll opt applies
+process.env.DSH_TUI_THEME = 'dark'
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render, AlternateScreen }, { Chat }, { QuestionStore }] = await Promise.all([
   import('node:stream'),
@@ -64,26 +67,27 @@ function screenLines(term: InstanceType<typeof XTerm>): string[] {
   return out
 }
 
-/** 唯一标记行：每个在完整文档里只出现一次。
- *  节标题用整行匹配（正文行是 `- 节标题 的第 N 条…`，含标题字符串但
- *  不会整行等于标题），logo/用户消息用包含匹配。 */
-const MARKERS = ['一、项目定位', '三、核心功能', '五、代码结构', '七、构建与发布', '九、当前状态备注', '探索未至', '看看这个项目，给个概览']
+/** Unique marker rows: each appears once in the full document.
+ *  Section titles match the whole line (body rows are `- title item N…`,
+ *  they contain the title string but are not equal to it). Logo / user
+ *  messages use includes. */
+const MARKERS = ['1. Project positioning', '3. Core features', '5. Code structure', '7. Build and release', '9. Current status notes', 'Explore the uncharted', 'Look at this project and give an overview']
 const matchesMarker = (line: string, m: string) =>
-  m === '探索未至' || m === '看看这个项目，给个概览' ? line.includes(m) : line.trim() === m
-/** 屏内自洽断言：标记至多一次 + 相对顺序符合文档序。 */
+  m === 'Explore the uncharted' || m === 'Look at this project and give an overview' ? line.includes(m) : line.trim() === m
+/** In-screen coherence: each marker at most once, in document order. */
 function assertScreenCoherent(tag: string, lines: string[]) {
   const seen: Array<{ marker: string; row: number }> = []
   for (const m of MARKERS) {
     const rows = lines.map((l, i) => (matchesMarker(l, m) ? i : -1)).filter(i => i >= 0)
-    check(`[${tag}]「${m}」至多出现一次`, rows.length <= 1, `行 ${rows.join(',')}`)
+    check(`[${tag}] "${m}" appears at most once`, rows.length <= 1, `rows ${rows.join(',')}`)
     if (rows.length === 1) seen.push({ marker: m, row: rows[0] })
   }
   const ordered = MARKERS.filter(m => seen.some(s => s.marker === m))
   const byRow = [...seen].sort((a, b) => a.row - b.row).map(s => s.marker)
-  // 探索未至(logo)/用户消息在文档序里位于所有节标题之前。
-  const docOrder = ['探索未至', '看看这个项目，给个概览', '一、项目定位', '三、核心功能', '五、代码结构', '七、构建与发布', '九、当前状态备注']
+  // Logo / user message come before every section title in document order.
+  const docOrder = ['Explore the uncharted', 'Look at this project and give an overview', '1. Project positioning', '3. Core features', '5. Code structure', '7. Build and release', '9. Current status notes']
   const expect = docOrder.filter(m => ordered.includes(m))
-  check(`[${tag}] 标记顺序符合文档序`, JSON.stringify(byRow) === JSON.stringify(expect), `实际 ${byRow.join('>')}`)
+  check(`[${tag}] markers follow document order`, JSON.stringify(byRow) === JSON.stringify(expect), `got ${byRow.join('>')}`)
 }
 
 function makeChannel(rows: any[]) {
@@ -104,7 +108,7 @@ function makeChannel(rows: any[]) {
     responseChars: 500,
     activeToolCount: 0,
     turnStart: 0,
-    lastUserText: '看看这个项目',
+    lastUserText: 'Look at this project',
     pending: [],
     commandList: [],
     notifications: [],
@@ -125,8 +129,8 @@ function makeChannel(rows: any[]) {
 
 function seedHistory(rows: any[], idRef: { v: number }) {
   for (let turn = 0; turn < 2; turn++) {
-    rows.push({ id: idRef.v++, kind: 'user', text: `历史问题 ${turn}：检查一下构建配置` })
-    rows.push({ id: idRef.v++, kind: 'reasoning', text: '用户想看构建配置，先找配置文件。'.repeat(3), streaming: false, durationMs: 1200 })
+    rows.push({ id: idRef.v++, kind: 'user', text: `History question ${turn}: check the build config` })
+    rows.push({ id: idRef.v++, kind: 'reasoning', text: 'The user wants the build config; find the config file first.'.repeat(3), streaming: false, durationMs: 1200 })
     for (let t = 0; t < 4; t++) {
       rows.push({
         id: idRef.v++, kind: 'tool', text: '',
@@ -135,20 +139,20 @@ function seedHistory(rows: any[], idRef: { v: number }) {
           argsText: t % 2 ? `{"file_path": "/home/demo/lib/history${turn}_${t}.dart"}` : '{"command": "git log --oneline -15"}',
           argsFull: '{}',
           status: 'ok', startedAt: 0, durationMs: 30,
-          resultText: Array.from({ length: 8 + t * 5 }, (_, i) => `历史结果行 ${turn}-${t}-${i}`).join('\n'),
+          resultText: Array.from({ length: 8 + t * 5 }, (_, i) => `History result line ${turn}-${t}-${i}`).join('\n'),
         },
       })
     }
-    rows.push({ id: idRef.v++, kind: 'assistant', text: `历史回答 ${turn}：\n\n- 构建配置在 \`pubspec.yaml\``, streaming: false })
+    rows.push({ id: idRef.v++, kind: 'assistant', text: `History answer ${turn}:\n\n- Build config is in \`pubspec.yaml\``, streaming: false })
   }
 }
 
-const sections = ['一、项目定位', '二、技术栈', '三、核心功能', '四、数据设计要点', '五、代码结构', '六、工程规范', '七、构建与发布', '八、数据迁移', '九、当前状态备注']
+const sections = ['1. Project positioning', '2. Tech stack', '3. Core features', '4. Data design notes', '5. Code structure', '6. Engineering conventions', '7. Build and release', '8. Data migration', '9. Current status notes']
 function buildDocChunks(): string[] {
   const docLines: string[] = []
   for (const sec of sections) {
     docLines.push(sec + '\n')
-    for (let i = 0; i < 11; i++) docLines.push(`- ${sec} 的第 ${i + 1} 条说明文字：应用装配、主题系统、同步与加密打包\n`)
+    for (let i = 0; i < 11; i++) docLines.push(`- ${sec}  item ${i + 1}: app assembly, theme system, sync and encrypted packaging\n`)
     docLines.push('\n')
   }
   const doc: string[] = []
@@ -161,13 +165,13 @@ function buildDocChunks(): string[] {
   return doc
 }
 
-/** SGR 滚轮注入：64=上滚 65=下滚，坐标取屏幕中部（ScrollBox 区域内）。 */
+/** SGR wheel inject: 64=up 65=down, coords at mid-screen (inside ScrollBox). */
 function wheel(stdin: any, dir: 'up' | 'down', ticks: number) {
   const btn = dir === 'up' ? 64 : 65
   for (let i = 0; i < ticks; i++) stdin.write(`\x1b[<${btn};50;18M`)
 }
 
-// ═══════════════ 运行 A：增量流式（含中部折叠 + 中途滚动） ═══════════════
+// ═══════════════ Run A: incremental stream (mid fold + mid-stream scroll) ═══════════════
 const termA = makeTerm()
 const sA = makeStreams(termA)
 const idRef = { v: 0 }
@@ -186,13 +190,13 @@ const instA = await render(
 const ticker = setInterval(() => { chA.responseChars += 7; bumpA() }, 100)
 await sleep(800)
 
-rowsA.push({ id: idRef.v++, kind: 'user', text: '看看这个项目，给个概览' }); bumpA()
+rowsA.push({ id: idRef.v++, kind: 'user', text: 'Look at this project and give an overview' }); bumpA()
 await sleep(120)
 
-// 现场 reasoning：先展开流式，稍后（尾部长文流式期间）折叠 —— 制造中部高度收缩。
+// Live reasoning: stream expanded, then fold during the tail stream — mid-height shrink.
 const think = { id: idRef.v++, kind: 'reasoning', text: '', streaming: true, durationMs: undefined as number | undefined }
 rowsA.push(think); bumpA()
-for (const chunk of ['先看目录结构', '，读 README 与构建配置', '，对比依赖版本', '，然后汇总要点。']) {
+for (const chunk of ['Look at the directory layout first', ', read README and the build config', ', compare dependency versions', ', then summarize the points.']) {
   think.text += chunk; bumpA(); await sleep(120)
 }
 
@@ -205,7 +209,7 @@ const tool1 = {
 }
 rowsA.push(tool1); bumpA(); await sleep(300)
 
-// 尾部长文流式；think 在第 6 块后折叠（中部收缩），tool1 在第 10 块后落定（中部增长）。
+// Tail long-text stream; think folds after chunk 6 (mid shrink), tool1 settles after 10 (mid grow).
 const finalMsg = { id: idRef.v++, kind: 'assistant', text: '', streaming: true }
 rowsA.push(finalMsg); bumpA()
 const doc = buildDocChunks()
@@ -217,15 +221,15 @@ for (const chunk of doc) {
   if (i === 10) {
     tool1.tool.status = 'ok'
     tool1.tool.durationMs = 42
-    tool1.tool.resultText = Array.from({ length: 20 }, (_, k) => `工具结果行 ${k}`).join('\n')
+    tool1.tool.resultText = Array.from({ length: 20 }, (_, k) => `Tool result line ${k}`).join('\n')
     chA.activeToolCount = 0
   }
   bumpA()
   await sleep(90)
-  // 第 1/3 处：流式中上滚 5 格再滚回底部（issue #19 场景）。
+  // At 1/3: scroll up 5 rows mid-stream then back to the bottom (issue #19).
   if (i === Math.floor(doc.length / 3)) {
     wheel(sA.stdin, 'up', 5); await sleep(200)
-    assertScreenCoherent('A:流式中上滚', screenLines(termA))
+    assertScreenCoherent('A:scroll-up mid-stream', screenLines(termA))
     wheel(sA.stdin, 'down', 40); await sleep(200)
   }
 }
@@ -237,22 +241,22 @@ clearInterval(ticker)
 await sleep(300)
 
 const snapA_bottom = screenLines(termA)
-assertScreenCoherent('A:终态底部', snapA_bottom)
+assertScreenCoherent('A:final bottom', snapA_bottom)
 
-// 回合结束后上滚（issue #38 场景）：逐段上滚到顶，每步屏内自洽。
+// After the turn: scroll up in steps to the top (issue #38); each step must stay coherent.
 wheel(sA.stdin, 'up', 10); await sleep(250)
-assertScreenCoherent('A:上滚10', screenLines(termA))
+assertScreenCoherent('A:scroll-up-10', screenLines(termA))
 wheel(sA.stdin, 'up', 60); await sleep(300)
-assertScreenCoherent('A:滚到顶', screenLines(termA))
+assertScreenCoherent('A:scroll-to-top', screenLines(termA))
 wheel(sA.stdin, 'down', 90); await sleep(300)
 const snapA_rebottom = screenLines(termA)
-assertScreenCoherent('A:滚回底部', snapA_rebottom)
+assertScreenCoherent('A:scroll-back-bottom', snapA_rebottom)
 
-// 终态快照（供 B 对比）：深拷贝行数据。
+// Final snapshot (for B): deep-copy the row data.
 const finalRows = structuredClone(rowsA)
 await instA.unmount()
 
-// ═══════════════ 运行 B：同一终态全新挂载（黄金基准） ═══════════════
+// ═══════════════ Run B: same final state freshly mounted (gold) ═══════════════
 const termB = makeTerm()
 const sB = makeStreams(termB)
 const { channel: chB, bump: bumpB } = makeChannel(finalRows)
@@ -266,8 +270,8 @@ await sleep(1000)
 const snapB_bottom = screenLines(termB)
 await instB.unmount()
 
-// ═══════════════ 终态等价对比 ═══════════════
-// 状态栏行含 tps/ctx 等易变读数，对比时归一化掉数字。
+// ═══════════════ Final-state equivalence ═══════════════
+// Status-bar rows carry volatile tps/ctx numbers; normalize digits before compare.
 const normalize = (l: string) => l.replace(/\d+(\.\d+)?/g, '#')
 let diffCount = 0
 const diffs: string[] = []
@@ -276,16 +280,16 @@ for (let y = 0; y < ROWS; y++) {
   const b = normalize(snapB_bottom[y] ?? '')
   if (a !== b) {
     diffCount++
-    diffs.push(`  行${String(y).padStart(2)} A|${snapA_bottom[y]}`)
+    diffs.push(`  row ${String(y).padStart(2)} A|${snapA_bottom[y]}`)
     diffs.push(`      B|${snapB_bottom[y]}`)
   }
 }
-check('终态等价：增量渲染 == 全新挂载', diffCount === 0, `${diffCount} 行不同`)
+check('final-state equivalence: incremental == fresh mount', diffCount === 0, `${diffCount} rows differ`)
 if (diffCount > 0) {
-  console.log('=== 终态差异（A=增量 B=全新） ===')
+  console.log('=== final-state diffs (A=incremental B=fresh) ===')
   console.log(diffs.join('\n'))
 }
-assertScreenCoherent('B:黄金基准', snapB_bottom)
+assertScreenCoherent('B:gold', snapB_bottom)
 
-console.log(failed === 0 ? '\nALL PASS' : `\n${failed} 项失败`)
+console.log(failed === 0 ? '\nALL PASS' : `\n${failed} check(s) failed`)
 process.exit(failed === 0 ? 0 : 1)

@@ -8,7 +8,7 @@
  * which validates every event against KNOWN_SESSION_EVENT_TYPES and throws
  * the whole load on an unmarked third-party type (activity/status written
  * by working-activity before resume-repair). Every such session silently
- * fell back to the cwd basename in the picker — "历史会话没有重命名".
+ * fell back to the cwd basename in the picker — "history sessions were never renamed".
  *
  * Asserts:
  *   1. a log carrying an unmarked unknown event type still yields its title
@@ -28,7 +28,7 @@ import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-tui-session-titles-'))
-process.env.DSH_CC_SESSION_ROOT = root
+process.env.DSH_TUI_SESSION_ROOT = root
 
 // Import AFTER the env override (root resolves at call time, but keep the
 // order obvious against future module-level reads).
@@ -54,19 +54,19 @@ const userMessage = (seq, text) => ({ type: 'user/message', seq, time: seq, data
 const idA = 'aaaaaaaa-0000-0000-0000-00000000000a'
 writeSession(idA, [
   [headerOf(idA)],
-  [userMessage(0, '你好呀'), { type: 'activity/status', seq: 1, time: 1, data: { phase: 'thinking' } }],
-  [{ type: 'session/title', seq: 2, time: 2, data: { title: '旧名字' } }],
-  [{ type: 'session/title', seq: 3, time: 3, data: { title: '新名字' } }],
+  [userMessage(0, 'Hello there'), { type: 'activity/status', seq: 1, time: 1, data: { phase: 'thinking' } }],
+  [{ type: 'session/title', seq: 2, time: 2, data: { title: 'old name' } }],
+  [{ type: 'session/title', seq: 3, time: 3, data: { title: 'new name' } }],
 ])
 const a = readSessionTitleFromLog(idA)
-assert.equal(a?.title, '新名字', 'last session/title wins over the auto title')
+assert.equal(a?.title, 'new name', 'last session/title wins over the auto title')
 assert.equal(a?.hasUserMessage, true, 'session A has a user message')
 
 // Session B: no title event — first user message text is the title.
 const idB = 'bbbbbbbb-0000-0000-0000-00000000000b'
-writeSession(idB, [[headerOf(idB)], [userMessage(0, '  第一条消息  ')]])
+writeSession(idB, [[headerOf(idB)], [userMessage(0, '  First message  ')]])
 const b = readSessionTitleFromLog(idB)
-assert.equal(b?.title, '第一条消息', 'falls back to first user message (trimmed)')
+assert.equal(b?.title, 'First message', 'falls back to first user message (trimmed)')
 
 // Session C: title event but no user message — the picker drops these as
 // launch artifacts regardless of title.

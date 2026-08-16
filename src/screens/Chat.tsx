@@ -2,10 +2,10 @@ import React from 'react'
 import { t, getLang, setLang, isLang, writeLangPref, subscribeLang, type I18nKey } from '../i18n.js'
 import { Box, Text, useInput, ScrollBox, type ScrollBoxHandle, useTheme } from '../ui.js'
 import { POINTER } from '../cc/figures.js'
-import { isMod, modLabel } from '../utils/modifiers.js'
+import { isMod, isPlainReturn, modLabel } from '../utils/modifiers.js'
 import { formatTokens } from '../cc/format.js'
 import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
-import type { Channel, ChatRow, PresetOption } from '../channel.js'
+import type { Channel, ChatRow, EffortOption, PresetOption } from '../channel.js'
 import type { QuestionStore } from '../questions.js'
 import { ApprovalStore } from '../approvals.js'
 import { AskUserQuestionPanel } from '../components/questions/AskUserQuestionPanel.js'
@@ -26,14 +26,27 @@ import { StatusLine } from './StatusLine.js'
 import { WorkingSpinner, useThinkingStatus } from '../components/WorkingSpinner.js'
 import { ActivityLine, contextPressurePct } from '../components/ActivityLine.js'
 import { ModelPicker } from '../components/ModelPicker.js'
-import { ResumePicker } from '../components/ResumePicker.js'
+import { ResumePicker, type ResumePickerMode } from '../components/ResumePicker.js'
 import { ActivityPicker } from '../components/ActivityPicker.js'
+import { EffortSlider } from '../components/EffortSlider.js'
 import { PresetPicker } from '../components/PresetPicker.js'
 import { ThemePicker, getThemeOptions } from '../components/ThemePicker.js'
+import { AUTO_THEME_NAME, getAutoThemeBase } from '../theme.js'
 import { FRAME_PRESETS, PRESET_NAMES } from '../components/activityFrames.js'
 import { ThinkingToggle } from '../components/ThinkingToggle.js'
 import { HistorySearchDialog } from '../components/HistorySearchDialog.js'
 import { RewindPicker } from '../components/RewindPicker.js'
+import { BtwPanel } from '../components/BtwPanel.js'
+import { setClipboard } from '../ink/termio/osc.js'
+import { TraceView, TRACE_WINDOW } from '../components/TraceView.js'
+import {
+  extendTrace,
+  filterTraceEntries,
+  TRACE_FILTERS,
+  type TraceBuild,
+  type TraceEntry,
+  type TraceFilter,
+} from '../trace.js'
 import { LoadingState } from '../components/design-system/LoadingState.js'
 import { Pane } from '../components/design-system/Pane.js'
 import { loadHistory, type HistoryEntry } from '../history.js'
@@ -54,6 +67,9 @@ const SELECTABLE_KINDS = new Set<ChatRow['kind']>([
 /** Shared empty list for mode-gated derived rows (stable reference, so
  *  downstream consumers never see a changing prop when the mode is off). */
 const NO_ROWS: readonly ChatRow[] = []
+
+/** Shared empty list for the closed `/trace` view (see NO_ROWS). */
+const NO_TRACE_ENTRIES: readonly TraceEntry[] = []
 
 /** `max` → `Max` (effort levels arrive lower-case from the adapter). */
 function capitalize(text: string): string {
@@ -177,6 +193,10 @@ export function Chat({
   const [resumePickerOpen, setResumePickerOpen] = React.useState(false)
   const [resumeSessions, setResumeSessions] = React.useState<readonly SessionRecord[]>([])
   const [resumeIndex, setResumeIndex] = React.useState(0)
+  /** `/resume` session management (issue #112): plain selection, a delete
+   *  confirmation (ctrl+d), or the inline rename input (ctrl+r). */
+  const [resumeMode, setResumeMode] = React.useState<ResumePickerMode>('list')
+  const [resumeRenameText, setResumeRenameText] = React.useState('')
   /** `/activity` indicator picker (pi extension's interactive select). */
   const [activityPickerOpen, setActivityPickerOpen] = React.useState(false)
   const [activityIndex, setActivityIndex] = React.useState(0)
@@ -184,7 +204,11 @@ export function Chat({
   const [presetPickerOpen, setPresetPickerOpen] = React.useState(false)
   const [presetOptions, setPresetOptions] = React.useState<readonly PresetOption[]>([])
   const [presetIndex, setPresetIndex] = React.useState(0)
-  /** `/theme` color-theme picker (built-ins + ~/.dsh-cc/themes user themes). */
+  /** `/effort` rheostat slider: adapter levels load async, focus moves ←/→. */
+  const [effortSliderOpen, setEffortSliderOpen] = React.useState(false)
+  const [effortOptions, setEffortOptions] = React.useState<readonly EffortOption[]>([])
+  const [effortIndex, setEffortIndex] = React.useState(0)
+  /** `/theme` color-theme picker (built-ins + ~/.dsh-tui/themes user themes). */
   const [themePickerOpen, setThemePickerOpen] = React.useState(false)
   const [themeIndex, setThemeIndex] = React.useState(0)
   const [themeName, setTheme] = useTheme()
@@ -205,6 +229,24 @@ export function Chat({
   const [rewindOpen, setRewindOpen] = React.useState(false)
   const [rewindIndex, setRewindIndex] = React.useState(0)
   const [rewindConfirm, setRewindConfirm] = React.useState<ChatRow | null>(null)
+  /** /btw side-question overlay (CC): pure UI state — the answer never
+   *  enters the transcript or the session log. */
+  const [btw, setBtw] = React.useState<{ question: string; answer: string; error?: string; done: boolean } | null>(null)
+  const btwAbortRef = React.useRef<AbortController | null>(null)
+  const closeBtw = () => {
+    btwAbortRef.current?.abort()
+    btwAbortRef.current = null
+    setBtw(null)
+  }
+  React.useEffect(() => () => btwAbortRef.current?.abort(), [])
+  /** `/trace` trajectory view (issue #80): open state + type filter + cursor.
+   *  `traceFollowRef` pins the cursor to the newest entry while the view
+   *  follows a running session; any upward scroll unpins it. */
+  const [traceOpen, setTraceOpen] = React.useState(false)
+  const [traceFilter, setTraceFilter] = React.useState<TraceFilter>('all')
+  const [traceCursor, setTraceCursor] = React.useState(0)
+  const traceFollowRef = React.useRef(true)
+  const traceBuildRef = React.useRef<TraceBuild | null>(null)
   /** Startup context panel: expanded by header click or Ctrl+T. */
   const [loadedContextOpen, setLoadedContextOpen] = React.useState(false)
   /** `/` transcript search (less-style incsearch, ported from CC's REPL). */
@@ -324,7 +366,7 @@ export function Chat({
         // opens the interactive indicator picker; `/activity frames <name>`
         // switches directly; `/activity frames` lists presets; `/activity
         // status` shows the current choice. The choice persists to
-        // ~/.dsh-cc/working-activity.json and survives restarts.
+        // ~/.dsh-tui/working-activity.json and survives restarts.
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts[0] === 'status') {
           setHelpOpen(false)
@@ -365,7 +407,7 @@ export function Chat({
         // switches directly; `/preset status` shows the current choice. A
         // blank session swaps composition in place (official blank-only
         // rule); a started session is locked and the choice persists as the
-        // default for future sessions (~/.dsh-cc/agent-preset.json).
+        // default for future sessions (~/.dsh-tui/agent-preset.json).
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts[0] === 'status') {
           setHelpOpen(false)
@@ -396,10 +438,41 @@ export function Chat({
         })
         return true
       }
+      case 'effort': {
+        // Bare `/effort` opens the rheostat slider over the live route's
+        // adapter levels (←/→ applies each step immediately); `/effort <id>`
+        // sets directly (validated by the channel); `/effort status` prints
+        // the current level. The choice persists to ~/.dsh-tui/effort.json.
+        const parts = rawInput.trim().split(/\s+/).filter(Boolean)
+        if (parts[0] === 'status') {
+          setHelpOpen(false)
+          channel.pushLocal('/effort', [
+            t('effort-current', { name: channel.reasoningEffort ?? '—' }),
+            t('effort-usage'),
+          ])
+          return true
+        }
+        if (parts.length > 0) {
+          setHelpOpen(false)
+          void channel.setEffort(parts[0])
+          return true
+        }
+        setHelpOpen(false)
+        void channel.listEfforts().then(({ efforts, defaultEffort }) => {
+          // 0/1-tier routes were already notified by listEfforts.
+          if (efforts.length <= 1) return
+          setEffortOptions(efforts)
+          const current = channel.reasoningEffort ?? defaultEffort
+          const index = efforts.findIndex(effort => effort.id === current)
+          setEffortIndex(index >= 0 ? index : 0)
+          setEffortSliderOpen(true)
+        })
+        return true
+      }
       case 'lang': {
-        // `/lang` shows the current UI language, `/lang en|zh` switches
-        // (hot-swap, persisted to ~/.dsh-cc/lang.json). Precedence on next
-        // launch: CC_TUI_LANG > cordis.yml `lang` > the persisted choice.
+        // `/lang` shows the current UI language, `/lang en` persists the
+        // choice to ~/.dsh-tui/lang.json. Precedence on next launch:
+        // DSH_TUI_LANG > cordis.yml `lang` > the persisted choice.
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts[0] === 'status') {
           setHelpOpen(false)
@@ -433,16 +506,22 @@ export function Chat({
         return true
       }
       case 'theme': {
-        // Bare `/theme` opens the interactive color picker (built-in
-        // palettes + user themes from ~/.dsh-cc/themes); `/theme <name>`
+        // Bare `/theme` opens the interactive color picker (`auto` + built-in
+        // palettes + user themes from ~/.dsh-tui/themes); `/theme <name>`
         // switches directly; `/theme status` shows the current choice.
-        // Selection persists to ~/.dsh-cc/theme.json and hot swaps via the
-        // ThemeProvider setter (CC_TUI_THEME still wins on next launch).
+        // `auto` follows the terminal background (OSC 11). Selection
+        // persists to ~/.dsh-tui/theme.json and hot swaps via the
+        // ThemeProvider setter (DSH_TUI_THEME still wins on next launch).
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts[0] === 'status') {
           setHelpOpen(false)
           channel.pushLocal('/theme', [
             t('theme-current', { name: themeName }),
+            // `auto` resolves through terminal-background detection; show
+            // which palette it currently maps to.
+            ...(themeName === AUTO_THEME_NAME
+              ? [t('theme-auto-resolved', { name: getAutoThemeBase() })]
+              : []),
             t('theme-switch-hint'),
             t('theme-persist-hint'),
             t('theme-custom-hint'),
@@ -483,6 +562,17 @@ export function Chat({
         return true
       case 'compact':
         channel.compact()
+        return true
+      case 'trace':
+        // Open the trajectory view (issue #80): the timeline reads the live
+        // session event log via channel.traceEvents() and follows new events
+        // in real time (every session event bumps the channel version, which
+        // re-renders this screen). Opens pinned to the newest entry.
+        setHelpOpen(false)
+        traceFollowRef.current = true
+        setTraceFilter('all')
+        setTraceCursor(0)
+        setTraceOpen(true)
         return true
       case 'help':
         setHelpOpen(true)
@@ -532,6 +622,7 @@ export function Chat({
             channel.notify(t('resume-none-in-cwd'))
             return
           }
+          setResumeMode('list')
           setResumePickerOpen(true)
           setResumeIndex(0)
         })()
@@ -558,6 +649,8 @@ export function Chat({
         openRewind()
         return true
       case 'exit':
+      case 'quit':
+      case 'q':
         onExit()
         return true
       case 'status': {
@@ -658,6 +751,13 @@ export function Chat({
         channel.pushLocal('/permissions', [
           t('permissions-policy-hint'),
           t('permissions-approval-hint'),
+          // /permission comes from the dsh-base permission-presets row via the
+          // commands registry; only advertise it when this composition
+          // actually mounted it (the bare cordis.yml leaf has no
+          // permission-presets, so the command does not exist there).
+          ...(channel.commandList.some(command => command.name === 'permission')
+            ? [t('permissions-preset-hint')]
+            : []),
         ])
         return true
       case 'add-dir':
@@ -706,6 +806,29 @@ export function Chat({
           t('terminal-paste-hint', { mod: modLabel }),
         ])
         return true
+      case 'btw': {
+        // CC /btw: one tool-less side question; overlay-only UI; does not
+        // interrupt the main turn or write session history. Empty args only
+        // show usage.
+        setHelpOpen(false)
+        const question = rawInput.trim()
+        if (!question) {
+          channel.notify(t('btw-usage'), { timeoutMs: 3000 })
+          return true
+        }
+        btwAbortRef.current?.abort()
+        const controller = new AbortController()
+        btwAbortRef.current = controller
+        setBtw({ question, answer: '', done: false })
+        void channel.sideQuestion(question, {
+          signal: controller.signal,
+          onText: delta => setBtw(prev => (prev ? { ...prev, answer: prev.answer + delta } : prev)),
+        }).then(result => {
+          if (controller.signal.aborted) return
+          setBtw(prev => (prev ? { ...prev, answer: result.answer ?? prev.answer, error: result.error, done: true } : prev))
+        })
+        return true
+      }
       case 'connect':
         setHelpOpen(false)
         channel.pushLocal('/connect', [t('connect-none')])
@@ -799,6 +922,30 @@ export function Chat({
     }
   }
 
+  // `/trace` timeline: extend the incremental build with the session's
+  // current event snapshot, then apply the /thinking gate and the type
+  // filter. Computed per render while open (channel events bump `version`);
+  // extendTrace only consumes the appended tail, so a long session costs
+  // O(new events), never O(log), per frame.
+  if (traceOpen) {
+    traceBuildRef.current = extendTrace(traceBuildRef.current, channel.traceEvents())
+  }
+  const traceEntries: readonly TraceEntry[] = traceOpen && traceBuildRef.current !== null
+    ? filterTraceEntries(
+      thinkingVisible
+        ? traceBuildRef.current.entries
+        : traceBuildRef.current.entries.filter(entry => entry.kind !== 'thinking'),
+      traceFilter,
+    )
+    : NO_TRACE_ENTRIES
+  /** Effective cursor: pinned to the newest entry while following, clamped
+   *  against the (possibly filtered) list otherwise. */
+  const traceCursorClamped = traceEntries.length === 0
+    ? 0
+    : traceFollowRef.current
+      ? traceEntries.length - 1
+      : Math.min(traceCursor, traceEntries.length - 1)
+
   // Row seeking under layout virtualization: a mounted row seeks directly;
   // an unmounted one is force-mounted first, then sought by the completion
   // effect below once its ref lands.
@@ -887,6 +1034,11 @@ export function Chat({
   }, [])
 
   useInput((input, key, event) => {
+    // The /btw panel owns the keyboard while open (its own useInput handles
+    // Esc/Enter/Space close, ↑/↓ scroll, c copy; everything else is
+    // swallowed there). Chat registered first, so an early return here does
+    // not block the event from reaching the panel.
+    if (btw !== null) return
     // The questionnaire / approval panel owns the keyboard while one is
     // pending (the panel's own useInput handles ↑/↓/Space/Tab/Enter/Esc;
     // the prompt input is unmounted, so nothing else should see these keys).
@@ -916,7 +1068,7 @@ export function Chat({
         setSearchOpen(false)
         setHighlight('')
         handle?.scrollTo(searchAnchorRef.current)
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         // Enter commits; 0-match junk queries don't persist (CC behavior).
         if (searchCount === 0) setSearchQuery('')
         setSearchOpen(false)
@@ -961,7 +1113,7 @@ export function Chat({
     if (thinkingOpen) {
       if (thinkingConfirm !== null) {
         // Confirmation state: Enter applies, Esc backs out to the select.
-        if (key.return) {
+        if (isPlainReturn(key)) {
           const enabled = thinkingConfirm
           setThinkingVisible(enabled)
           setThinkingConfirm(null)
@@ -972,7 +1124,7 @@ export function Chat({
         }
       } else if (key.upArrow || key.downArrow) {
         setThinkingFocus(index => (index === 0 ? 1 : 0))
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         const enabled = thinkingFocus === 0
         const midConversation = channel.rows.some(row => row.kind === 'assistant')
         if (midConversation && enabled !== thinkingVisible) {
@@ -988,20 +1140,94 @@ export function Chat({
       return
     }
     if (resumePickerOpen) {
+      const resumeSession = resumeSessions[resumeIndex]
+      // Session management modes (issue #112): the list keys stay untouched
+      // until ctrl+d/ctrl+r switch into a sub-mode, each with Enter/Esc.
+      if (resumeMode === 'confirm-delete') {
+        if (isPlainReturn(key)) {
+          setResumeMode('list')
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
+          if (resumeSession) {
+            const target = resumeSession
+            void (async () => {
+              const ok = await channel.deleteSession(target.id)
+              if (!ok) {
+                channel.notify(`Could not delete session ${target.title || target.id}`, { color: 'error' })
+                return
+              }
+              channel.notify(`Deleted session ${target.title || target.id}`)
+              // Refresh right away so the row disappears in place; closing
+              // the picker when nothing resumable remains.
+              const sessions = await channel.listSessions()
+              const pickable = sessions.filter(session => session.id !== channel.agentId)
+              setResumeSessions(pickable)
+              if (pickable.length === 0) {
+                setResumePickerOpen(false)
+              } else {
+                setResumeIndex(index => Math.min(index, pickable.length - 1))
+              }
+            })()
+          }
+        } else if (key.escape) {
+          setResumeMode('list')
+        }
+        return
+      }
+      if (resumeMode === 'rename') {
+        if (isPlainReturn(key)) {
+          setResumeMode('list')
+          const title = resumeRenameText.trim()
+          // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
+          if (resumeSession && title.length > 0) {
+            const target = resumeSession
+            void (async () => {
+              const ok = await channel.renameSessionTo(target.id, title)
+              if (!ok) {
+                channel.notify(`Could not rename session ${target.title || target.id}`, { color: 'error' })
+                return
+              }
+              channel.notify(`Renamed session to ${title}`)
+              // Re-list so the row reflects the persisted state, but patch
+              // the renamed row's title explicitly: listSessions resolves
+              // persisted titles only within the MRU top SESSION_TITLE_DEPTH
+              // window, and a freshly renamed row must never snap back to
+              // the basename fallback in between.
+              const sessions = await channel.listSessions()
+              const next = sessions
+                .filter(session => session.id !== channel.agentId)
+                .map(session => (session.id === target.id ? { ...session, title } : session))
+              setResumeSessions(next)
+              // Re-anchor focus on the renamed row: renameSessionTo touches
+              // MRU, so the re-listed order shifts — a kept index would
+              // silently point at a DIFFERENT session, and a following
+              // Enter/ctrl+d would act on the wrong one (review leftover).
+              const anchored = next.findIndex(session => session.id === target.id)
+              if (anchored >= 0) setResumeIndex(anchored)
+            })()
+          }
+        } else if (key.escape) {
+          setResumeMode('list')
+        } else if (key.backspace) {
+          setResumeRenameText(text => text.slice(0, -1))
+        } else if (!key.ctrl && !key.meta && !key.super && input) {
+          // Single-line title: pasted newlines collapse to spaces.
+          setResumeRenameText(text => text + input.replace(/[\r\n]+/g, ' '))
+        }
+        return
+      }
       if (key.upArrow) {
         setResumeIndex(index => (index <= 0 ? resumeSessions.length - 1 : index - 1))
       } else if (key.downArrow) {
         setResumeIndex(index => (index >= resumeSessions.length - 1 ? 0 : index + 1))
-      } else if (key.return) {
-        const session = resumeSessions[resumeIndex]
+      } else if (isPlainReturn(key)) {
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
-        if (session) {
+        if (resumeSession) {
           // Enter switches the live agent to the persisted session right
           // away (the history replays into the transcript); the resume.txt
           // launcher marker is refreshed by resumeTo so `--resume` on the
           // next launch opens the same session.
           setResumePickerOpen(false)
-          void channel.resumeTo(session.id).then((ok) => {
+          void channel.resumeTo(resumeSession.id).then((ok) => {
             if (ok) channel.notify('Session resumed')
           })
         } else {
@@ -1009,6 +1235,11 @@ export function Chat({
         }
       } else if (key.escape) {
         setResumePickerOpen(false)
+      } else if (isMod(key) && input === 'd' && resumeSession) {
+        setResumeMode('confirm-delete')
+      } else if (isMod(key) && input === 'r' && resumeSession) {
+        setResumeRenameText(resumeSession.title || '')
+        setResumeMode('rename')
       }
       return
     }
@@ -1017,7 +1248,7 @@ export function Chat({
         setModelIndex(index => (index <= 0 ? models.length - 1 : index - 1))
       } else if (key.downArrow) {
         setModelIndex(index => (index >= models.length - 1 ? 0 : index + 1))
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         const model = models[modelIndex]
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
         if (model) {
@@ -1042,7 +1273,7 @@ export function Chat({
         setActivityIndex(index => (index <= 0 ? PRESET_NAMES.length - 1 : index - 1))
       } else if (key.downArrow) {
         setActivityIndex(index => (index >= PRESET_NAMES.length - 1 ? 0 : index + 1))
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         const name = PRESET_NAMES[activityIndex]
         setActivityPickerOpen(false)
         if (name) channel.setActivityFrames(name)
@@ -1051,12 +1282,25 @@ export function Chat({
       }
       return
     }
+    if (effortSliderOpen) {
+      if (key.leftArrow || key.rightArrow) {
+        const delta = key.leftArrow ? -1 : 1
+        const next = (effortIndex + delta + effortOptions.length) % effortOptions.length
+        setEffortIndex(next)
+        const option = effortOptions[next]
+        // Live-apply: the slider IS the control; Esc does not revert.
+        if (option) void channel.setEffort(option.id)
+      } else if (isPlainReturn(key) || key.escape) {
+        setEffortSliderOpen(false)
+      }
+      return
+    }
     if (presetPickerOpen) {
       if (key.upArrow) {
         setPresetIndex(index => (index <= 0 ? presetOptions.length - 1 : index - 1))
       } else if (key.downArrow) {
         setPresetIndex(index => (index >= presetOptions.length - 1 ? 0 : index + 1))
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         const option = presetOptions[presetIndex]
         setPresetPickerOpen(false)
         if (option) void channel.switchPreset(option.id)
@@ -1071,7 +1315,7 @@ export function Chat({
         setThemeIndex(index => (index <= 0 ? options.length - 1 : index - 1))
       } else if (key.downArrow) {
         setThemeIndex(index => (index >= options.length - 1 ? 0 : index + 1))
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         setThemePickerOpen(false)
         const name = options[themeIndex]?.value
         if (name !== undefined) {
@@ -1092,7 +1336,7 @@ export function Chat({
       } else if (key.ctrl && (input === 'c' || input === 'd')) {
         // CC's history search cancels on ctrl+c/ctrl+d too.
         setHistoryOpen(false)
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         const entry = historyMatches[historyFocus]
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty match list
         if (entry) {
@@ -1139,7 +1383,7 @@ export function Chat({
     if (rewindOpen) {
       if (rewindConfirm !== null) {
         // Confirmation state: Enter rewinds, Esc backs out to the list.
-        if (key.return) {
+        if (isPlainReturn(key)) {
           const row = rewindConfirm
           setRewindOpen(false)
           setRewindConfirm(null)
@@ -1151,13 +1395,52 @@ export function Chat({
         setRewindIndex(index => (index <= 0 ? rewindRows.length - 1 : index - 1))
       } else if (key.downArrow) {
         setRewindIndex(index => (index >= rewindRows.length - 1 ? 0 : index + 1))
-      } else if (key.return) {
+      } else if (isPlainReturn(key)) {
         const row = rewindRows[rewindIndex]
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
         if (row) setRewindConfirm(row)
       } else if (key.escape) {
         setRewindOpen(false)
         setRewindConfirm(null)
+      }
+      return
+    }
+    if (traceOpen) {
+      // Trajectory view (issue #80): read-only timeline navigation. ↑/↓ and
+      // PgUp/PgDn move the cursor (any upward move unpins tail-following,
+      // landing back on the newest entry re-pins it); g/G jump top/bottom;
+      // `f` cycles the type filter (all → tool → thinking → message →
+      // progress); Esc/q closes back to the conversation.
+      const last = traceEntries.length - 1
+      const letter = input !== '' && !key.ctrl && !key.meta
+      if (key.escape || (letter && input === 'q')) {
+        setTraceOpen(false)
+      } else if (key.upArrow) {
+        traceFollowRef.current = false
+        setTraceCursor(Math.max(0, traceCursorClamped - 1))
+      } else if (key.downArrow) {
+        const next = Math.min(last, traceCursorClamped + 1)
+        setTraceCursor(next)
+        traceFollowRef.current = next >= last
+      } else if (key.pageUp) {
+        traceFollowRef.current = false
+        setTraceCursor(Math.max(0, traceCursorClamped - TRACE_WINDOW))
+      } else if (key.pageDown) {
+        const next = Math.min(last, traceCursorClamped + TRACE_WINDOW)
+        setTraceCursor(next)
+        traceFollowRef.current = next >= last
+      } else if (key.home || (letter && input === 'g')) {
+        traceFollowRef.current = false
+        setTraceCursor(0)
+      } else if (key.end || (letter && input === 'G')) {
+        traceFollowRef.current = true
+        setTraceCursor(Math.max(0, last))
+      } else if (letter && input === 'f') {
+        const index = TRACE_FILTERS.indexOf(traceFilter)
+        setTraceFilter(TRACE_FILTERS[(index + 1) % TRACE_FILTERS.length] ?? 'all')
+        // The filtered list re-anchors to the newest entry.
+        traceFollowRef.current = true
+        setTraceCursor(0)
       }
       return
     }
@@ -1181,7 +1464,7 @@ export function Chat({
         moveSelection(-1)
       } else if (key.downArrow) {
         moveSelection(1)
-      } else if (key.return && selectedId !== null) {
+      } else if (isPlainReturn(key) && selectedId !== null) {
         toggleRowExpanded(selectedId)
       } else if (key.escape) {
         setSelectionActive(false)
@@ -1236,7 +1519,7 @@ export function Chat({
       instances.get(process.stdout)?.forceRedraw()
     } else if (isMod(key) && input === 'e') {
       setShowAllMessages(previous => !previous)
-    } else if (key.return && showPill) {
+    } else if (isPlainReturn(key) && showPill) {
       handle?.scrollToBottom()
     }
   })
@@ -1247,7 +1530,9 @@ export function Chat({
   /** Prompt input is inert while a modal dialog owns the keyboard. */
   const promptSelectionActive =
     selectionActive || modelPickerOpen || resumePickerOpen || activityPickerOpen ||
-    presetPickerOpen || themePickerOpen || thinkingOpen || historyOpen || rewindOpen || searchOpen
+    effortSliderOpen || presetPickerOpen || themePickerOpen || thinkingOpen || historyOpen || rewindOpen || searchOpen ||
+    btw !== null ||
+    traceOpen
 
   return (
     <Box flexDirection="column" flexGrow={1} width="100%">
@@ -1353,6 +1638,8 @@ export function Chat({
               sessions={resumeSessions}
               focusIndex={resumeIndex}
               currentSessionId={channel.agentId}
+              mode={resumeMode}
+              renameText={resumeRenameText}
             />
           </Box>
         )}
@@ -1374,6 +1661,15 @@ export function Chat({
             <ActivityPicker
               focusIndex={activityIndex}
               currentPreset={channel.activityFrames}
+            />
+          </Box>
+        )}
+        {effortSliderOpen && effortOptions.length > 1 && (
+          <Box flexDirection="column" marginTop={1}>
+            <EffortSlider
+              options={effortOptions}
+              focusIndex={effortIndex}
+              currentId={channel.reasoningEffort}
             />
           </Box>
         )}
@@ -1410,6 +1706,15 @@ export function Chat({
             />
           </Box>
         )}
+        {traceOpen && (
+          <Box flexDirection="column" marginTop={1}>
+            <TraceView
+              entries={traceEntries}
+              cursor={traceCursorClamped}
+              filter={traceFilter}
+            />
+          </Box>
+        )}
         {searchOpen && <TranscriptSearchBar query={searchQuery} cursorOffset={searchCursor} count={searchCount} current={searchCurrent} />}
         <GoalTodoPanel channel={channel} />
         {approvalSnapshot !== null ? (
@@ -1418,6 +1723,20 @@ export function Chat({
             approval={approvalSnapshot}
             onDecide={outcome => approvals.decide(outcome)}
           />
+        ) : btw !== null ? (
+          <Box flexDirection="column" marginTop={1}>
+            <BtwPanel
+              question={btw.question}
+              answer={btw.answer}
+              error={btw.error}
+              streaming={!btw.done}
+              onClose={closeBtw}
+              onCopy={() => {
+                void setClipboard(btw.answer ?? '').then(raw => { if (raw) process.stdout.write(raw) })
+                channel.notify(t('copied-chars', { n: (btw.answer ?? '').length }), { timeoutMs: 1500 })
+              }}
+            />
+          </Box>
         ) : questionSnapshot !== null ? (
           <AskUserQuestionPanel
             key={questionSnapshot.key}

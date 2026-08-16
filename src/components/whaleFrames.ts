@@ -8,7 +8,7 @@
 
 /** One animation frame: 25 sprite rows of 40 palette characters. */
 export interface WhaleFrame {
-  /** Frame label from the source art (Chinese names kept for traceability). */
+  /** Frame label from the source art. */
   readonly name: string
   readonly rows: readonly string[]
 }

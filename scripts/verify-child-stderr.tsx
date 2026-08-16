@@ -61,19 +61,19 @@ function runFixture(mode: string): Promise<{ stdout: string; stderr: string; cod
 async function runDriver(): Promise<void> {
   // ── fixture: unguarded inherited stderr reaches fd 2 ──────────────────
   const plain = await runFixture('inner-plain')
-  check('未接管：inherit 的子进程 stderr 直达 fd 2（复现 issue 场景）', plain.stderr.includes('BOOM-LINE'))
-  check('未接管：inherit 的子进程 stderr 不可读（STDERR-NULL）', plain.stdout.includes('STDERR-NULL'))
+  check('unguarded: inherited child stderr reaches fd 2 (issue repro)', plain.stderr.includes('BOOM-LINE'))
+  check('unguarded: inherited child stderr is not readable (STDERR-NULL)', plain.stdout.includes('STDERR-NULL'))
 
   // ── fixture: guarded, stdio array form ────────────────────────────────
   const guarded = await runFixture('inner-guard')
-  check('接管（数组 stdio）：裸 stderr 不再到达 fd 2', !guarded.stderr.includes('BOOM-LINE'))
-  check('接管（数组 stdio）：stderr 被改成管道（STDERR-PIPED）', guarded.stdout.includes('STDERR-PIPED'))
-  check('接管（数组 stdio）：输出行进入受控 sink', guarded.stdout.includes('SINK:BOOM-LINE'))
+  check('guarded (array stdio): raw stderr no longer reaches fd 2', !guarded.stderr.includes('BOOM-LINE'))
+  check('guarded (array stdio): stderr became a pipe (STDERR-PIPED)', guarded.stdout.includes('STDERR-PIPED'))
+  check('guarded (array stdio): the line reaches the controlled sink', guarded.stdout.includes('SINK:BOOM-LINE'))
 
   // ── fixture: guarded, whole-stdio 'inherit' string form ───────────────
   const guardedString = await runFixture('inner-guard-string')
-  check('接管（字符串 stdio）：裸 stderr 不再到达 fd 2', !guardedString.stderr.includes('BOOM-LINE'))
-  check('接管（字符串 stdio）：输出行进入受控 sink', guardedString.stdout.includes('SINK:BOOM-LINE'))
+  check('guarded (string stdio): raw stderr no longer reaches fd 2', !guardedString.stderr.includes('BOOM-LINE'))
+  check('guarded (string stdio): the line reaches the controlled sink', guardedString.stdout.includes('SINK:BOOM-LINE'))
 
   // ── reporter: dedup / cooldown / cleanup ──────────────────────────────
   const { createChildStderrReporter } = await import('../src/childStderr.js')
@@ -89,38 +89,38 @@ async function runDriver(): Promise<void> {
   reporter.push(failing)
   reporter.push(failing)
   await sleep(150)
-  check('去重：同一行连发 3 次只出一条通知', notices.length === 1)
-  check('去重：通知带重复计数（重复 3 次）', notices[0]?.includes('重复 3 次') ?? false)
+  check('dedup: three identical lines produce one notice', notices.length === 1)
+  check('dedup: notice carries a repeat count (repeated 3×)', notices[0]?.includes('repeated 3×') ?? false)
 
   reporter.push(failing)
   await sleep(150)
-  check('冷却：刚通知过的行在冷却期内静默', notices.length === 1)
+  check('cooldown: a just-notified line stays silent during cooldown', notices.length === 1)
 
   await sleep(400)
   reporter.push(failing)
   await sleep(150)
-  check('冷却结束：同一行可再次通知', notices.length === 2)
+  check('cooldown ended: the same line can notify again', notices.length === 2)
 
   reporter.push('Usage: tsx proxy.ts <url>')
   await sleep(150)
-  check('不同的行各自成条通知', notices.length === 3 && (notices[2]?.includes('Usage:') ?? false))
+  check('distinct lines each become their own notice', notices.length === 3 && (notices[2]?.includes('Usage:') ?? false))
 
   reporter.push('\x1b[31mred-line\x1b[39m')
   await sleep(150)
   const ansiNotice = notices.at(-1) ?? ''
-  check('ANSI 转义被剥离', ansiNotice.includes('red-line') && !ansiNotice.includes('\x1b'))
+  check('ANSI escapes are stripped', ansiNotice.includes('red-line') && !ansiNotice.includes('\x1b'))
 
   const longLine = 'x'.repeat(100)
   reporter.push(longLine)
   await sleep(150)
   const longNotice = notices.at(-1) ?? ''
-  check('超长行被截断（带省略号）', longNotice.includes('…') && !longNotice.includes(longLine))
+  check('over-long line is truncated (with an ellipsis)', longNotice.includes('…') && !longNotice.includes(longLine))
 
   const countBefore = notices.length
   reporter.push('   ')
   reporter.push('')
   await sleep(150)
-  check('空行/纯空白行被丢弃', notices.length === countBefore)
+  check('empty / whitespace-only lines are dropped', notices.length === countBefore)
 
   reporter.dispose()
 

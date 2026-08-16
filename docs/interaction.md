@@ -1,189 +1,198 @@
-# 交互与命令
+# Interaction and Commands
 
-[文档索引](README.md) · [English](interaction.en.md)
+[Documentation index](README.md)
 
-## 输入与全局快捷键
+## Input and global shortcuts
 
-| 按键 | 行为 |
+| Key | Behavior |
 | --- | --- |
-| `Enter` | 空闲时发送；模型工作时把文本 steer 到当前回合的下一步边界；菜单打开时确认选项 |
-| `Tab` | 补全 `/` 命令或 `@` 文件；模型工作且输入非空时排入当前回合之后的 follow-up |
-| `Ctrl+Enter` | 打断当前回合并立即处理输入消息 |
-| `Shift+Enter` | 在光标处插入换行 |
-| `Shift+Tab` | 按当前模型适配器声明的等级循环推理 effort，例如 Off -> High -> Max |
-| `Alt/Option+Up` | 把最后一条尚未处理的消息取回输入框编辑 |
-| `Up/Down` | 菜单选择；普通输入中浏览历史或在多行文本间移动 |
-| `Ctrl+V` | 从系统剪贴板插入文本；Windows Explorer 复制的文件/图片会插入路径 |
-| `Esc` | 按当前模式关闭菜单/选区/弹窗；有输入时清空；模型工作时中断；空输入连续两次打开 rewind |
-| `Ctrl+C` | 工作时中断；空闲且有输入时清空；空输入时连续两次退出 |
-| `Ctrl+D` | 空闲时连续两次退出 |
-| `Ctrl+O` | 切换 transcript/verbose 详情，展开思考与完整工具参数/输出 |
-| `Ctrl+T` | 展开或折叠启动时的“已加载上下文”面板 |
-| `Ctrl+R` | 打开输入历史搜索；重复按或 `Down` 移到下一项 |
-| `Ctrl+L` | 强制清理并重绘物理终端 |
-| `?` | 输入框为空时打开快捷键和命令帮助 |
-| `Shift+Up` | 进入消息选择模式；方向键移动，`Enter` 展开单条，`Esc` 退出 |
+| `Enter` | Send while idle; steer text into the running turn at its next step boundary; confirm an open menu |
+| `Tab` | Complete a `/` command or `@` file; while the model is working, queue non-empty input as a post-turn follow-up |
+| `Ctrl+Enter` | Interrupt the running turn and process the input immediately |
+| `Shift+Enter` | Insert a newline at the caret |
+| `Shift+Tab` | Cycle the configured session modes (default: default → plan → full-access) |
+| `Alt/Option+Up` | Pull the latest undelivered message back into the editor |
+| `Up/Down` | Select menu items; in ordinary input, browse history or move through multiline text |
+| `Ctrl+V` | Insert system clipboard text; files/images copied in Windows Explorer insert paths |
+| `Esc` | Close the active menu, selection, or modal; clear input; interrupt a working model; double-tap on empty input to rewind |
+| `Ctrl+C` | Interrupt while working; clear non-empty idle input; press twice on empty input to exit |
+| `Ctrl+D` | Press twice while idle to exit |
+| `Ctrl+O` | Toggle transcript/verbose detail, including full reasoning and tool arguments/output |
+| `Ctrl+T` | Expand or collapse the startup loaded-context panel |
+| `Ctrl+R` | Open input-history search; repeat or press `Down` for the next result |
+| `Ctrl+L` | Clear and force a physical terminal redraw |
+| `?` | Open shortcut and command help when the input is empty |
+| `Shift+Up` | Enter message selection; arrows move, `Enter` expands one row, `Esc` exits |
 
-`/` 有两种语义：普通输入模式中打开 slash command 补全；`Ctrl+O` 的
-transcript 模式中打开会话全文搜索。全文搜索使用 `n`/`N` 在结果间前后跳转。
+`/` has two meanings. In normal input it opens slash-command completion. In
+the `Ctrl+O` transcript view it opens full-session search; use `n` and `N` to
+move forward and backward through matches.
 
-## 输入编辑
+## Editing keys
 
-| 按键 | 行为 |
+| Key | Behavior |
 | --- | --- |
-| `Left/Right` | 按字符移动光标 |
-| `Ctrl+Left/Right` | 按单词移动 |
-| `Home/End` | 移到当前逻辑行首/行尾 |
-| `Ctrl+A` / `Ctrl+E` | 编辑器中移到当前逻辑行首/行尾；`Ctrl+E` 还会展开或折叠长会话中隐藏的旧消息 |
-| `Ctrl+U` | 删除光标前内容 |
-| `Ctrl+K` | 删除光标后内容 |
-| `Ctrl+W` | 删除前一个单词 |
+| `Left/Right` | Move by character |
+| `Ctrl+Left/Right` | Move by word |
+| `Home/End` | Move to the start/end of the current logical line |
+| `Ctrl+A` / `Ctrl+E` | In the editor, move to the start/end of the current logical line; `Ctrl+E` also expands or folds hidden older rows in long transcripts |
+| `Ctrl+U` | Delete before the caret |
+| `Ctrl+K` | Delete after the caret |
+| `Ctrl+W` | Delete the preceding word |
 
-Bracketed paste（右键或终端原生粘贴）会原样插入，包括换行，不会把粘贴内容误当
-成 Enter 提交。
+Bracketed paste from right-click or the terminal's native paste command is
+inserted verbatim, including newlines, and is never mistaken for an Enter key.
 
-## @ 文件引用
+## @ file references
 
-在消息**任意位置**输入 `@` 会打开文件补全菜单：继续输入路径片段过滤，`Tab`/
-`Enter` 选择，目录可继续深入。发送消息时，选中的文件内容或目录列表会自动附加
-到消息中（0.3.7+）。
+Typing `@` at **any position** of the message opens file completion: keep typing
+path fragments to filter, `Tab`/`Enter` to pick, and directories can be entered
+further. When you send, the selected file content or directory listing is attached
+to the message automatically (0.3.7+).
 
-`Ctrl+V` 粘贴时，Windows Explorer 复制的文件/图片会直接插入为文件路径（含空格
-自动加引号），而不是粘贴路径文本本身。
+On `Ctrl+V`, files/images copied from Windows Explorer are inserted as file paths
+(quoted automatically when they contain spaces) instead of pasting the path text.
 
-## 界面语言
+## Interface language
 
-`/lang` 在简体中文与英文界面之间切换（影响所有 UI 文案），选择持久化，重启后
-沿用（0.3.7+）。
+`/lang` reports the UI language; the interface is English. A persisted
+choice is stored across restarts (0.3.7+).
 
-## 消息投递语义
+## Message delivery semantics
 
-模型正在工作时有三种不同路径：
+While the model is working, three paths have different placement:
 
-| 操作 | 放置位置 |
+| Action | Placement |
 | --- | --- |
-| `Enter` | steer：送入正在运行的回合，在下一步边界被 Agent 领取 |
-| `Tab` | follow-up：等待当前回合结束后再处理 |
-| `Ctrl+Enter` | interrupt：中断当前回合并立即投递 |
+| `Enter` | Steer: deliver to the running turn at its next step boundary |
+| `Tab` | Follow-up: wait until the current turn finishes |
+| `Ctrl+Enter` | Interrupt: stop the turn and deliver immediately |
 
-输入框上方会显示尚未领取的消息。`Alt/Option+Up` 可以取回最后一条，模型工作时
-按 `Esc` 会中断并立即重投当前 pending 消息。
+Undelivered messages appear above the editor. `Alt/Option+Up` retrieves the
+latest one. Pressing `Esc` while pending messages exist interrupts and
+redelivers them immediately.
 
-## 会话工作流
+## Session workflows
 
 ### Resume
 
-`/resume` 显示当前工作目录下最近使用的可恢复会话。标题取第一条用户消息，列表
-按最近使用时间排序。确认后会切换 Agent 并回放持久化事件。
+`/resume` lists recent resumable sessions for the current working directory.
+Titles come from the first user message, and entries are ordered by most recent
+use. Confirming switches the Agent and replays persisted events.
 
-Windows `dsh-tui.cmd --resume` 使用 `~/.dsh-cc/resume.txt` 中最后选择的会话 ID。
+On Windows, `dsh-tui.cmd --resume` uses the session ID last written to
+`~/.dsh-tui/resume.txt` (also dual-written to the old path
+`~/.dsh-cc/resume.txt` for older launchers that only read it).
 
 ### Rewind
 
-输入框为空时连续按两次 `Esc` 打开用户消息列表。选择并确认后：
+Double-tap `Esc` on an empty editor to open the user-message list. After a
+selection is confirmed, the TUI:
 
-1. 找到该消息所属 turn 的开始事件。
-2. 通过 DSH session fork 创建分支会话。
-3. 回放该边界前的历史。
-4. 把原消息放回输入框供修改和重发。
+1. Finds the beginning of the turn containing that message.
+2. Creates a branch session through DSH session fork.
+3. Replays history before the boundary.
+4. Restores the original message to the editor for revision and resubmission.
 
-### Model 与 preset
+### Side question /btw
 
-`/model` 通过在当前历史末尾 fork 会话来切换模型，因为 DSH 没有原位换模型 API。
-旧会话仍保留在 `/resume` 中。
+`/btw <question>` asks a quick side question without disturbing the main
+task: it reuses the current session context (system prompt + existing
+history) for a single **tool-less, one-turn** model call, and shows the
+answer in a scrollable panel. Notes:
 
-`/preset` 只允许空白会话原地切换。已经开始的会话会把选择保存为下一次 `/new`
-或启动时的默认值。详细规则见[配置参考](configuration.md#agent-preset)。
+- **Never enters conversation history**: the exchange is not written to the
+  session log and never reaches the main context or token counts (closing
+  the panel discards it).
+- **Never interrupts the running turn**: it can be triggered while the
+  model is streaming; the main task keeps going.
+- Inside the panel: `↑`/`↓` scroll, `Space`/`Enter`/`Esc` dismiss, `c`
+  copies the answer; `Esc` cancels while the answer is still pending.
 
-## Fullscreen 与鼠标
+### Model and preset
 
-`fullscreen: false` 是默认 inline 模式，终端模拟器拥有原生 scrollback 和选区。
+`/model` switches through a session fork at the end of current history because
+DSH has no in-place model-switch API. The old session remains in `/resume`.
 
-`fullscreen: true` 使用 alternate screen，并启用应用内鼠标处理：
+`/preset` switches in place only for a blank session. In a started session,
+the choice becomes the default for the next `/new` or launch. See
+[Configuration](configuration.md#agent-presets).
 
-| 操作 | 行为 |
+## Fullscreen and mouse
+
+`fullscreen: false` is the default inline mode, where the terminal emulator
+owns native scrollback and selection.
+
+`fullscreen: true` uses the alternate screen and enables in-app mouse handling:
+
+| Action | Behavior |
 | --- | --- |
-| 滚轮 | 滚动会话消息列表 |
-| 拖拽 | 选择文本，松开后立即复制并清除选区 |
-| 双击/三击 | 选择单词/整行并复制 |
-| `Esc` | 取消正在进行的拖拽，不复制 |
+| Wheel | Scroll the transcript |
+| Drag | Select text, copy on release, then clear the selection |
+| Double/triple click | Select and copy a word/line |
+| `Esc` | Cancel an active drag without copying |
 
-复制优先使用 OSC 52；本地终端可回退到 `wl-copy`、`xclip` 或 `xsel`，tmux 使用
-`load-buffer -w`。设置 `CC_TUI_DISABLE_MOUSE=1` 可临时关闭 fullscreen 鼠标。
+Copy prefers OSC 52. Local fallbacks include `wl-copy`, `xclip`, and `xsel`;
+tmux uses `load-buffer -w`. Set `DSH_TUI_DISABLE_MOUSE=1` to temporarily disable
+fullscreen mouse handling.
 
-## `ask_user_question` 问卷
+## `ask_user_question` questionnaires
 
-模型调用问卷工具时，问卷面板暂时拥有键盘：
+When the model invokes the questionnaire tool, its panel temporarily owns the
+keyboard:
 
-| 按键 | 行为 |
+| Key | Behavior |
 | --- | --- |
-| `Up/Down` | 移动选项 |
-| `Space` | 多选题勾选或取消 |
-| `Tab` | 切换到自定义文本回答 |
-| `Enter` | 提交当前题 |
-| `Esc` | 取消整批提问，模型收到 `ASK_CANCELLED`（harness 侧中止仍报 `ASK_ABORTED`） |
+| `Up/Down` | Move through options |
+| `Space` | Toggle a multi-select option |
+| `Tab` | Switch to a custom text answer |
+| `Enter` | Submit the current question |
+| `Esc` | Cancel; the model receives `ASK_ABORTED` |
 
-一批多题以及并发子代理提问会按 FIFO 逐题显示。完成后，问答摘要折叠进本地
-transcript。
+Batched questions and concurrent subagent questions are shown one at a time in
+FIFO order. A compact Q&A summary is added to the local transcript afterward.
 
-## 计划评审（plan review）
+## Slash commands
 
-计划模式下模型调用 `exit_plan_mode` 时，计划全文以 markdown 渲染在评审面板中
-（`intent: plan-review` 的专用决策布局）：
+The command menu merges local commands with the DSH command registry. Type `/`
+to inspect the complete surface available in the current composition. Command
+descriptions come from `LOCAL_COMMANDS` or the DSH registry. Unmapped
+registry commands fall back to the registry's own text.
 
-| 按键 | 行为 |
+| Group | Commands |
 | --- | --- |
-| `Up/Down` | 在选项与底部反馈输入行之间移动 |
-| `1`/`2` | 直接提交对应选项（反馈缓冲为空时；非空则数字视为反馈字符） |
-| 打字 | 进入反馈输入行 |
-| `Enter`（选项行） | 提交该选项；批准行有反馈时会报错——批准必须不带反馈，否则协议视为"继续规划" |
-| `Enter`（输入行） | 提交"继续规划"并附上反馈文本 |
-| `Esc` | 打断评审去说话（`ASK_CANCELLED`），模型停留在计划模式 |
+| Sessions | `/new`, `/resume`, `/clear`, `/compact`, `/export`, `/btw`, `/trace` |
+| Status | `/status`, `/cost`, `/config`, `/doctor`, `/init`, `/agents` |
+| Model and display | `/model`, `/effort`, `/thinking`, `/tokens`, `/activity`, `/preset`, `/theme`, `/lang` |
+| Account and policy | `/login`, `/logout`, `/permissions`, `/add-dir`, `/hooks`, `/mcp`, `/memory` |
+| Packaged skills | `/audit`, `/bug`, `/practice`, `/review`, `/pr_comments`, `/release-notes`, `/vuln-check` |
+| Other | `/update`, `/vim`, `/terminal-setup`, `/connect`, `/help`, `/exit` |
+| Registry | `/plan`, `/goal`, and any other command registered by the DSH composition |
 
-## 工具审批（approval）
+Additional forms:
 
-权限层发起 `approval/request` 时，审批面板显示工具名、从配对 tool call 提取的
-完整命令与原因，并暂时拥有键盘（同时挂起问卷时审批优先）：
+- `/activity` opens the animation picker; `/activity frames <name>` selects
+  directly; `/activity status` reports the current choice.
+- `/preset <id>` and `/preset status` are described in the configuration guide.
+- `/effort` opens the reasoning-effort slider (←/→ adjusts live);
+  `/effort <id>` sets a level directly; `/effort status` reports the current one.
+- `/theme <name>` and `/theme status` are described in the theme guide.
+- `/lang` reports the interface language (see “Interface language”).
+- After startup, the TUI checks npm for a newer version in the background and
+  shows a notification when one is available. The check follows the npm
+  registry configuration (`NPM_CONFIG_REGISTRY` or `~/.npmrc`), so mirror
+  users see the versions their package manager actually installs. `/update`
+  updates the installed `@deepseek-harness-tui/dsh-tui`, then restarts and
+  resumes the current session automatically; wait for an active turn to finish first. It is only
+  available under a `dsh --profile <name>` launch (source checkouts get an
+  unavailable notice), and an already-latest install is reported as such
+  without restarting.
+- `/plan [off|message]` and `/goal ...` are handled by DSH command plugins and
+  recorded as session events.
+- Skill commands submit activation prompts. The actual skill is loaded through
+  the DSH skill registry. Packaged `skills/` register at startup and may be
+  overridden by same-name project or user skills.
 
-| 按键 | 行为 |
-| --- | --- |
-| `Up/Down` | 移动选项 |
-| `1` / `2` | 允许（仅本次）/ 拒绝 |
-| `Enter` | 提交当前焦点项 |
-| `Esc` / `Ctrl+C` | 拒绝（fail closed） |
-
-## Slash Commands
-
-命令菜单由本地命令与 DSH 命令注册表合并而成。输入 `/` 查看当前组合真正可用的
-全集。命令描述随界面语言（`/lang`）中英切换：内置命令与已收录的注册表命令
-（`/plan`、`/goal`、`/feedback`）显示中文翻译，其余注册表命令回退注册表原文。
-
-| 分组 | 命令 |
-| --- | --- |
-| 会话 | `/new`、`/resume`、`/clear`、`/compact`、`/export` |
-| 状态 | `/status`、`/cost`、`/config`、`/doctor`、`/init`、`/agents` |
-| 模型与显示 | `/model`、`/thinking`、`/tokens`、`/activity`、`/preset`、`/theme`、`/lang` |
-| 账号与策略 | `/login`、`/logout`、`/permissions`、`/add-dir`、`/hooks`、`/mcp`、`/memory` |
-| 打包 Skills | `/audit`、`/bug`、`/practice`、`/review`、`/pr_comments`、`/release-notes`、`/vuln-check` |
-| 其他 | `/update`、`/vim`、`/terminal-setup`、`/connect`、`/help`、`/exit` |
-| 注册表 | `/plan`、`/goal`，以及当前 DSH 组合注册的其他命令 |
-
-补充语法：
-
-- `/activity` 打开动画选择器；`/activity frames <name>` 直接设置；
-  `/activity status` 查看状态。
-- `/preset <id>` 与 `/preset status` 见配置文档。
-- `/theme <name>` 与 `/theme status` 见主题文档。
-- `/lang` 切换中英界面语言（见「界面语言」）。
-- 启动后会后台检查 npm 新版本；发现更新时会提示。检测遵循 npm registry
-  配置（`NPM_CONFIG_REGISTRY` 或 `~/.npmrc`），镜像源用户看到的就是安装源
-  的最新版。`/update` 更新已安装的
-  `@deepseek-harness-tui/dsh-tui`，然后自动重启并恢复当前会话；当前回合运行时需等待完成。
-  仅在 `dsh --profile <name>` 启动时可用（源码运行等场景会提示不可用）；
-  已是最新版时直接提示，不会重启。
-- `/plan [off|message]` 与 `/goal ...` 由 DSH 命令插件处理并写入会话事件。
-- Skill 命令只发送激活提示；实际 skill 通过 DSH skill 注册表加载。包内
-  `skills/` 会在插件启动时自动注册，也可用项目或用户目录中的同名 skill 覆盖。
-
-`/vim`、`/connect`、`/hooks` 与 `/memory` 当前是兼容占位命令；当 DSH 组合没有
-对应能力时会给出明确说明，而不是静默执行。
+`/vim`, `/connect`, `/hooks`, and `/memory` are currently compatibility
+placeholders. When the DSH composition has no matching capability, each
+command explains that explicitly rather than silently doing nothing.

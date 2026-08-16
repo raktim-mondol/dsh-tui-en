@@ -1,12 +1,12 @@
-# 友情链接与生态
+# Related projects
 
-[文档索引](README.md)
+[Documentation index](README.md)
 
-朋友们开发的社区、相关项目与周边工具：
+Community projects and related tools:
 
-| 项目 | 链接 | 说明 |
+| Project | Link | Notes |
 | --- | --- | --- |
-| **dshfind** | <https://dshfind.com> | DeepSeek Harness 的中文学习与分享社区 |
-| **deepseek-harness-ux** | <https://github.com/ayuanwong/deepseek-harness-ux> | 让你的 DeepSeek Harness 工作过程一目了然！ |
-| **dsh-tianshu-tui** | <https://github.com/huiliyi37/dsh-tianshu-tui> | Tianshu 风格的 dsh-tui |
-| **dsh-data-agent** | <https://github.com/omdsh-dev/dsh-data-agent> | 让 AI 帮你连数据库 |
+| **dshfind** | <https://dshfind.com> | DeepSeek Harness learning and sharing community |
+| **deepseek-harness-ux** | <https://github.com/ayuanwong/deepseek-harness-ux> | Makes the DeepSeek Harness work process easy to follow |
+| **dsh-tianshu-tui** | <https://github.com/huiliyi37/dsh-tianshu-tui> | Tianshu-styled dsh-tui |
+| **dsh-data-agent** | <https://github.com/omdsh-dev/dsh-data-agent> | Connect AI to your databases |

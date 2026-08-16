@@ -1,0 +1,45 @@
+name: Star History
+
+# On 2026-06-30 GitHub restricted the stargazers endpoint (owner/collaborator
+# only), so third-party hosts (api.star-history.com/svg) can no longer render
+# trend charts for public repos. This workflow uses the repo's own
+# GITHUB_TOKEN (owner identity) to read star data, reuses the official
+# star-history renderer to commit a static PNG to the bot-star-history
+# branch, and the README references that branch's raw URL (main has rulesets
+# that forbid direct push, so the chart lives on its own branch).
+# See: https://github.com/narayann7/star-history-action
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # refresh daily at 00:00 UTC
+  watch:
+    types: [started]      # refresh immediately when someone stars
+  workflow_dispatch:      # allow manual trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: star-history
+  cancel-in-progress: true   # coalesce bursts of stars into one run
+
+jobs:
+  star-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Switch to the chart-only branch (based on latest main, sync remote)
+        run: |
+          git checkout -B bot-star-history origin/main
+          # first run: remote may not have this branch; each run resets the remote to latest main (unprotected, force is safe)
+          git push --force origin bot-star-history
+          git branch --show-current
+      - uses: narayann7/star-history-action@v1
+        with:
+          # repos defaults to the current repository (${{ github.repository }})
+          update-readme: false   # main README is maintained by humans with a fixed raw URL; the action must not rewrite it
+          readme-format: png     # npm does not render <picture>; use a plain markdown PNG (README ships with the package)
+          themes: light          # png mode uses a single theme to cut render/repo noise
+          commit-message: 'chore: update Star History chart [skip ci]'

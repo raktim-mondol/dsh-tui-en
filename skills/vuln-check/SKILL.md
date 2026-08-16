@@ -9,8 +9,8 @@ Check the current project for security vulnerabilities: dependency advisories an
 
 ## Procedure
 
-1. **依赖审计**: inspect the lockfile/manifest (package-lock.json / pnpm-lock.yaml / requirements.txt…) for known-vulnerable versions. Use the local toolchain (npm audit / pnpm audit when available and network permits) or compare against known advisory data.
-2. **代码检查**: scan for security anti-patterns with file/line evidence:
+1. **Dependency audit**: inspect the lockfile/manifest (package-lock.json / pnpm-lock.yaml / requirements.txt…) for known-vulnerable versions. Use the local toolchain (npm audit / pnpm audit when available and network permits) or compare against known advisory data.
+2. **Code review**: scan for security anti-patterns with file/line evidence:
    - shell command injection (string interpolation into exec/spawn with shell:true)
    - path traversal (user input joined into paths without normalization)
    - secrets committed (API keys, tokens, private keys in the tree)

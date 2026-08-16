@@ -1,6 +1,7 @@
 allowBuilds:
   esbuild: false
   koffi: false
+
 minimumReleaseAgeExclude:
   - '@deepseek-ai/cordis-plugin-include@1.0.6'
   - '@deepseek-ai/cordis-plugin-loader@1.0.2'
@@ -44,3 +45,6 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/schemastery@3.18.1'
   - dsh-working-activity@0.2.2 || 0.2.4
   - '@deepseek-ai/dsh-session-persistence-jsonl@0.1.0-rc.6'
+
+patchedDependencies:
+  dsh-working-activity@0.2.4: patches/dsh-working-activity@0.2.4.patch

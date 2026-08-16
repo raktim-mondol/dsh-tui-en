@@ -4,7 +4,7 @@
  *
  * Builds a multi-frame zstd session log mixing known harness event types
  * with third-party ones (activity/status + a fictitious plugin type), runs
- * the repair against a temp DSH_CC_SESSION_ROOT, and asserts:
+ * the repair against a temp DSH_TUI_SESSION_ROOT, and asserts:
  *   1. unknown types get ignorable:true (the resume-blocking case);
  *   2. known types are never marked;
  *   3. already-ignorable events are untouched;
@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-tui-resume-repair-'))
-process.env.DSH_CC_SESSION_ROOT = root
+process.env.DSH_TUI_SESSION_ROOT = root
 
 // Import AFTER the env override: the module resolves the root at call time,
 // but keeping the order obvious protects against future module-level reads.
@@ -46,7 +46,7 @@ const frames = [
 ]
 writeFileSync(file, Buffer.concat(frames.map((f) => zstdCompressSync(Buffer.from(f.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8')))))
 
-// 多帧日志必须逐帧解码——单帧 decompress 只出第一帧，静默漏掉后续事件。
+// Multi-frame logs must be decoded frame by frame — a single decompress only yields the first frame and silently drops later events.
 const decodeAll = () =>
   splitFrames(readFileSync(file)).flatMap((f) =>
     zstdDecompressSync(f).toString('utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)),

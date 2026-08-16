@@ -1,12 +1,14 @@
 /**
- * 斜杠命令描述 i18n 回归（issue #41 的汉化一半，CJK 截断一半由
- * verify-cjk-truncate.tsx 覆盖）：
- *   1. lang=zh 时 / 菜单（CommandSuggestions）与 ? 帮助菜单（HelpMenu）
- *      显示中文描述，lang=en 时回退 LOCAL_COMMANDS / 注册表原文；
- *   2. 已知外部命令（plan）在 zh 下走 cmd-desc 映射，未收录的外部命令
- *      任何语言都回退注册表原文；
- *   3. 窄终端下中文描述按显示宽度截断，不劈字、每行宽度不超限。
- * 运行：node --import tsx/esm scripts/verify-i18n-command-descriptions.tsx
+ * Slash-command description regression (issue #41). The UI is English-only:
+ * `/lang zh` and `/lang en` both show LOCAL_COMMANDS / registry English.
+ * CJK display-width truncation is covered by verify-cjk-truncate.tsx.
+ *
+ *   1. CommandSuggestions and HelpMenu show English descriptions
+ *      ("Start a new conversation", "Toggle plan mode").
+ *   2. Unknown external commands fall back to the registry text.
+ *   3. Narrow terminals truncate long English descriptions by display
+ *      width without exceeding the column limit.
+ * Run: node --import tsx/esm scripts/verify-i18n-command-descriptions.tsx
  */
 process.env.FORCE_COLOR = '3'
 
@@ -62,16 +64,23 @@ function screenText(term: InstanceType<typeof XTerm>, rows: number): string {
   return lines.join('\n')
 }
 
-// 混合清单：内置命令 + 已收录外部命令（plan）+ 未收录外部命令。
+// Mixed list: built-in commands + known external (plan) + unlisted external.
 const commands = [
   ...LOCAL_COMMANDS.filter(c => ['new', 'compact', 'rewind'].includes(c.name)),
   { name: 'plan', description: 'Toggle plan mode', external: true },
   { name: 'unlisted-ext', description: 'Registry fallback text', external: true },
 ]
 
-// --- 1. / 菜单随语言切换 -----------------------------------------------------
+function assertEnglishDescriptions(text: string, tag: string) {
+  assert(text.includes('Start a new conversation'), `${tag}: built-in /new shows LOCAL_COMMANDS English`)
+  assert(text.includes('Compact the conversation history') || text.includes('Compact the conversation'), `${tag}: compact shows LOCAL_COMMANDS English`)
+  assert(text.includes('Toggle plan mode'), `${tag}: external /plan shows registry English`)
+  assert(text.includes('Registry fallback text'), `${tag}: unlisted external falls back to registry text`)
+}
 
-console.log('CommandSuggestions 随 /lang 切换:')
+// --- 1. / menu shows English under both /lang values ----------------------
+
+console.log('CommandSuggestions English descriptions:')
 
 {
   const COLS = 80
@@ -86,29 +95,20 @@ console.log('CommandSuggestions 随 /lang 切换:')
   setLang('zh')
   app.rerender(React.createElement(CommandSuggestions, { commands, selectedIndex: 0, columns: COLS }))
   await sleep(200)
-  let text = screenText(term, ROWS)
-  assert(text.includes('新开会话'), 'zh：内置命令显示中文描述（新开会话）')
-  assert(text.includes('压缩会话历史'), 'zh：compact 显示中文描述')
-  assert(text.includes('切换计划模式'), 'zh：外部命令 plan 走 cmd-desc 中文映射')
-  assert(text.includes('Registry fallback text'), 'zh：未收录外部命令回退注册表原文')
-  assert(!text.includes('Toggle plan mode'), 'zh：已收录外部命令不再显示英文原文')
+  assertEnglishDescriptions(screenText(term, ROWS), '/lang zh')
 
   setLang('en')
   app.rerender(React.createElement(CommandSuggestions, { commands, selectedIndex: 0, columns: COLS }))
   await sleep(200)
-  text = screenText(term, ROWS)
-  assert(text.includes('Start a new conversation'), 'en：内置命令回退 LOCAL_COMMANDS 英文原文')
-  assert(text.includes('Toggle plan mode'), 'en：外部命令 plan 回退注册表英文原文')
-  assert(!text.includes('新开会话'), 'en：不再残留中文描述')
+  assertEnglishDescriptions(screenText(term, ROWS), '/lang en')
 
-  setLang('zh')
   app.unmount()
   await sleep(100)
 }
 
-// --- 2. ? 帮助菜单随语言切换 --------------------------------------------------
+// --- 2. ? help menu shows English under both /lang values -----------------
 
-console.log('HelpMenu 随 /lang 切换:')
+console.log('HelpMenu English descriptions:')
 
 {
   const COLS = 110
@@ -124,29 +124,28 @@ console.log('HelpMenu 随 /lang 切换:')
   app.rerender(React.createElement(HelpMenu, { commands }))
   await sleep(200)
   let text = screenText(term, ROWS)
-  assert(text.includes('/new — 新开会话'), 'zh：帮助菜单显示 /new — 新开会话')
-  assert(text.includes('/rewind — 回退会话到历史消息'), 'zh：帮助菜单显示 rewind 中文描述')
+  assert(text.includes('/new — Start a new conversation'), '/lang zh: help menu shows /new English')
+  assert(text.includes('/rewind — Rewind'), '/lang zh: help menu shows rewind English')
 
   setLang('en')
   app.rerender(React.createElement(HelpMenu, { commands }))
   await sleep(200)
   text = screenText(term, ROWS)
-  assert(text.includes('/new — Start a new conversation'), 'en：帮助菜单显示英文原文')
+  assert(text.includes('/new — Start a new conversation'), '/lang en: help menu shows English')
 
-  setLang('zh')
   app.unmount()
   await sleep(100)
 }
 
-// --- 3. 窄终端中文截断不劈字 --------------------------------------------------
+// --- 3. Narrow terminal: long English descriptions truncate by width ------
 
-console.log('窄终端中文描述截断:')
+console.log('Narrow-terminal description truncation:')
 
 {
   const COLS = 36
   const ROWS = 8
   const { term, stdout } = makeTerm(COLS, ROWS)
-  setLang('zh')
+  setLang('en')
   const app = await render(
     React.createElement(CommandSuggestions, { commands, selectedIndex: 0, columns: COLS }),
     { stdout, exitOnCtrlC: false, patchConsole: false },
@@ -161,17 +160,15 @@ console.log('窄终端中文描述截断:')
     const line = buf.getLine(y)?.translateToString(true) ?? ''
     if (line.trim() === '') continue
     const w = stringWidth(line)
-    assert(w <= COLS, `第 ${y} 行宽 ${w} ≤ 终端宽 ${COLS}：'${line.trimEnd()}'`)
+    assert(w <= COLS, `row ${y} width ${w} ≤ terminal width ${COLS}: '${line.trimEnd()}'`)
     if (line.includes('…')) sawEllipsis = true
   }
-  assert(sawEllipsis, '窄终端下超长中文描述被截断并带省略号')
+  assert(sawEllipsis, 'narrow terminal truncates a long English description with an ellipsis')
 }
-
-// --- 结果 -------------------------------------------------------------------
 
 if (failures > 0) {
-  console.error(`\n${failures} 项断言失败`)
+  console.error(`\n${failures} assertion(s) failed`)
   process.exit(1)
 }
-console.log('\n全部断言通过')
+console.log('\nAll assertions passed')
 process.exit(0)

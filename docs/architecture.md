@@ -1,130 +1,161 @@
-# 架构与限制
+# Architecture and Limitations
 
-[文档索引](README.md) · [English](architecture.en.md)
+[Documentation index](README.md)
 
-## 运行链路
+## Runtime path
 
 ```text
 Cordis profile
-  -> src/index.ts（插件契约与 Schema）
-  -> src/plugin.ts（服务、Agent、React 生命周期）
+  -> src/index.ts (plugin contract and Schema)
+  -> src/plugin.ts (services, Agent, and React lifecycle)
   -> DSH Agent / session / tool services
-  -> src/channel.ts（session/event -> Channel）
-  -> src/screens/Chat.tsx（键盘与模式编排）
-  -> src/components/*（视图）
-  -> src/ui.ts（主题化 renderer facade）
-  -> src/ink/* + Yoga（布局、终端协议、差分输出）
+  -> src/channel.ts (session/event -> Channel)
+  -> src/screens/Chat.tsx (keyboard and mode orchestration)
+  -> src/components/* (views)
+  -> src/ui.ts (themed renderer facade)
+  -> src/ink/* + Yoga (layout, terminal protocol, differential output)
   -> ANSI terminal
 ```
 
-## 模块边界
+## Module ownership
 
-| 模块 | 所有权 |
+| Module | Owns |
 | --- | --- |
-| `src/index.ts` | Cordis 插件名称、注入声明、配置接口与 Schema；保持入口轻量并延迟加载 runtime |
-| `src/plugin.ts` | TTY 检查、问卷与 Skills 注册、Agent 创建/恢复、React 挂载、统一退出清理 |
-| `src/channel.ts` | 将 DSH 持久化事件投影为 transcript；提供 submit、steer、resume、rewind、model/preset 等动作 |
-| `src/screens/Chat.tsx` | modal 优先级、全局按键、滚动/搜索/选择状态、slash command 分发 |
-| `src/components/` | 用户界面和 design-system；不直接拥有 Agent 或 session 真相 |
-| `src/ui.ts` | 主题化 `Box`/`Text`、render、选择、滚动等公共 facade |
-| `src/ink/` | 移植的 Ink renderer、终端协议、事件、选择与 Yoga 桥接；属于敏感底层设施 |
-| `src/native-ts/yoga-layout/` | 纯 JS/TS 布局实现 |
-| `cordis.patch.yml` | profile bundle 层；决定服务行、覆盖关系与挂载顺序 |
+| `src/index.ts` | Cordis plugin name, injection declaration, config interface, and Schema; keep the entry small and lazy |
+| `src/plugin.ts` | TTY guard, questionnaire/skill registration, Agent create/resume, React mount, and the single cleanup funnel |
+| `src/channel.ts` | DSH event projection plus submit, steer, resume, rewind, model, and preset actions |
+| `src/screens/Chat.tsx` | Modal precedence, global keys, scroll/search/selection state, and slash dispatch |
+| `src/components/` | User views and design-system primitives; no Agent or session source of truth |
+| `src/ui.ts` | Themed `Box`/`Text`, render, selection, scroll, and other public TUI primitives |
+| `src/ink/` | Ported Ink renderer, terminal protocol, events, selection, and Yoga bridge; sensitive infrastructure |
+| `src/native-ts/yoga-layout/` | Pure JS/TS layout implementation |
+| `cordis.patch.yml` | Profile bundle layer, service rows, overrides, and mount ordering |
 
-不要在组件中复制 DSH Agent、session 或 tool 服务。需要新能力时，优先通过已有
-service、registry 或 channel seam 接入。
+Do not duplicate DSH Agent, session, or tool services in a component. Connect new
+capability through an existing service, registry, or channel seam.
 
-## Session 是真源
+## The session log is the source of truth
 
-`channel.ts` 不把 React 本地数组当作对话真相。DSH `session/event` 日志负责：
+`channel.ts` does not treat a React-local array as conversation truth. DSH
+`session/event` records own:
 
-- 初始历史回放与增量流式事件；
-- assistant/reasoning/tool 行的关联与 sequence anchor；
-- rewind 的 turn 边界；
-- resume、export、compact 和 fork 后的重建。
+- initial replay and incremental streaming events;
+- assistant/reasoning/tool association and sequence anchors;
+- rewind turn boundaries;
+- reconstruction after resume, export, compact, and fork.
 
-Channel 只保留适合当前 TUI 的投影。长会话超过窗口后，旧行会折叠为短预览；完整
-内容仍在 session log 中，需要时从事件恢复。工具结果按 `callId` 关联，不能只按
-数组位置猜测。
+The Channel keeps a TUI-sized projection. Once a long transcript exceeds its
+window, older rows fold into short previews while the complete content remains
+in the session log and can be restored from events. Tool results are associated
+by `callId`, never guessed from array position.
 
-## 渲染与长会话性能
+## Rendering and long-session performance
 
-- **差分输出**：每帧只写屏幕变化，并使用终端能力探测决定同步输出、光标策略和
-  Windows Terminal 兼容路径。
-- **虚拟化消息列表**：屏幕外行使用上一次测量的固定高度占位，不参与完整子树布局。
-- **回放合并**：历史回放时合并连续 token chunk，避免长流式消息触发二次字符串增长。
-- **有界缓存**：transcript、渲染节点和测量缓存有上限；移除上限前必须有测量证据。
-- **显示宽度**：ANSI、组合字符、emoji 和东亚宽字符都按 terminal cell width 处理，
-  不能用普通 JavaScript `string.length` 代替。
+- **Differential output**: each frame writes only screen changes and uses
+  capability detection to choose synchronized output, cursor, and Windows
+  Terminal paths.
+- **Message virtualization**: off-screen rows use the last measured fixed-height
+  placeholder and do not participate in the full layout subtree.
+- **Replay coalescing**: consecutive token chunks are merged during history
+  replay, avoiding repeated string growth for long streamed messages.
+- **Bounded caches**: transcript, render-node, and measurement caches are bounded;
+  removing a bound requires measured evidence.
+- **Display-cell width**: ANSI escapes, combining marks, emoji, and East Asian
+  wide characters use terminal cell width, not JavaScript `string.length`.
 
-改动 `src/ink/` 或 Yoga 时，至少运行 CI 的问卷/工具卡回归，并按影响范围运行
-scroll、resize、copy-on-select 或 PTY 脚本。不要用普通 `console.log` 向活动 TUI 的
-stdout 打印诊断；使用 stderr 的 `CC_TUI_DEBUG` 或 `DSH_CC_RENDER_LOG`。
+When changing `src/ink/` or Yoga, run the CI questionnaire/tool-card regressions
+and the affected scroll, resize, copy-on-select, or PTY harness. Do not print
+diagnostics to an active TUI's stdout; use stderr `DSH_TUI_DEBUG` or
+`DSH_TUI_RENDER_LOG`.
 
-## Inline 与 fullscreen
+## Inline and fullscreen modes
 
-- **Inline（默认）**：内容留在主屏，终端模拟器管理 scrollback 和原生文本选区。
-- **Fullscreen**：`AlternateScreen` 切换到备用屏，TUI 自己管理滚动、鼠标选区、OSC 52
-  复制和退出时的屏幕恢复。
+- **Inline (default)**: content remains on the main screen, and the terminal
+  emulator owns scrollback and native text selection.
+- **Fullscreen**: `AlternateScreen` switches to the alternate screen, where the
+  TUI owns scrolling, mouse selection, OSC 52 copy, and screen restoration.
 
-两种模式共享 Channel 与 React 视图，但终端协议路径不同。涉及输入、滚动、鼠标、
-光标、resize 或清理的改动必须分别验证，尤其要覆盖窄终端和 Windows ConPTY。
+Both modes share the Channel and React views but use different terminal protocol
+paths. Changes involving input, scrolling, mouse, cursor, resize, or cleanup
+must be checked in both modes, especially on narrow terminals and Windows
+ConPTY.
 
-## 持久化位置
+## Persistence locations
 
-| 路径 | 内容 |
+| Path | Contents |
 | --- | --- |
-| `~/.dsh-cc/sessions.sqlite` | profile patch 默认的 DSH SQLite 会话事件 |
-| `~/.dsh-cc/resume.txt` | Windows 启动器和退出提示使用的最近 session ID |
-| `~/.dsh-cc/last-used.json` | `/resume` 最近使用排序元数据 |
-| `~/.dsh-cc/theme.json` | 当前主题选择 |
-| `~/.dsh-cc/themes/` | 用户自定义主题 JSON |
-| `~/.dsh-cc/working-activity.json` | 工作状态动画选择 |
-| `~/.dsh-cc/agent-preset.json` | 新会话默认 Agent preset |
+| `~/.dsh-tui/sessions.sqlite` | DSH SQLite session events from the profile patch |
+| `~/.dsh-tui/resume.txt` | Recent session ID used by the Windows launcher and exit hint |
+| `~/.dsh-tui/last-used.json` | `/resume` recency metadata |
+| `~/.dsh-tui/theme.json` | Current theme selection |
+| `~/.dsh-tui/themes/` | User theme JSON files |
+| `~/.dsh-tui/working-activity.json` | Activity animation selection |
+| `~/.dsh-tui/agent-preset.json` | Default Agent preset for new sessions |
 
-profile 可通过 `DSH_CC_SESSION_ROOT` 改写 SQLite 路径；直接运行根目录的
-`cordis.yml` 时，该变量改写的是 JSONL 根目录（默认 `~/.dsh-cc/sessions/`）。
-偏好文件是可选状态：损坏或缺失时回退，不应阻止 TUI 启动。
+`DSH_TUI_SESSION_ROOT` can override the SQLite path in the profile composition;
+when the root `cordis.yml` is launched directly, the same variable overrides
+the JSONL root (default `$DSH_HOME/sessions`, i.e. `~/.dsh/sessions/`).
+Preference files are optional
+state: malformed or missing files fall back silently rather than preventing
+startup.
 
-## 权限与安全边界
+The data directory was renamed from `~/.dsh-cc` to `~/.dsh-tui`: on first
+launch, if the old directory exists and the new one does not, it is copied
+(not moved) to the new location with one notice line; the old directory stays
+in place for the user to remove. `resume.txt` is an exception: it is
+dual-written to both paths because older launchers only read the old one.
 
-`dsh-TUI` 本身不提供独立沙箱；实际能力由 `cordis.patch.yml` 挂载的 DSH 服务
-决定。审批走 `ctx.approval` seam：策略为 `ask` 时 TUI 以 CC 式审批面板作为
-answerer（`approval/request` waterfall），仅允许一次/拒绝两种决定——协议没有
-"总是允许"与反馈通道：
+## Permissions and security boundary
 
-- 非 Windows 默认 `DSH_PERMISSION_MODE` 为 `workspace-write`，文件策略要求先观察
-  文件，审批策略通常为 `ask`。
-- Windows 当前没有可用的本地 sandbox 链，组合使用 `danger-full-access`，并将审批
-  策略设为 `never`，以匹配终端信任模型。
-- `DEEPSEEK_API_KEY` 只应来自环境变量或受控的运行时注入；状态命令只显示是否设置
-  或脱敏片段。
-- MCP、Shell、文件工具和自定义 preset 都会扩展模型可见能力，应当视为同一权限域
-  内的代码执行入口。
+`dsh-TUI` does not provide a separate sandbox; it implements the tool-level
+approval UI (a CC-style panel answering the `approval/request` waterfall),
+while `/permission` preset switching comes from the dsh-base
+`permission-presets` row. Effective capability comes from the DSH services
+mounted by `cordis.patch.yml`:
 
-在不可信仓库中运行前，检查实际 profile patch，而不是只看 TUI 的视觉界面。
+- On non-Windows platforms, `DSH_PERMISSION_MODE` defaults to `workspace-write`;
+  the filesystem policy requires observed files and the approval policy is
+  normally `ask`.
+- Windows has no usable local sandbox backend in the current composition, so it
+  uses `danger-full-access` and `never` approval to match the terminal trust
+  model.
+- `DEEPSEEK_API_KEY` should come from the environment or controlled runtime
+  injection. Status output only reports presence or a redacted fragment.
+- MCP, shell, filesystem tools, and custom presets expand what the model can
+  access and should be treated as code-execution surfaces in the same policy
+  domain.
 
-## 已知限制
+Inspect the active profile patch before running in an untrusted repository; the
+visual TUI alone does not describe the effective policy.
 
-- 注入到 system prompt 的插件上下文不会在 UI 中单独列出，而是计入 system/context
-  分段。
-- `/model` 通过 session fork 切换，不是原位修改；旧会话会留在 `/resume`。
-- Windows `Ctrl+V` 依赖 PowerShell `Get-Clipboard`；剪贴板被其他程序锁定时可能静默
-  失败并显示为空。
-- 退出路径优先恢复终端并结束进程，不等待 Agent 异步落盘；持久化插件负责兜底。
-- `/permission` 的沙箱预设切换仍未接入（`permission-presets` seam），但工具级审批
-  面板已实现。
-- `/vim`、`/connect`、`/hooks`、`/memory` 是兼容占位命令，不代表对应 DSH 能力已挂载。
-- 没有一套需要真实模型凭证的自动化全流程测试；CI 使用 headless renderer 与假服务，
-  真实模型集成仍需要在目标终端手动验证。
+## Known limitations
 
-## 调试与验证
+- Plugin-source context injected into the system prompt is not shown as a
+  separate UI segment; it is included in the system/context meter.
+- `/model` switches through a session fork rather than an in-place update; the
+  old session remains in `/resume`.
+- Windows `Ctrl+V` depends on PowerShell `Get-Clipboard`; another process can
+  lock the clipboard and make the operation appear empty.
+- Exit restores the terminal and ends the process without waiting for the
+  Agent's asynchronous flush; the persistence plugin is the fallback.
+- The tool-level approval panel is implemented (approval service + TUI
+  answerer); `/permission` preset switching is provided by the dsh-base
+  `permission-presets` plugin and works in profile compositions — the bare
+  `cordis.yml` mounts only the approval service, not `permission-presets`.
+- `/vim`, `/connect`, `/hooks`, and `/memory` are compatibility placeholders,
+  not evidence that those DSH capabilities are mounted.
+- There is no automated full-flow suite that requires real model credentials;
+  CI uses headless rendering and fake services, while live model integration
+  still needs a manual check in the target terminal.
 
-| 目的 | 方式 |
+## Debugging and verification
+
+| Goal | Method |
 | --- | --- |
-| 环境与 profile | TUI 内运行 `/doctor`、`/config`、`/permissions` |
-| stderr 调试 | `CC_TUI_DEBUG=1 dsh --profile dsh-tui` |
-| 原始 ANSI 帧 | `DSH_CC_RENDER_LOG=/path/to/render.log dsh --profile dsh-tui` |
-| 主题回归 | `node --import tsx/esm scripts/verify-themes.mjs` |
+| Environment and profile | Run `/doctor`, `/config`, and `/permissions` inside the TUI |
+| stderr diagnostics | `DSH_TUI_DEBUG=1 dsh --profile dsh-tui` |
+| Raw ANSI frames | `DSH_TUI_RENDER_LOG=/path/to/render.log dsh --profile dsh-tui` |
+| Theme regression | `node --import tsx/esm scripts/verify-themes.mjs` |
 
-`DSH_CC_RENDER_LOG` 和会话导出可能包含敏感内容，分享前必须脱敏。
+`DSH_TUI_RENDER_LOG` and session exports may contain sensitive content. Redact
+them before sharing.

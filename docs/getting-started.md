@@ -1,153 +1,178 @@
-# 安装与快速开始
+# Getting Started
 
-[文档索引](README.md) · [English](getting-started.en.md)
+[Documentation index](README.md)
 
-## 前置条件
+## Prerequisites
 
-- Node.js `^22.19 || >=24`。CI 使用 Node 24。
-- 官方 DeepSeek Harness CLI：`@deepseek-ai/dsh`。
-- `pnpm` **10 或更高**（CI 使用 11）。`dsh plugin` 会把 profile 内的包安装
-  交给 pnpm；pnpm 9 对传递依赖的提升行为不同，profile 里会解析不到
-  `dsh-working-activity`，表现为启动后立刻退出且几乎无报错（见 issue #60
-  与下方常见问题）。
-- 支持交互输入的终端 TTY。`dsh-tui` 不支持把 stdout 重定向后启动。
-- `DEEPSEEK_API_KEY`。使用自定义兼容端点时还可设置
-  `DEEPSEEK_BASE_URL`。
+- Node.js `^22.19 || >=24`; CI uses Node 24.
+- The official DeepSeek Harness CLI: `@deepseek-ai/dsh`.
+- `pnpm` **10 or newer** (CI uses 11); `dsh plugin` delegates profile
+  installation to pnpm. pnpm 9 hoists transitive dependencies differently,
+  leaving `dsh-working-activity` unresolvable inside the profile — the TUI
+  then exits right after startup with almost no error output (issue #60,
+  see Troubleshooting below).
+- An interactive terminal TTY. `dsh-tui` cannot start with stdout redirected.
+- `DEEPSEEK_API_KEY`. Set `DEEPSEEK_BASE_URL` as well when using a compatible
+  custom endpoint.
 
-macOS/Linux：
+macOS/Linux:
 
 ```sh
 export DEEPSEEK_API_KEY='your-key'
 ```
 
-PowerShell：
+PowerShell:
 
 ```powershell
 $env:DEEPSEEK_API_KEY = 'your-key'
 ```
 
-不要把真实密钥提交到仓库。正常的 profile 启动直接读取环境变量。
+Never commit a real credential. A normal profile launch reads the environment
+variable directly.
 
-## 安装
-
-最快路径（全局安装后自带 `dsh-tui` 直达命令）：
-
-```sh
-# 官方 CLI + 本插件
-npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
-
-# pnpm 未安装时任选一种方式（首次启动自动初始化 profile 时需要）
-npm install -g pnpm
-# 或：corepack enable pnpm
-
-# 启动：首次运行自动执行 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui@<版本>
-dsh-tui
-```
-
-手工分步（等价）：
+## Install
 
 ```sh
+# Install the official CLI
 npm install -g @deepseek-ai/dsh
+
+# Install pnpm if needed (or use: corepack enable pnpm)
+npm install -g pnpm
+
+# Add the scoped package to the dsh-tui profile
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
-dsh --profile dsh-tui   # 或 dsh-tui
 ```
 
-从仓库检出运行时，也可以执行：
+From a checkout, the repository helper wraps the profile command:
 
 ```sh
 sh install.sh
 ```
 
-`install.sh` 只封装 profile 插件命令并检查 `dsh`、`pnpm` 是否可用；它不会
-复制源码，也不需要本地构建。
+`install.sh` checks for `dsh` and `pnpm` and then runs the profile plugin
+command. It does not copy source files and does not require a local build.
 
-## 从旧包迁移
+## Migrate from the former package
 
-旧版安装使用无 scope 包 `dsh-cc-tui` 和 `cc-tui` profile。新版本改为组织包
-`@deepseek-harness-tui/dsh-tui` 与 `dsh-tui` profile；执行以下命令创建新 profile：
+Earlier releases used the unscoped `dsh-cc-tui` package and a `cc-tui`
+profile. The current identity is `@deepseek-harness-tui/dsh-tui` in a
+`dsh-tui` profile. Create the new profile with:
 
 ```sh
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
 dsh --profile dsh-tui
 ```
 
-`~/.dsh-cc`、`CC_TUI_*` 与 `DSH_CC_*` 暂时保留为兼容接口，因此会话恢复标记、
-主题、模型、preset 和输入历史无需迁移。确认新 profile 正常后，旧
-`$DSH_HOME/profiles/cc-tui` 仅作为旧安装残留，可按需删除；不要把旧包和新包同时
-添加到同一个 profile。
+This release completes the rename of environment variables and the data
+directory: `CC_TUI_*` and `DSH_CC_*` become `DSH_TUI_*` (for example
+`CC_TUI_THEME` → `DSH_TUI_THEME`), and the data directory moves from
+`~/.dsh-cc` to `~/.dsh-tui`. Behavior notes:
 
-## 安装命令做了什么
+- Old variable names no longer take effect. If a legacy name is still set at
+  startup, one warning line is printed asking you to switch to the new name
+  (the warning repeats on every launch while the old name remains set).
+- The only exception is the resume contract: `DSH_TUI_RESUME_SESSION` is the
+  new name, the reader prefers it but still accepts the old
+  `DSH_CC_RESUME_SESSION`, and the writer sets both variables so older
+  launchers keep working during the transition.
+- The data directory migrates automatically: on first launch, if `~/.dsh-cc`
+  exists and `~/.dsh-tui` does not, the old directory is **copied** (not
+  moved) to the new location and one notice line is printed. Themes, model
+  and preset choices, and input history come along. The old directory stays
+  in place; remove it yourself once the new one works.
+- `resume.txt` is an exception: it is written to both the new and the old
+  path, so older launchers that only read the old path still find the recent
+  session.
 
-首次执行 `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui` 时，官方 CLI 会：
+After the new profile works, `$DSH_HOME/profiles/cc-tui` is only a
+former installation and may be removed when convenient. Do not add both
+packages to the same profile.
 
-1. 在 `$DSH_HOME/profiles/dsh-tui/` 初始化 profile。未设置 `DSH_HOME` 时，
-   默认根目录通常是 `~/.dsh`。
-2. 让 profile 的第一层 bundle 使用 `@deepseek-ai/dsh-base`。
-3. 在 profile 内通过 pnpm 安装 `@deepseek-harness-tui/dsh-tui`。
-4. 读取包内 `dsh.bundle.patch` 元数据，将 `cordis.patch.yml` 追加为组合层。
+## What installation does
 
-启动时的主要顺序是：
+On the first `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui`, the official CLI:
+
+1. Initializes `$DSH_HOME/profiles/dsh-tui/`. When `DSH_HOME` is unset, the
+   default root is normally `~/.dsh`.
+2. Uses `@deepseek-ai/dsh-base` as the first profile bundle.
+3. Installs `@deepseek-harness-tui/dsh-tui` inside the profile with pnpm.
+4. Reads the package's `dsh.bundle.patch` metadata and adds its
+   `cordis.patch.yml` as a composition layer.
+
+The important startup order is:
 
 ```text
-dsh-base -> 其他 bundle -> @deepseek-harness-tui/dsh-tui patch -> 用户 profile patch
+dsh-base -> other bundles -> @deepseek-harness-tui/dsh-tui patch -> user profile patch
 ```
 
-base 提供 Agent、模型、会话、文件、Shell、策略和注册表等服务；本插件的 patch
-覆盖或插入 TUI、Agent preset 名册、SQLite 会话持久化与工作状态行。
+The base supplies agent, model, session, filesystem, shell, policy, and
+registry services. The plugin patch overrides or inserts the TUI, agent-preset
+roster, SQLite session persistence, and live activity row.
 
-`dsh-working-activity` 已经是本包依赖，并由 `dsh-tui` 的 patch 自动插入。
-不要对同一个 profile 再单独执行 `add dsh-working-activity`，否则可能出现重复行。
+`dsh-working-activity` is already a dependency of this package and is inserted
+by the `dsh-tui` patch. Do not separately add `dsh-working-activity` to the
+same profile or duplicate rows may be mounted.
 
-## 启动
+## Start the TUI
 
 ```sh
 dsh --profile dsh-tui
 ```
 
-命令从当前目录启动，因此 Agent 的默认工作区也是当前目录。进入目标项目目录后再
-启动即可。
+The process starts in the current directory, which is also the Agent's default
+workspace. Change into the target project before starting it.
 
-Windows 仓库检出还提供：
+On Windows, the checkout also provides:
 
 ```bat
 dsh-tui.cmd
 dsh-tui.cmd --resume
 ```
 
-`--resume` 会读取 `%USERPROFILE%\.dsh-cc\resume.txt`，恢复 TUI 最近选择的
-会话。设置 `DSH_CC_WORKSPACE` 可以覆盖批处理启动器采用的工作目录。
+`--resume` reads `%USERPROFILE%\.dsh-tui\resume.txt` and restores the session
+last selected by the TUI. The file is also dual-written to the old path
+`%USERPROFILE%\.dsh-cc\resume.txt` so older launchers that only read the old
+path keep working. Set `DSH_TUI_WORKSPACE` to override the working
+directory used by the batch launcher.
 
-## 更新到最新版本
+## Update to the latest version
 
-项目迭代很快，更新复用安装命令，显式指定 `@latest`：
+The project moves fast. Updating reuses the install command with an explicit
+`@latest`:
 
 ```sh
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui@latest
 ```
 
-- 不带 `@latest` 时 pnpm 会按 profile `package.json` 里已记录的版本范围
-  （如 `^0.1.4`）就地解析，可能停留在旧的主线上——这是"重复执行安装命令
-  但版本没变"的常见原因。
-- 确认生效：启动横幅右上角显示当前版本（`✦ dsh-cc vX.Y.Z`）。
-- 用户覆盖层 `cordis.patch.yml` 在更新中原样保留；会话数据的存放位置
-  可能随版本变化（如 0.3.7 起 `/resume` 改用与 dsh web 共享的 JSONL
-  会话库），跨大版本更新后旧会话不在列表属预期，原数据不会被删除。
+- Without `@latest`, pnpm resolves within the version range already recorded
+  in the profile's `package.json` (for example `^0.1.4`) and may stay on an
+  old line — the usual reason "re-running the install command" appears to
+  change nothing.
+- To confirm: the startup banner shows the running version
+  (`✦ dsh-TUI vX.Y.Z`).
+- Your `cordis.patch.yml` override layer survives updates untouched. Session
+  storage may move between versions (since 0.3.7, `/resume` uses the JSONL
+  session store shared with dsh web), so older sessions missing from the
+  list after a major update is expected — the underlying data is not
+  deleted.
 
-## Profile 配置
+## Profile configuration
 
-用户覆盖文件位于：
+The user override file is:
 
 ```text
 $DSH_HOME/profiles/dsh-tui/cordis.patch.yml
 ```
 
-配置一个节点时，`config` 块是整段替换，不是逐字段深合并。复制示例时需要保留
-仍然有效的字段。完整说明见[配置参考](configuration.md)。
+When overriding a row, its `config` block is replaced as a whole rather than
+deep-merged. Repeat every key you want to keep. See
+[Configuration](configuration.md) for examples.
 
-仓库根目录的 `cordis.yml` 是裸组合示例；正常的 npm/profile 安装以
-`cordis.patch.yml` 为准，不需要把根配置复制到 profile。
+The root `cordis.yml` is a bare-composition example. A normal npm/profile
+installation uses `cordis.patch.yml`; do not copy the root configuration into
+the profile.
 
-## 从源码开发
+## Develop from source
 
 ```sh
 git clone https://github.com/ccch1mneyyy/dsh-TUI.git
@@ -157,10 +182,11 @@ pnpm build
 pnpm smoke
 ```
 
-`pnpm build` 执行 `tsc -p tsconfig.json`，把 `src/` 编译到 `lib/types/`。
-`lib/types/` 是提交并发布的产物；源码改动必须同步重建。
+`pnpm build` runs `tsc -p tsconfig.json` and emits `src/` into `lib/types/`.
+Those generated files are committed and published, so source changes must be
+followed by a rebuild.
 
-CI 还会运行三条渲染回归：
+CI also runs three rendering regressions:
 
 ```sh
 node --import tsx/esm scripts/repro-askpanel.tsx
@@ -168,45 +194,50 @@ node --import tsx/esm scripts/verify-askpanel-layout.tsx
 node --import tsx/esm scripts/repro-toolcards.tsx
 ```
 
-`pnpm tui` 调用的 `scripts/run.ts` 假设包位于 DeepSeek Harness monorepo 的
-`packages/*` 布局中，不是本独立仓库的通用启动命令。独立仓库做真实集成测试时，
-应安装到 profile 后在 TTY 中启动。
+The `pnpm tui` script invokes `scripts/run.ts`, which assumes the package lives
+inside a DeepSeek Harness monorepo with a `packages/*` layout. It is not a
+portable launcher for this standalone repository. For a real integration
+check, install the package into a profile and run it in a TTY.
 
 
-## 常见问题
+## Troubleshooting
 
 ### `dsh-tui requires an interactive terminal`
 
-stdout 不是 TTY。请直接在终端中启动，不要把主进程输出管道到文件或其他命令。
+stdout is not a TTY. Start the process directly in a terminal rather than
+redirecting its main output to another command or file.
 
-### 找不到 `dsh` 或 `pnpm`
+### `dsh` or `pnpm` cannot be found
 
-确认全局 npm bin 目录在 `PATH` 中，并重新打开终端。`install.sh` 会在安装前检查
-这两个命令。
+Make sure the global npm bin directory is on `PATH`, then open a new terminal.
+`install.sh` checks both commands before installation.
 
-### 启动后立刻退回 shell，几乎没有报错（pnpm 9）
+### The TUI exits right back to the shell with almost no error (pnpm 9)
 
-pnpm 9 安装的 profile 里，传递依赖 `dsh-working-activity` 不会被提升到
-loader 可解析的位置，模块解析失败导致整棵插件树被回收，TUI 打印 resume
-提示后直接退出（issue #60）。升级 pnpm 到 10+ 后重装即可：
+In a profile installed by pnpm 9, the transitive dependency
+`dsh-working-activity` is not hoisted where the loader can resolve it; the
+failed module resolution tears down the whole plugin tree, and the TUI prints
+the resume hint and exits (issue #60). Upgrade pnpm to 10+ and reinstall:
 
 ```sh
 npm install -g pnpm@latest
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui@latest
 ```
 
-### 模型启动失败或提示没有凭证
+### The model reports missing credentials
 
-确认启动 `dsh` 的同一个 Shell 中存在 `DEEPSEEK_API_KEY`。自定义端点同时检查
-`DEEPSEEK_BASE_URL`。
+Confirm that `DEEPSEEK_API_KEY` is set in the same shell that starts `dsh`.
+Check `DEEPSEEK_BASE_URL` too when using a custom endpoint.
 
-### 工作状态行重复
+### The activity row appears twice
 
-检查 profile 是否曾单独添加 `dsh-working-activity`。保留本包 patch 自动插入的
-`working-activity` 行，移除重复 bundle 配置。
+Check whether `dsh-working-activity` was added separately to the profile. Keep
+the row inserted by the dsh-tui patch and remove the duplicate bundle entry.
 
-### TUI 显示错位或终端退出后状态异常
+### The TUI is misaligned or leaves terminal state behind
 
-先运行 `/doctor`，记录终端类型和模式，再参考[交互文档](interaction.md)与
-[架构文档](architecture.md)。渲染问题可使用 `DSH_CC_RENDER_LOG` 采集原始帧，
-但日志可能包含会话可见内容，应妥善处理。
+Run `/doctor`, record the terminal and mode, then consult
+[Interaction and commands](interaction.md) and
+[Architecture and limitations](architecture.md). `DSH_TUI_RENDER_LOG` can
+capture raw frames for rendering bugs, but those frames may contain visible
+conversation content and should be handled as sensitive data.

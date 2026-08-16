@@ -1,47 +1,58 @@
-# 主题系统
+# Themes
 
-[文档索引](README.md) · [English](themes.en.md)
+[Documentation index](README.md)
 
-## 内置主题
+## Built-in themes
 
-dsh-TUI 提供三套 Gentle Mist Blue 色板：
+dsh-TUI provides three Gentle Mist Blue palettes, plus an `auto` pseudo-theme:
 
-| 名称 | 用途 |
+| Name | Purpose |
 | --- | --- |
-| `light` | 暖白背景、墨色正文、雾蓝交互色 |
-| `dark` | 深色终端适配，暖灰正文与柔雾蓝强调色 |
-| `dark-ansi` | 只依赖 16 色 ANSI 的兼容回退 |
+| `auto` | Pseudo-theme: follows the system/terminal background, resolving to `light` or `dark` |
+| `light` | Warm-white surfaces, ink body text, and mist-blue interaction color |
+| `dark` | Dark-terminal adaptation with warm-gray text and soft blue accents |
+| `dark-ansi` | Compatibility fallback using only the 16 ANSI colors |
 
-未明确指定主题时，TUI 会通过 OSC 11 查询终端背景并在 `light` 与 `dark` 之间
-选择；终端不响应时回退到 `dark`。
+Without an explicit choice, the TUI queries the terminal background with OSC
+11 and selects `light` or `dark`. It falls back to `dark` when the terminal does
+not answer.
 
-选择优先级：
+`auto` turns that one-shot startup detection into a standing choice: it is a
+valid value for `/theme`, `CC_TUI_THEME`, and `~/.dsh-cc/theme.json`. Selecting
+`auto` applies the last detected base immediately and re-queries OSC 11 in the
+background — on terminals that follow the system theme, picking `auto` again
+(or restarting) catches up after a system light/dark switch. `/theme status`
+shows which palette `auto` currently resolves to, and `getTheme('auto')` serves
+that palette to every consumer. A user theme named `auto` is shadowed by the
+built-in pseudo-theme (not listed in the picker).
+
+Selection precedence is:
 
 ```text
-CC_TUI_THEME
-  > ~/.dsh-cc/theme.json 中的持久化选择
-  > OSC 11 背景检测
-  > dark 回退
+DSH_TUI_THEME
+  > persisted choice in ~/.dsh-tui/theme.json
+  > OSC 11 background detection
+  > dark fallback
 ```
 
-## 切换主题
+## Switching themes
 
-- `/theme`：打开主题选择器。内置主题在前，自定义主题在后。
-- `/theme <name>`：直接切换。
-- `/theme status`：显示当前主题与持久化位置。
+- `/theme` opens the picker, with `auto` and the built-ins before custom themes.
+- `/theme <name>` switches directly.
+- `/theme status` shows the current theme and persistence location.
 
-选择器确认后立即热切换，并把选择写入 `~/.dsh-cc/theme.json`。如果设置了
-`CC_TUI_THEME`，它在下一次启动时仍然优先。
+Confirming a choice hot-switches immediately and writes it to
+`~/.dsh-tui/theme.json`. `DSH_TUI_THEME`, when set, still wins on the next launch.
 
-## 自定义主题
+## Custom themes
 
-在 `~/.dsh-cc/themes/` 下放置 JSON 文件。每个文件定义一个主题，并从一个内置
-色板开始覆盖：
+Place JSON files under `~/.dsh-tui/themes/`. Each file starts from one built-in
+palette and overrides a subset of its colors:
 
 ```json
 {
   "name": "sakura",
-  "displayName": "樱花粉",
+  "displayName": "Sakura",
   "base": "dark",
   "colors": {
     "claude": "#FF9EC7",
@@ -59,55 +70,62 @@ CC_TUI_THEME
 }
 ```
 
-字段：
+Fields:
 
-| 字段 | 必需 | 说明 |
+| Field | Required | Meaning |
 | --- | --- | --- |
-| `base` | 是 | `light`、`dark` 或 `dark-ansi`，作为未覆盖颜色的来源 |
-| `colors` | 是 | Theme 语义键的部分覆盖 |
-| `name` | 否 | 主题 ID；缺省使用文件名 |
-| `displayName` | 否 | 选择器显示名称；缺省使用 `name` |
+| `base` | Yes | `light`, `dark`, or `dark-ansi`; source for every non-overridden color |
+| `colors` | Yes | Partial override of semantic Theme keys |
+| `name` | No | Theme ID; defaults to the filename |
+| `displayName` | No | Picker label; defaults to `name` |
 
-如果文件声明了 `name`，文件名仍可作为加载别名。完整语义键见
-[`src/theme.ts`](../src/theme.ts) 中的 `Theme` 类型。
+When the file declares `name`, its filename remains a loading alias. See the
+`Theme` type in [`src/theme.ts`](../src/theme.ts) for every semantic key.
 
-## 颜色格式
+## Color formats
 
-支持：
+Accepted forms:
 
 - `#rgb`
 - `#rrggbb`
 - `#rrggbbaa`
 - `rgb(r,g,b)`
 - `ansi256(n)`
-- `ansi:black`、`ansi:redBright` 等 16 色 ANSI 名称
+- 16-color names such as `ansi:black` and `ansi:redBright`
 
-颜色必须是具体值，不能使用 CSS 变量、渐变或任意 CSS 颜色名。
+Colors must be concrete values. CSS variables, gradients, and arbitrary CSS
+color names are not accepted.
 
-## 校验与失败策略
+## Validation and failure behavior
 
-- 未知 Theme 键：跳过该键并写入警告，其余颜色继续生效。
-- 非法颜色：跳过该值并写入警告。
-- 非法 `base`、损坏的 JSON、非对象 `colors`：跳过整个文件。
-- 环境变量或偏好文件引用不存在的主题：写入警告并继续背景自动检测。
-- 一个坏主题不会阻止 TUI 启动，也不会影响其他主题。
+- Unknown Theme key: skip that key with a warning and keep the rest.
+- Invalid color: skip that value with a warning.
+- Invalid `base`, malformed JSON, or non-object `colors`: skip the whole file.
+- Missing theme referenced by the environment or preference file: warn and
+  continue with background detection.
+- One bad theme never blocks TUI startup or other themes.
 
-主题名来自用户输入，加载器会检查路径是否仍位于主题目录内，防止通过名称跳出
-`~/.dsh-cc/themes/`。修改这部分实现时必须保留路径约束。
+Theme names are user input. The loader verifies that the resolved path remains
+inside `~/.dsh-tui/themes/`, preventing names from escaping the theme directory.
+Preserve that containment check when changing the implementation.
 
-## 设计建议
+## Design guidance
 
-- 使用语义键而不是只替换 `text` 与 `background`。至少检查正文、非活动文字、
-  焦点、选择、成功、警告、错误和 diff 色。
-- 浅色主题应在真正的浅色终端验证；深色主题同理。
-- 检查 16 色、256 色和 truecolor 终端的回退表现。
-- 在窄终端、工具 diff、问卷、多行输入与选区状态下检查对比度。
-- 不要把密钥或其他用户数据写进主题文件；主题只应包含显示元数据和颜色。
+- Use semantic keys instead of changing only `text` and `background`. Check at
+  least body, inactive, focus, selection, success, warning, error, and diff
+  colors.
+- Test light themes in a real light terminal and dark themes in a dark one.
+- Check 16-color, 256-color, and truecolor fallback behavior.
+- Verify narrow layouts, tool diffs, questionnaires, multiline input, and
+  selection contrast.
+- Theme files should contain display metadata and color only, never credentials
+  or other user data.
 
-开发主题系统时运行：
+When developing the theme subsystem, run:
 
 ```sh
 node --import tsx/esm scripts/verify-themes.mjs
 ```
 
-进一步的终端能力与渲染说明见[架构与限制](architecture.md)。
+See [Architecture and limitations](architecture.md) for terminal capability
+and renderer details.

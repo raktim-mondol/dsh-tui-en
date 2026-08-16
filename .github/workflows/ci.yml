@@ -28,60 +28,155 @@ jobs:
 
       - run: pnpm build
 
-      # 带断言的回归：提问面板内联输入（issue #9）+ 工具卡排版
-      # （⎿ 缩进、diff 红绿行、信封剥离），失败即非零退出。
+      # Asserted regression: questionnaire inline input (issue #9) + tool-card
+      # layout (⎿ indent, red/green diff lines, envelope stripping); non-zero
+      # exit on failure.
       - run: node --import tsx/esm scripts/repro-askpanel.tsx
 
-      # 提问面板全应用布局回归：短/长高录、activity tick 差分、resize 风暴。
+      # Full-app questionnaire layout regression: short/long recordings,
+      # activity-tick diffs, resize storms.
       - run: node --import tsx/esm scripts/verify-askpanel-layout.tsx
 
       - run: node --import tsx/esm scripts/repro-toolcards.tsx
 
-      # 退出漏斗回归（issue #12）：上下文 teardown 不得走到进程退出。
+      # Scroll/pill/inline-mode regression: new-message pill count decrement,
+      # Ctrl+C interaction, inline scrollback on third-party terminals.
+      # Previously a missing mock-channel field silently froze the UI
+      # (TypeError during render swallowed by ink) and was only found after
+      # rotting through 0.6.x — keep this in CI so it cannot rot again.
+      - run: node --import tsx/esm scripts/repro-pill.tsx
+      - run: node --import tsx/esm scripts/repro-ctrlc.tsx
+      - run: node --import tsx/esm scripts/repro-inline-scrollback.tsx
+      - run: node --import tsx/esm scripts/repro-inline-thirdparty.tsx
+
+      # Key-parse regression (issue #110): Option+Enter (ESC CR)
+      # exact/merged/chunked arrival, CSI-u and modifyOtherKeys
+      # Shift/Ctrl/Meta+Enter.
+      - run: node --import tsx/esm scripts/verify-keys.tsx
+
+      # Terminal capability probe: keep raw mode while OSC/XTVERSION replies
+      # are delayed; replies go only to the querier, not echoed as terminal
+      # ghosts.
+      - run: node --import tsx/esm scripts/verify-terminal-queries.tsx
+
+      # Exit funnel (issue #12): context teardown must not take the
+      # process-exit path.
       - run: node --import tsx/esm scripts/verify-teardown-exit.tsx
 
-      # /update 纯函数回归：版本探测（双布局+外来 manifest 拒绝）、
-      # registry 解析（env/npmrc/默认）、semver 比较、pnpm --latest。
+      # Exit resume-marker (issue #42): keep the marker only when there are
+      # real messages or pending operations.
+      - run: node --import tsx/esm scripts/verify-exit-resume-marker.tsx
+
+      # Exit-phase stderr/console restore (issue #42): shutdown unbinds,
+      # restores the physical streams, and removes listeners.
+      - run: node --import tsx/esm scripts/verify-shutdown-stderr.tsx
+
+      # /update pure-function regression: version probe (dual layout + reject
+      # foreign manifests), registry parse (env/npmrc/default), semver
+      # compare, pnpm --latest.
       - run: node scripts/verify-update.mjs
 
-      # resume 兼容层回归：多帧 zstd 会话日志里的第三方事件类型补
-      # ignorable 标记，已知类型不动，二次运行幂等。
+      # Direct launcher (issue #108): argv passthrough, leftover-profile
+      # reinstall, version-mismatch hint, messages, shellQuote escaping.
+      - run: node scripts/verify-launcher.mjs
+
+      # Rename migration (issue #120): ~/.dsh-cc → ~/.dsh-tui first-launch
+      # copy, resume.txt dual-write contract, old env-name detection
+      # (dual-read of DSH_CC_RESUME_SESSION is not deprecated).
+      - run: node scripts/verify-legacy-rename.mjs
+
+      # Approval service config (issue #49 leftover): bare cordis.yml must
+      # mount the approval line; bare composition and profile patch policy
+      # expressions match per scenario (ask / never / win32 never).
+      - run: node scripts/verify-cordis-approval.mjs
+
+      # Resume compat: third-party event types in multi-frame zstd session
+      # logs get an ignorable mark; known types unchanged; second run is
+      # idempotent.
       - run: node scripts/verify-resume-repair.mjs
 
-      # 会话标题回归：选择器标题宽容读取（带未标记第三方事件的日志
-      # 不能让标题退化成目录名），/rename 的最后一条 session/title 优先。
+      # Session titles: picker title is tolerant (logs with unmarked
+      # third-party events must not fall back to the directory name); last
+      # session/title from /rename wins.
       - run: node scripts/verify-session-titles.mjs
 
-      # channel 层回归：发送链（submit/steer/撤回/打断重投）、compact 折叠、
-      # goal/todo 事件回放。曾因不在 CI 而随接口演进静默失效（0.3.6 的
-      # installModelSelection、#34 的投递异步化都没被它们拦下），挂进来
-      # 防再腐烂。
+      # Session cwd (issue #96): resolve git repo root upward from the launch
+      # directory (plain clones and .git-file worktrees; guard against ~/.git
+      # dotfiles); /resume filter is bidirectional with pre-upgrade
+      # subdirectory sessions; Windows separators and case semantics.
+      - run: node scripts/verify-session-cwd.mjs
+
+      # Modal-confirm Enter guard: Option+Enter (ESC CR) / Ctrl+Enter
+      # (CSI 13;5u) must not confirm the approval panel or any modal; only
+      # unmodified Enter counts; ApprovalPanel full path + source static
+      # invariant.
+      - run: node scripts/verify-plain-enter-guard.mjs
+      # /resume session management (issue #112): picker rename appends a
+      # frame (seq continuous, existing bytes untouched, last-title-wins),
+      # directory delete, reject path-traversal ids.
+      - run: node scripts/verify-resume-manage.mjs
+
+      # /resume rename outside the deep window (issue #112 review): renaming
+      # a session outside the MRU top 20 must show the new title (touch
+      # enters the title window), not fall back to the directory name.
+      - run: node scripts/verify-resume-rename-mru.mjs
+
+      # /resume picker key stream: after rename, focus re-anchors on the
+      # target row (otherwise Enter/ctrl+d hits a neighbor); confirm-delete
+      # only accepts unmodified Enter; Esc cancels; deleted row disappears.
+      # Driven by a real Chat render.
+      - run: node scripts/verify-resume-picker-ui.mjs
+
+      # Channel-layer: send chain (submit/steer/retract/interrupt-resend),
+      # compact fold, goal/todo event replay. These silently bit-rotted when
+      # not in CI (0.3.6 installModelSelection, #34 async delivery) — keep
+      # them here.
       - run: node --import tsx/esm scripts/verify-submit.mjs
 
       - run: node --import tsx/esm scripts/verify-compact.mjs
 
       - run: node --import tsx/esm scripts/verify-channel-goal-todo.mjs
 
-      # effort 配置链路回归（issue #51）：cordis 配置的 effort 必须进入实际
-      # 请求配置，而不是只做状态栏启动显示（≤0.3.5 的 display-only 行为）。
+      # Skill slash-command completion (issue #86): user-invocable skills
+      # merge into the / menu and Tab completion (skill flag; locals/registry
+      # win on name clash); skills/change live add/remove; read failure keeps
+      # last-good.
+      - run: node scripts/verify-skill-commands.mjs
+
+      # Effort config path (issue #51): cordis-configured effort must enter
+      # the actual request, not just the status-bar startup display (≤0.3.5
+      # display-only behavior).
       - run: node --import tsx/esm scripts/repro-effort.tsx
 
-      # 子进程 stderr 接管回归（issue #17）：inherit 的 MCP 子进程 stderr
-      # 不再裸写终端破坏 alt-screen，输出去重聚合为受控通知。
+      # Child-process stderr takeover (issue #17): inherited MCP child
+      # stderr no longer writes the terminal raw and breaks alt-screen;
+      # output is de-duplicated into controlled notices.
       - run: node --import tsx/esm scripts/verify-child-stderr.tsx
 
-      # 模型路由原子解析回归（issue #67）：完整 config > pref > default 整对
-      # 生效，provider-only pin 不得与另一半拼接出错配路由。
+      # Model-route atomic resolve (issue #67): full config > pref > default
+      # pairs take effect together; a provider-only pin must not be spliced
+      # with the other half into a mismatched route.
       - run: node scripts/verify-model-route.mjs
 
-      # CJK 显示宽度截断回归（issue #41）：4 处描述按终端显示宽度处理，
-      # CJK 不劈字、窄终端布局不破。
+      # CJK display-width truncation (issue #41): 4 description sites use
+      # terminal display width; CJK is not split mid-glyph; narrow-terminal
+      # layout does not break.
       - run: node --import tsx/esm scripts/verify-cjk-truncate.tsx
 
-      # thinking spinner 残影回归（issue #72）：text-default emoji（✳）
-      # 量宽 2 实画 1 致 spinner 行每帧错位，thinking 残影堆积不消失。
+      # Thinking-spinner ghost (issue #72): text-default emoji (✳) measures
+      # width 2 but paints 1, shifting the spinner line every frame so
+      # thinking ghosts pile up.
       - run: node --import tsx/esm scripts/repro-thinking.tsx
 
-      # 斜杠命令描述 i18n 回归（issue #41）：/ 菜单与 ? 帮助菜单描述随
-      # /lang 中英切换，外部命令查不到映射回退注册表原文，窄终端中文不劈字。
+      # Slash-command description i18n (issue #41): / menu and ? help menu
+      # descriptions follow the UI language; unknown external commands fall
+      # back to the registry text; narrow-terminal CJK is not split mid-glyph.
       - run: node --import tsx/esm scripts/verify-i18n-command-descriptions.tsx
+      # /effort slider + mode indicator full-app: slider open / ←/→ live
+      # apply / Esc close, status-bar effort and mode segments, three
+      # backtab full cycles.
+      - run: node scripts/verify-effort-slider-ui.mjs
+
+      # /trace view (issue #80): event pairing durations + component
+      # render/scroll.
+      - run: node --import tsx/esm scripts/repro-trace.tsx

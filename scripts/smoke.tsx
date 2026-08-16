@@ -82,6 +82,9 @@ const channel = {
   spinnerMode: 'requesting',
   responseChars: 0,
   activeToolCount: 0,
+  mode: { id: 'default', plan: false },
+  modeIndex: 0,
+  cycleMode() {},
   turnStart: 0,
   lastUserText: 'hello',
   pending: [],
@@ -167,11 +170,11 @@ const panelInstance = await render(
 )
 await new Promise(resolve => setTimeout(resolve, 600))
 const collapsed = plainText(panelStdout.frames)
-console.log('--- panel collapsed?', collapsed.includes('已加载上下文'), collapsed.includes('点击展开 · Ctrl+T'), !collapsed.includes('▼'))
+console.log('--- panel collapsed?', collapsed.includes('Context loaded'), collapsed.includes('Ctrl+TExpand'), !collapsed.includes('▼'))
 panelStdin.write(Buffer.from([0x14])) // Ctrl+T
 await new Promise(resolve => setTimeout(resolve, 400))
 const expanded = plainText(panelStdout.frames)
-console.log('--- panel expanded by Ctrl+T?', expanded.includes('▼'), expanded.includes('系统提示词 · 1 段'), expanded.includes('You are DeepSeek Harness.'))
+console.log('--- panel expanded by Ctrl+T?', expanded.includes('▼'), expanded.includes('System prompt · 1 sections'), expanded.includes('You are DeepSeek Harness.'))
 panelStdin.write(Buffer.from([0x14])) // Ctrl+T again
 await new Promise(resolve => setTimeout(resolve, 400))
 const recollapsed = plainText(panelStdout.frames)
@@ -226,7 +229,7 @@ const reviewFrame = plainText(interactStdout.frames.slice(mark))
 console.log('--- plan review header?', reviewFrame.includes('Plan review'))
 console.log('--- plan review markdown body?', reviewFrame.includes('Demo plan') && reviewFrame.includes('step'))
 console.log('--- plan review decision rows?', reviewFrame.includes('Approve') && reviewFrame.includes('Keep planning'))
-console.log('--- plan review hint?', reviewFrame.includes('Esc 打断评审'))
+console.log('--- plan review hint?', reviewFrame.includes('Esc dismiss'))
 interactStdin.write('\r')
 const approveAnswer = await reviewApprove
 console.log('--- clean approve payload?', JSON.stringify(approveAnswer) === JSON.stringify({ answers: [{ id: 'plan-review', selected: ['Approve'] }] }))
@@ -236,11 +239,11 @@ console.log('--- clean approve payload?', JSON.stringify(approveAnswer) === JSON
 mark = interactStdout.frames.length
 const reviewFeedback = interactQuestions.ask(reviewRequest)
 await new Promise(resolve => setTimeout(resolve, 400))
-interactStdin.write('改一下')
+interactStdin.write('change this')
 await new Promise(resolve => setTimeout(resolve, 200))
 interactStdin.write('\r')
 const feedbackAnswer = await reviewFeedback
-console.log('--- feedback payload?', JSON.stringify(feedbackAnswer) === JSON.stringify({ answers: [{ id: 'plan-review', selected: ['Keep planning'], custom: '改一下' }] }))
+console.log('--- feedback payload?', JSON.stringify(feedbackAnswer) === JSON.stringify({ answers: [{ id: 'plan-review', selected: ['Keep planning'], custom: 'change this' }] }))
 
 // Review 3: Esc dismisses with ASK_CANCELLED (plan-mode reads it as "the
 // user dismissed the review to speak instead").
@@ -276,11 +279,11 @@ const parkedQuestion = interactQuestions.ask(reviewRequest)
 const approvalReject = interactApprovals.park(fakeApprovalReq('c9', 'rm -rf /tmp/x'))
 await new Promise(resolve => setTimeout(resolve, 400))
 const approvalFrame = plainText(interactStdout.frames.slice(mark))
-console.log('--- approval title?', approvalFrame.includes('等待审批 · Bash'))
+console.log('--- approval title?', approvalFrame.includes('Awaiting approval · Bash'))
 console.log('--- approval command?', approvalFrame.includes('rm -rf /tmp/x'))
 console.log('--- approval reason?', approvalFrame.includes('needs to delete temp files'))
-console.log('--- approval proceed line?', approvalFrame.includes('要允许这次操作吗？'))
-console.log('--- approval rows?', approvalFrame.includes('允许（仅本次）') && approvalFrame.includes('拒绝'))
+console.log('--- approval proceed line?', approvalFrame.includes('Do you want to proceed?'))
+console.log('--- approval rows?', approvalFrame.includes('Yes, allow once') && approvalFrame.includes('No'))
 console.log('--- approval precedence over question?', !approvalFrame.includes('Plan review'))
 interactStdin.write('2')
 console.log('--- digit 2 rejects?', (await approvalReject) === 'rejected')
@@ -303,10 +306,11 @@ interactStdin.write('\x1b')
 console.log('--- Esc rejects approval?', (await approvalEsc) === 'rejected')
 
 await interactInstance.unmount()
-// unmount() 本身已等清理完成；这里不能再 waitUntilExit()——它的 resolve
-// 回调在 waitUntilExit 首次被调用时才装上（ink.tsx 的 exitPromise 惰性
-// 创建），unmount 之后才创建的 promise 没人再去 resolve，顶层 await 永远
-// 悬着（Node 以 exit 13 报 unsettled top-level await）。
+// unmount() already waited for cleanup; do not call waitUntilExit() here —
+// its resolve callback is only installed on the first waitUntilExit call
+// (ink.tsx lazily creates exitPromise). A promise created after unmount
+// is never resolved, and the top-level await hangs (Node exit 13:
+// unsettled top-level await).
 await panelInstance.unmount()
 await instance.unmount()
 process.exit(0)

@@ -1,12 +1,13 @@
 /**
- * AskUserQuestionPanel 全应用布局回归（issue：ask 问卷在完整 Chat 布局下的
- * 渲染完整性）。与 repro-askpanel.tsx（面板隔离交互）互补：本脚本把面板
- * 挂进真实 Chat 屏幕，在四种布局压力下校验所有行都上屏——
- *   1. 短会话静态渲染（精确 payload：4 选项全带 description + header）
- *   2. 长高录（120 行对话，ScrollBox 窗口收缩）
- *   3. activity 行持续 tick 时的差分重绘
- *   4. 终端 resize 风暴（放大后连续抖动缩小）
- * 运行：node --import tsx/esm scripts/verify-askpanel-layout.tsx
+ * AskUserQuestionPanel full-app layout regression (the ask questionnaire
+ * inside a real Chat layout). Complements repro-askpanel.tsx (panel-only
+ * interaction): this script mounts the panel into the real Chat screen and
+ * checks every row is on screen under four layout stresses —
+ *   1. short-session static render (exact payload: 4 options + descriptions)
+ *   2. tall transcript (120 dialogue rows, ScrollBox window shrinks)
+ *   3. differential redraw while the activity line keeps ticking
+ *   4. terminal resize storm (grow, then jitter-shrink)
+ * Run: node --import tsx/esm scripts/verify-askpanel-layout.tsx
  */
 process.env.FORCE_COLOR = '3'
 
@@ -21,27 +22,27 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-/** 用户真实会话日志里的 payload（issue 现场）：4 个选项全带描述。 */
+/** Payload from a real session log (issue field case): 4 options with descriptions. */
 const EXACT_QUESTION = {
-  header: '随便问问 2',
+  header: 'Quick question 2',
   id: 'weekend_plan',
-  question: '再测一次：如果明天是周末，你大概率会怎么过？',
+  question: 'Try again: if tomorrow is the weekend, how would you spend it?',
   options: [
-    { label: '宅家打游戏/看剧', description: '把想做的事列成清单，一样一样划掉，很有成就感。' },
-    { label: '出去浪一圈', description: '出门走走，吃点好的，换换脑子。' },
-    { label: '学习或写代码', description: '继续写代码/学新东西，卷王本王。' },
-    { label: '纯躺平休息', description: '什么都不安排，睡到自然醒。' },
+    { label: 'Stay in and game/watch shows', description: 'List the things you want to do and tick them off — very satisfying.' },
+    { label: 'Go out and wander', description: 'Go outside, eat something nice, clear your head.' },
+    { label: 'Study or write code', description: 'Keep coding / learning new things — grind mode.' },
+    { label: 'Just rest and do nothing', description: 'No plans at all — sleep in naturally.' },
   ],
 }
 
-/** 面板完整渲染时必须全部上屏的关键行。 */
+/** Rows that must all be on screen when the panel is fully rendered. */
 const REQUIRED = [
-  '随便问问 2', // header 标签
-  '再测一次', // 问题文本
-  '宅家打游戏/看剧', '出去浪一圈', '学习或写代码', '纯躺平休息', // 4 个 label
-  '很有成就感', '换换脑子', '卷王本王', '睡到自然醒', // 4 个 description
-  '自定义回答', // 内联输入行
-  '↑/↓ 选择', 'Esc 中断', // 底部提示行
+  'Quick question 2', // header label
+  'Try again', // question text
+  'Stay in and game/watch shows', 'Go out and wander', 'Study or write code', 'Just rest and do nothing', // 4 labels
+  'very satisfying', 'clear your head', 'grind mode', 'sleep in naturally', // 4 descriptions
+  'Custom answer', // inline input row
+  '↑/↓ select', 'Esc cancel', // footer hint
 ]
 
 function makeHarness(cols: number, rows: number) {
@@ -81,8 +82,11 @@ function makeChannel(transcriptRows: unknown[], listeners?: Set<() => void>) {
     spinnerMode: 'requesting',
     responseChars: 20,
     activeToolCount: 0,
+    mode: { id: 'default', plan: false },
+    modeIndex: 0,
+    cycleMode() {},
     turnStart: Date.now(),
-    lastUserText: '再来问一个问题',
+    lastUserText: 'Ask another question',
     pending: [],
     commandList: [],
     notifications: [],
@@ -91,7 +95,7 @@ function makeChannel(transcriptRows: unknown[], listeners?: Set<() => void>) {
     activityFrames: [],
     workingActivity: {
       phase: 'asking',
-      line: '提问中',
+      line: 'Asking',
       toolCount: 0,
       turnElapsedMs: 80_000,
       phaseStartedAt: Date.now() - 80_000,
@@ -111,12 +115,12 @@ function makeChannel(transcriptRows: unknown[], listeners?: Set<() => void>) {
 
 const tallRows: unknown[] = []
 for (let i = 0; i < 60; i++) {
-  tallRows.push({ id: i * 2, kind: 'user', text: `第 ${i + 1} 轮：帮我处理一下这个问题` })
-  tallRows.push({ id: i * 2 + 1, kind: 'assistant', text: `好的，第 ${i + 1} 轮处理完毕。`, time: Date.now() })
+  tallRows.push({ id: i * 2, kind: 'user', text: `Turn ${i + 1}: help me handle this issue` })
+  tallRows.push({ id: i * 2 + 1, kind: 'assistant', text: `OK, turn ${i + 1} is done.`, time: Date.now() })
 }
 const shortRows: unknown[] = [
-  { id: 0, kind: 'user', text: '再来问一个问题' },
-  { id: 1, kind: 'assistant', text: '好嘞，再来一发～', time: Date.now() },
+  { id: 0, kind: 'user', text: 'Ask another question' },
+  { id: 1, kind: 'assistant', text: 'Sure, one more.', time: Date.now() },
 ]
 
 let failures = 0
@@ -126,12 +130,12 @@ const check = (name: string, screenText: string) => {
     console.log(`PASS  ${name}`)
   } else {
     failures++
-    console.log(`FAIL  ${name} — 缺: ${missing.join(' / ')}`)
+    console.log(`FAIL  ${name} — missing: ${missing.join(' / ')}`)
   }
 }
 
-/** 场景 1+2：静态渲染（短/长高录）。 */
-for (const [name, rows] of [['短会话', shortRows], ['长高录', tallRows]] as const) {
+/** Scenarios 1+2: static render (short / tall transcript). */
+for (const [name, rows] of [['short session', shortRows], ['tall transcript', tallRows]] as const) {
   const { stdout, FakeStdin, screen } = makeHarness(160, 50)
   const store = new QuestionStore()
   const app = await render(
@@ -141,12 +145,12 @@ for (const [name, rows] of [['短会话', shortRows], ['长高录', tallRows]] a
   await sleep(600)
   void store.ask({ questions: [EXACT_QUESTION] } as never)
   await sleep(600)
-  check(`静态渲染（${name}）`, screen())
+  check(`static render (${name})`, screen())
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 3：activity 持续 tick 下的差分重绘。 */
+/** Scenario 3: differential redraw while activity keeps ticking. */
 {
   const { stdout, FakeStdin, screen } = makeHarness(160, 45)
   const listeners = new Set<() => void>()
@@ -174,12 +178,12 @@ for (const [name, rows] of [['短会话', shortRows], ['长高录', tallRows]] a
       worst = s
     }
   }
-  check('activity tick 差分重绘（20 次取最坏帧）', worst)
+  check('activity-tick differential redraw (worst of 20 frames)', worst)
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 4：resize 风暴（160x50 → 200x60 → 快速抖到 130x42）。 */
+/** Scenario 4: resize storm (160x50 → 200x60 → jitter down to 130x42). */
 {
   const { term, stdout, FakeStdin, screen } = makeHarness(160, 50)
   const store = new QuestionStore()
@@ -198,7 +202,7 @@ for (const [name, rows] of [['短会话', shortRows], ['长高录', tallRows]] a
     await sleep(90)
   }
   await sleep(800)
-  check('resize 风暴后（130x42）', screen())
+  check('after resize storm (130x42)', screen())
   app.unmount()
   await sleep(100)
 }

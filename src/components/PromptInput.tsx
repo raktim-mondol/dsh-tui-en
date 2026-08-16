@@ -176,7 +176,7 @@ export function PromptInput({
     !value.includes('\n')
 
   // `@` file completion (issue #15): the trigger is the mention token at the
-  // CARET, so `@` works mid-message (`看看 @src/a.ts 这个`), not only when it
+  // CARET, so `@` works mid-message (`look at @src/a.ts please`), not only when it
   // is the input's first character. The cwd listing loads when the trigger
   // appears.
   const [fileList, setFileList] = React.useState<readonly string[]>([])
@@ -441,6 +441,14 @@ export function PromptInput({
         }
       }
       if (channel.working && value.trim() !== '') {
+        // CC's immediate-command semantics: /btw is exempt from steering —
+        // the side question never interrupts the running turn. Every other
+        // input keeps the steer behavior so /new /model etc. stay idle-only.
+        const parsed = value.startsWith('/') ? parseCommandName(value) : undefined
+        if (parsed?.name === 'btw' && channel.commandList.some(c => c.name === 'btw')) {
+          tryRunCommand(value)
+          return
+        }
         steerSend(value)
         return
       }
@@ -474,8 +482,12 @@ export function PromptInput({
       interruptSend()
       return
     }
-    if (key.return && key.shift) {
-      // Insert a newline at the caret (multi-line input).
+    if (key.return && (key.shift || key.meta)) {
+      // Shift+Enter / Option+Enter: insert a newline at the caret
+      // (multi-line input). Shift+Enter only arrives when the terminal
+      // supports extended key reporting (kitty/modifyOtherKeys allowlist in
+      // ink/terminal.ts); Option+Enter (ESC CR) is the fallback on terminals
+      // that can't report shift — e.g. macOS Terminal.app (issue #110).
       const next = value.slice(0, cursor) + '\n' + value.slice(cursor)
       setValue(next)
       setCursor(cursor + 1)
@@ -486,11 +498,12 @@ export function PromptInput({
       handleEnter()
       return
     }
-    // Shift+Tab cycles the reasoning effort (dsh parity: the adapter's own
-    // level list, e.g. deepseek Off→High→Max). Must precede the plain-Tab
-    // arms — the parser reports backtab as key.tab + key.shift.
+    // Shift+Tab cycles the configured session modes (default: default →
+    // plan mode → full access; each mode bundles plan/sandbox/approval atoms —
+    // see the `modes` config). Must precede the plain-Tab arms — the parser
+    // reports backtab as key.tab + key.shift.
     if (key.tab && key.shift) {
-      void channel.cycleEffort()
+      void channel.cycleMode()
       return
     }
     if (key.tab && fileOverlayOpen) {
@@ -896,7 +909,7 @@ export function PromptInput({
         flexDirection="column"
         alignItems="flex-start"
         justifyContent="flex-start"
-        borderColor="promptBorder"
+        borderColor={channel.mode.plan === true ? 'planMode' : 'promptBorder'}
         borderStyle="round"
         borderLeft={false}
         borderRight={false}

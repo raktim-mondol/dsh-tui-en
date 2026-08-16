@@ -54,6 +54,7 @@ const channel: any = {
   sessionTitle: 'probe',
   agentId: 'probe',
   model: 'deepseek-v4-flash',
+  mode: { plan: false },
   reasoningEffort: 'max',
   tokens: { input: 1, output: 1 },
   cwd: '/tmp/demo',
@@ -77,7 +78,7 @@ const bump = () => { channel.version++; for (const cb of listeners) cb() }
 let id = 0
 const addRows = (n: number) => {
   for (let i = 0; i < n; i++) {
-    channel.rows.push({ id: id++, kind: 'assistant', text: `消息 ${id}: 短内容`, streaming: false })
+    channel.rows.push({ id: id++, kind: 'assistant', text: `message ${id}: short content`, streaming: false })
   }
   bump()
 }

@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  dsh-working-activity@0.2.4:
+    hash: 4ccc5dc2b1ea843bc4bf9682b0fecab551db590ae607c0587fae2c7b27e37b01
+    path: patches/dsh-working-activity@0.2.4.patch
+
 importers:
 
   .:
@@ -88,7 +93,7 @@ importers:
         version: 4.0.0
       dsh-working-activity:
         specifier: ^0.2.4
-        version: 0.2.4(39a36c574a0198ee03b30434badbe59d)
+        version: 0.2.4(patch_hash=4ccc5dc2b1ea843bc4bf9682b0fecab551db590ae607c0587fae2c7b27e37b01)(39a36c574a0198ee03b30434badbe59d)
       emoji-regex:
         specifier: ^10.0.0
         version: 10.6.0
@@ -1678,7 +1683,7 @@ snapshots:
 
   csstype@3.2.3: {}
 
-  dsh-working-activity@0.2.4(39a36c574a0198ee03b30434badbe59d):
+  dsh-working-activity@0.2.4(patch_hash=4ccc5dc2b1ea843bc4bf9682b0fecab551db590ae607c0587fae2c7b27e37b01)(39a36c574a0198ee03b30434badbe59d):
     dependencies:
       '@deepseek-ai/cordis': 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
       '@deepseek-ai/dsh-agent': 0.1.0-rc.6(b0514d7a320728b6d8f5a31eb3960e10)

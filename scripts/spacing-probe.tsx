@@ -57,7 +57,7 @@ const channel = {
     { id: 2, kind: 'tool', text: '', tool: { callId: 'c1', name: 'Bash', argsText: '{"command":"ls"}', argsFull: '{"command":"ls"}', status: 'ok', resultText: 'src\nlib', durationMs: 8000 } },
     // Assistant reply starts with the working-activity ⏵ self-narration
     // line (narrate contract) — the transcript must strip it.
-    { id: 3, kind: 'assistant', text: '⏵ 修一下状态栏\nhere are the files.', streaming: false },
+    { id: 3, kind: 'assistant', text: '⏵ fix the status line\nhere are the files.', streaming: false },
   ],
   status: 'idle',
   sessionTitle: 'probe',
@@ -66,7 +66,7 @@ const channel = {
   tokens: { input: 120, output: 45 },
   contextWindow: 1000000,
   reasoningEffort: 'max',
-  workingActivity: { phase: 'tool', line: '正在查看 src/channel.ts · 总12s', toolCount: 2, turnElapsedMs: 12000 },
+  workingActivity: { phase: 'tool', line: 'Looking at src/channel.ts · 12s total', toolCount: 2, turnElapsedMs: 12000 },
   activityFrames: 'claude',
   contextBarEnabled: true,
   lastUsage: { input: 12000, output: 356, cacheRead: 3400, cacheWrite: 1200 },
@@ -197,8 +197,8 @@ check(
 )
 check(
   'header welcome',
-  contentLines.some(l => l.includes('探索未至之境')),
-  '探索未至之境！',
+  contentLines.some(l => l.includes('Explore the uncharted')),
+  'Explore the uncharted!',
 )
 check(
   'header tip line',
@@ -225,17 +225,17 @@ check('context bar usage readout', cursorMoved.includes('ctx ') && cursorMoved.i
 //     ⏵ self-narration first line is stripped from the transcript body.
 check(
   'activity line in status',
-  contentLines.some(l => l.includes('正在查看 src/channel.ts')),
+  contentLines.some(l => l.includes('Looking at src/channel.ts')),
   'live working line on the status row',
 )
 check(
   'activity + hint side by side',
-  contentLines.some(l => l.includes('正在查看 src/channel.ts') && l.includes('? for shortcuts')),
+  contentLines.some(l => l.includes('Looking at src/channel.ts') && l.includes('? for shortcuts')),
   'hint stays visible beside the activity line',
 )
 check(
   'activity indicator frame',
-  contentLines.some(l => l.includes('正在查看 src/channel.ts') && /^[·✢*✶✻✽]/.test(l)),
+  contentLines.some(l => l.includes('Looking at src/channel.ts') && /^[·✢*✶✻✽]/.test(l)),
   'indicator frame leads the activity line (claude preset)',
 )
 check(
@@ -245,7 +245,7 @@ check(
 )
 check(
   'narration stripped from body',
-  !contentLines.some(l => l.includes('⏵ 修一下状态栏')),
+  !contentLines.some(l => l.includes('⏵ fix the status line')),
   '⏵ first line removed from the assistant transcript',
 )
 

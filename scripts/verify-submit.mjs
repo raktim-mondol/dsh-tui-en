@@ -10,10 +10,11 @@
  *   and respects a refusal (already claimed → no ghost pull-back)
  * - `channel.interruptAndDeliver` cancels, then re-queues on `whenIdle`
  *
- * 对齐说明：投递自 #34（@ 文件引用）起走 sendChain 异步链（expandMentions
- * 在 followup/steer 之前 await），断言前需等链落定；撤回自 rc.6 收敛为
- * 官方 `Inbox.remove(messageId)` 单一路径——旧版 positional inbox 事件与
- * `updateInbox` 兼容层已从 channel 移除，对应测试段一并退役。
+ * Alignment: since #34 (@ file mentions) send goes through the async
+ * sendChain (expandMentions is awaited before followup/steer), so settle
+ * the chain before asserting. Retract since rc.6 is the official
+ * `Inbox.remove(messageId)` path only — the old positional inbox events
+ * and `updateInbox` shim were removed from channel, and those tests retired.
  *
  * Run with plain node against the compiled lib: `node scripts/verify-submit.mjs`
  */
@@ -26,7 +27,7 @@ function check(name, ok, extra = '') {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-/** 投递链（sendChain）落定：expandMentions + followup/steer 都是微任务级。 */
+/** Settle the send chain: expandMentions + followup/steer are microtask-level. */
 const settle = () => sleep(10)
 
 const handlers = new Map()
@@ -41,16 +42,17 @@ const ctx = {
   logger: { warn() {} },
 }
 
-// bindAgent 会把 dsh-agent 的 installModelSelection 挂到 agent.ctx 的
-// assembly/request 瀑布上（0.3.6 Shift+Tab 推理等级）；stub 只需提供
-// "可订阅、返回解除函数"的最小面。
+// bindAgent hangs dsh-agent's installModelSelection on the agent.ctx
+// assembly/request waterfall (0.3.6 Shift+Tab effort); the stub only
+// needs the minimal "subscribe and return an unsubscribe" surface.
 const stubAgentCtx = { on: () => () => {} }
 
 const followupCalls = []
 const steerCalls = []
 const inboxRemovals = []
-// rc.6 语义：remove 返回是否成功撤回（false = 已被认领，UI 不得假装
-// 拉回一次幽灵发送）。可切换，供拒绝场景复用同一 agent。
+// rc.6: remove returns whether retract succeeded (false = already
+// claimed; the UI must not pretend to pull back a ghost send). Toggle
+// so the refuse scenario reuses the same agent.
 let inboxRemoveResult = true
 const agent = {
   id: 'a1',
@@ -79,15 +81,15 @@ const channel = createChannel(ctx, agent, {
 })
 
 // ---- followup (Tab queue) path
-channel.submit('  第一条消息  ')
+channel.submit('  First message  ')
 await settle()
-check('submit → agent.followup', followupCalls.length === 1 && followupCalls[0]?.content?.[0]?.text === '第一条消息')
+check('submit → agent.followup', followupCalls.length === 1 && followupCalls[0]?.content?.[0]?.text === 'First message')
 check('submit tracked as pending followup', channel.pending.length === 1 && channel.pending[0]?.placement === 'followup', JSON.stringify(channel.pending))
 
 // ---- steer (Enter while working) path
-channel.steer('第二条消息')
+channel.steer('Second message')
 await settle()
-check('steer → agent.steer', steerCalls.length === 1 && steerCalls[0]?.content?.[0]?.text === '第二条消息')
+check('steer → agent.steer', steerCalls.length === 1 && steerCalls[0]?.content?.[0]?.text === 'Second message')
 check('steer tracked as pending steer', channel.pending.length === 2 && channel.pending[1]?.placement === 'steer', JSON.stringify(channel.pending))
 check('blank steer ignored', channel.steer('   ') === undefined && steerCalls.length === 1)
 
@@ -105,7 +107,7 @@ if (discardedHandler) {
 }
 
 // ---- removePending pulls a message back out of the inbox
-channel.steer('撤回我')
+channel.steer('Retract me')
 await settle()
 check('steer for removal tracked', channel.pending.length === 1, JSON.stringify(channel.pending))
 const removed = channel.removePending(channel.pending[0]?.id ?? '')
@@ -114,7 +116,7 @@ check('removePending clears the item', channel.pending.length === 0)
 check('removePending unknown id is false', channel.removePending('nope') === false)
 
 // ---- inbox.remove refuses (already claimed) → pending kept, no ghost send
-channel.steer('已被认领')
+channel.steer('Already claimed')
 await settle()
 inboxRemoveResult = false
 check('refused pull-back keeps pending', channel.removePending(channel.pending[0]?.id ?? '') === false && channel.pending.length === 1, JSON.stringify(channel.pending))
@@ -151,7 +153,7 @@ const interruptChannel = createChannel(ctx, interruptAgent, {
   provider: 'deepseek',
   activity: false,
 })
-check('interruptAndDeliver trims and counts', interruptChannel.interruptAndDeliver(['插话一', '   ', '插话二']) === 2)
+check('interruptAndDeliver trims and counts', interruptChannel.interruptAndDeliver(['Steer one', '   ', 'Steer two']) === 2)
 check('interruptAndDeliver cancels without keepInbox', interruptCalls.length === 1 && interruptCalls[0].options === undefined, JSON.stringify(interruptCalls))
 check('delivery waits for the abort to settle', interruptFollowups.length === 0 && interruptChannel.pending.length === 0, JSON.stringify(interruptFollowups))
 resolveIdle()
@@ -207,7 +209,7 @@ const fallbackChannel = createChannel(ctx, fallbackAgent, {
   provider: 'deepseek',
   activity: false,
 })
-fallbackChannel.interruptAndDeliver(['兜底投递'])
+fallbackChannel.interruptAndDeliver(['Fallback delivery'])
 await sleep(300)
 check('no-whenIdle fallback delivers after a beat', fallbackCalls.length === 1 && fallbackChannel.pending.length === 1, JSON.stringify(fallbackCalls))
 

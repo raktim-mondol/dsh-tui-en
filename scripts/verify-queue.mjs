@@ -57,6 +57,9 @@ function makeChannel(working) {
   let seq = 0
   return {
     working,
+    mode: { id: 'default', plan: false },
+    modeIndex: 0,
+    cycleMode() {},
     commandList: [],
     notifications: [],
     contextWindow: undefined,
@@ -106,7 +109,7 @@ async function run() {
     check('working Enter steers', channel.steered.length === 1 && channel.steered[0] === 'hello', JSON.stringify(channel.steered))
     check('working Enter does NOT followup-queue', channel.submitted.length === 0)
     check('input cleared after steer', !/❯ hello/.test(last))
-    check('steer notice shown', channel.notified.some(n => n.text.includes('已插话')), JSON.stringify(channel.notified))
+    check('steer notice shown', channel.notified.some(n => n.text.includes('Interrupted')), JSON.stringify(channel.notified))
     instance.unmount()
   }
 
@@ -132,7 +135,7 @@ async function run() {
     let last = toPlain(stdout.frames.at(-1) ?? '')
     check('working Tab queues (followup)', channel.submitted.length === 1 && channel.submitted[0] === 'later')
     check('working Tab does NOT steer', channel.steered.length === 0)
-    check('Tab queue notice shown', channel.notified.some(n => n.text.includes('已排队')), JSON.stringify(channel.notified))
+    check('Tab queue notice shown', channel.notified.some(n => n.text.includes('Queued')), JSON.stringify(channel.notified))
     check('input cleared after Tab queue', !/❯ later/.test(last))
     instance.unmount()
   }
@@ -206,7 +209,7 @@ async function run() {
     await sleep(300)
     const joined = toPlain(stdout.frames.join(''))
     check('idle Enter submits directly', channel.submitted.length === 1 && channel.submitted[0] === 'direct')
-    check('no send notice while idle', !joined.includes('已发送'), JSON.stringify(joined.slice(-80)))
+    check('no send notice while idle', !joined.includes('Sent, processed'), JSON.stringify(joined.slice(-80)))
     instance.unmount()
   }
 
@@ -232,7 +235,7 @@ async function run() {
     stdin.write('\x1b') // Esc: interrupt + deliver pending
     await sleep(300)
     check('Esc interrupts with pending messages', channel.cancelled.length === 1, JSON.stringify(channel.cancelled))
-    check('Esc interrupt notice shown', channel.notified.some(n => n.text.includes('已打断当前回合')), JSON.stringify(channel.notified))
+    check('Esc interrupt notice shown', channel.notified.some(n => n.text.includes('Interrupted current turn')), JSON.stringify(channel.notified))
     instance.unmount()
   }
 
@@ -285,7 +288,7 @@ async function run() {
     check('Ctrl+Enter cancels the running turn', channel.cancelled.length === 1)
     check('Ctrl+Enter sends immediately', channel.submitted.length === 1 && channel.submitted[0] === 'urgent')
     check('Ctrl+Enter input cleared', !/❯ urgent/.test(last))
-    check('interrupt notice shown', channel.notified.some(n => n.text.includes('已打断当前回合')), JSON.stringify(channel.notified))
+    check('interrupt notice shown', channel.notified.some(n => n.text.includes('Interrupted current turn')), JSON.stringify(channel.notified))
     instance.unmount()
   }
 

@@ -6,12 +6,15 @@
  * follow the content bottom — a stale-offset incremental path would leave
  * old status rows behind and mix old/new characters on the same lines.
  *
- * 修复演进：旧方案是收缩帧发 full-reset（CSI 10000 S 清屏 + 整帧重打）——
- * 正确但每次把整份 UI 复制进 scrollback（issue #38/#39/#19 的"上滚看到
- * 重复渲染"即由此累积）。现方案就地重画视口（光标锚定在 park 行 → 上移
- * 到视口顶 → ED 清 → 重打帧尾窗口），零滚动、零 scrollback 沉积。
- * 本脚本因此从字节形态断言（必须发 CSI 10000S）升级为语义断言：用
- * xterm-headless 重建终端，验证收缩后【用户看到什么】。
+ * Fix history: the old path fired a full-reset on shrink frames
+ * (CSI 10000 S clear + reprint) — correct, but each fire copied the
+ * whole UI into scrollback (the #38/#39/#19 "scroll up and see a
+ * duplicated render" pile-up). The current path redraws the viewport
+ * in place (cursor parked → up to the top → ED clear → reprint the
+ * tail window): zero scroll, zero scrollback deposit.
+ * This script therefore upgraded from a byte-shape assert (must emit
+ * CSI 10000S) to a semantic one: rebuild the terminal in xterm-headless
+ * and check what the user sees after the shrink.
  *
  * Checks:
  *  1. the shrink frame emits NO scroll-up clear (CSI n S) — no scrollback
@@ -26,7 +29,7 @@
  * Run: node scripts/verify-shrink.mjs
  */
 process.env.FORCE_COLOR = '3'
-process.env.TERM_PROGRAM = 'WezTerm' // DEC-2026 路径，与真机一致
+process.env.TERM_PROGRAM = 'WezTerm' // DEC-2026 path, matches a real terminal
 
 const { Writable, PassThrough } = await import('node:stream')
 const React = await import('react')
@@ -100,7 +103,7 @@ function check(name, ok, extra = '') {
   await sleep(500)
   const shrinkBytes = stdout.frames.slice(framesBefore).join('')
 
-  // 1. 无 scrollback 沉积、无 WT 跳顶序列。
+  // 1. No scrollback deposit, no WT jump-to-top sequence.
   check(
     'shrink frame emits NO scroll-up clear (CSI n S)',
     !/\x1b\[\d*S/.test(shrinkBytes),
@@ -110,7 +113,7 @@ function check(name, ok, extra = '') {
     !/\x1b\[2J|\x1b\[3J/.test(shrinkBytes),
   )
 
-  // 2-4. xterm 重建的视口语义断言。
+  // 2-4. Semantic asserts on the xterm-rebuilt viewport.
   const buf = term.buffer.active
   const start = Math.max(0, buf.length - ROWS)
   const viewport = []
@@ -124,8 +127,9 @@ function check(name, ok, extra = '') {
     markerRow >= 0 && viewport.slice(markerRow + 1).every(l => l === ''),
     `marker at ${markerRow}/${ROWS}`,
   )
-  // 收缩后帧高 41 > 视口 28：视口应显示帧尾窗口（line 14..39 + marker），
-  // 且 line 40..59（旧内容）一行都不许残留。
+  // After shrink, frame height 41 > viewport 28: the viewport should
+  // show the tail window (line 14..39 + marker), and none of
+  // line 40..59 (old content) may remain.
   const staleRows = viewport.filter(l => /line (4\d|5\d) padded/.test(l))
   check('no stale rows from the taller frame', staleRows.length === 0, staleRows.slice(0, 3).join(' | '))
   const nums = viewport

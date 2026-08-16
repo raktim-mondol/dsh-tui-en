@@ -47,8 +47,8 @@ class FakeStdout extends Writable {
       if (sb) {
         const content = sb.childNodes?.[0]
         const kids = (content?.childNodes ?? []).length
-        const hasLogo = str.includes('▀▀') || str.includes('探索未至')
-        const hasDoc = /[四五六七八九]、/.test(str)
+        const hasLogo = str.includes('▀▀') || str.includes('Explore the uncharted')
+        const hasDoc = /[5-9]\. /.test(str)
         frameLog.push(`${hasLogo ? 'L' : hasDoc ? 'D' : '.'} scrollTop=${sb.scrollTop} scrollH=${sb.scrollHeight} kids=${kids}`)
       }
       cb()
@@ -109,7 +109,7 @@ const channel: any = {
   responseChars: 0,
   activeToolCount: 1,
   turnStart: Date.now(),
-  lastUserText: '看看这个项目',
+  lastUserText: 'Look at this project',
   pending: [],
   commandList: [],
   notifications: [],
@@ -129,8 +129,8 @@ const bump = () => { channel.version++; for (const cb of listeners) cb() }
 let id = 0
 // --- pre-seed resumed history: 2 full turns (~2.5 viewports) ---------------
 for (let turn = 0; turn < 2; turn++) {
-  channel.rows.push({ id: id++, kind: 'user', text: `历史问题 ${turn}：检查一下构建配置` })
-  channel.rows.push({ id: id++, kind: 'reasoning', text: '用户想看构建配置，先找配置文件。'.repeat(3), streaming: false, durationMs: 1200 })
+  channel.rows.push({ id: id++, kind: 'user', text: `History question ${turn}: check the build config` })
+  channel.rows.push({ id: id++, kind: 'reasoning', text: 'The user wants the build config; find the config file first.'.repeat(3), streaming: false, durationMs: 1200 })
   for (let t = 0; t < 4; t++) {
     channel.rows.push({
       id: id++, kind: 'tool', text: '',
@@ -139,11 +139,11 @@ for (let turn = 0; turn < 2; turn++) {
         argsText: t % 2 ? `{"file_path": "/home/sisct/Code/projects/FlutterProjects/jotsy/lib/history${turn}_${t}.dart"}` : `{"command": "git log --oneline -15 && echo \\"---STATUS---\\" && git status --short && git branch --show-current", "description": "Show recent commits and working tree status"}`,
         argsFull: '{}',
         status: 'ok', startedAt: Date.now() - 60000, durationMs: 30,
-        resultText: Array.from({ length: 8 + t * 5 }, (_, i) => `eb33e0${i} ci: separate runtime properties 历史结果行 ${turn}-${t}-${i} (cikeseven, 2026-07-12)`).join('\n'),
+        resultText: Array.from({ length: 8 + t * 5 }, (_, i) => `eb33e0${i} ci: separate runtime properties History result line ${turn}-${t}-${i} (cikeseven, 2026-07-12)`).join('\n'),
       },
     })
   }
-  channel.rows.push({ id: id++, kind: 'assistant', text: `历史回答 ${turn}：\n\n- 构建配置在 \`pubspec.yaml\`\n- CI 在 \`.github/workflows/\`\n\n| 项 | 值 |\n| --- | --- |\n| SDK | ^3.7.0 |\n| riverpod | ^3.2.1 |`, streaming: false })
+  channel.rows.push({ id: id++, kind: 'assistant', text: `History answer ${turn}:\n\n- Build config is in \`pubspec.yaml\`\n- CI is in \`.github/workflows/\`\n\n| Item | Value |\n| --- | --- |\n| SDK | ^3.7.0 |\n| riverpod | ^3.2.1 |`, streaming: false })
 }
 
 const stdoutObj = new FakeStdout()
@@ -166,12 +166,12 @@ await sleep(800)
 
 // --- live turn ---------------------------------------------------------------
 const add = (row: any) => { channel.rows.push({ id: id++, ...row }); bump() }
-add({ kind: 'user', text: '看看这个项目，给个概览' })
+add({ kind: 'user', text: 'Look at this project and give an overview' })
 await sleep(120)
 
 const think1 = { id: id++, kind: 'reasoning', text: '', streaming: true, durationMs: undefined }
 channel.rows.push(think1); bump()
-for (const chunk of ['先看目录结构', '，读 README 和 pubspec', '，然后汇总。']) {
+for (const chunk of ['Look at the directory layout first', ', read README and pubspec', ', then summarize.']) {
   think1.text += chunk; bump(); await sleep(140)
 }
 think1.streaming = false; think1.durationMs = 1000; bump()
@@ -207,19 +207,19 @@ for (let t = 2; t <= 4; t++) {
   await sleep(140)
 }
 
-const think2 = { id: id++, kind: 'reasoning', text: '结构清楚了，整理概览，含表格。', streaming: true, durationMs: undefined }
+const think2 = { id: id++, kind: 'reasoning', text: 'Structure is clear; write an overview with a table.', streaming: true, durationMs: undefined }
 channel.rows.push(think2); bump(); await sleep(500)
 think2.streaming = false; think2.durationMs = 7000; bump(); await sleep(150)
 
 const finalMsg = { id: id++, kind: 'assistant', text: '', streaming: true }
 channel.rows.push(finalMsg); bump()
 const docLines: string[] = []
-docLines.push('# Jotsy 项目说明\n\n```text\n')
-const sections = ['一、项目定位', '二、技术栈', '三、核心功能', '四、数据设计要点', '五、代码结构', '六、工程规范（AGENTS.md 摘要）', '七、构建与发布', '八、数据迁移与备份', '九、当前状态备注']
+docLines.push('# Jotsy project notes\n\n```text\n')
+const sections = ['1. Project positioning', '2. Tech stack', '3. Core features', '4. Data design notes', '5. Code structure', '6. Engineering conventions (AGENTS.md summary)', '7. Build and release', '8. Data migration and backup', '9. Current status notes']
 for (const sec of sections) {
   docLines.push(sec + '\n')
   for (let i = 0; i < 11; i++) {
-    docLines.push(`- ${sec} 的第 ${i + 1} 条说明文字：lib/app/ 应用装配、主题系统、WebDAV 同步、archive 加密打包（zip），内容以 Delta JSON 存储\n`)
+    docLines.push(`- ${sec} item ${i + 1}: lib/app/ assembly, theme system, WebDAV sync, archive encrypted zip; content stored as Delta JSON\n`)
   }
   docLines.push('\n')
 }
@@ -289,19 +289,19 @@ for (const f of midFrames) {
   }
 }
 // Did mid-stream output ever paint doc text? Track offset where each section first appears.
-const idx5 = allRaw.indexOf('五、代码结构')
-const idx9 = allRaw.indexOf('九、当前状态备注')
+const idx5 = allRaw.indexOf('5. Code structure')
+const idx9 = allRaw.indexOf('9. Current status notes')
 const lastThird = allRaw.slice(Math.floor(allRaw.length * 2 / 3))
-console.log(`paint check: total=${allRaw.length}B 五、 first@${idx5} 九、 first@${idx9} 五、in-last-third=${lastThird.includes('五、代码结构')}`)
-const at = allRaw.indexOf('五、代码结构')
-console.log('--- raw slice around first mid-stream paint of 五、 ---')
+console.log(`paint check: total=${allRaw.length}B 5. first@${idx5} 9. first@${idx9} 5.in-last-third=${lastThird.includes('5. Code structure')}`)
+const at = allRaw.indexOf('5. Code structure')
+console.log('--- raw slice around first mid-stream paint of 5. ---')
 console.log(JSON.stringify(allRaw.slice(Math.max(0, at - 600), at + 300)))
 const frames = allRaw.split('\x1b[?2026h').slice(1)
 let logoFrames = 0, docFrames = 0, both = 0
 const seq: string[] = []
 for (const f of frames) {
-  const hasLogo = f.includes('▀▀') || f.includes('探索未至')
-  const hasDoc = /[四五六七八九]、/.test(f)
+  const hasLogo = f.includes('▀▀') || f.includes('Explore the uncharted')
+  const hasDoc = /[5-9]\. /.test(f)
   if (hasLogo && hasDoc) both++
   else if (hasLogo) logoFrames++
   else if (hasDoc) docFrames++

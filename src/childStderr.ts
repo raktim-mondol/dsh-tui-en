@@ -140,7 +140,7 @@ export interface ChildStderrReporter {
 /**
  * Turn a raw child-stderr line stream into bounded, deduplicated
  * notifications: identical lines inside a short debounce window collapse into
- * one "（重复 N 次）" notice, and a line that was just shown stays silent for
+ * one ' (repeated N×) ' notice, and a line that was just shown stays silent for
  * a cooldown so a failing reconnect loop can't spam the status area.
  */
 export function createChildStderrReporter(

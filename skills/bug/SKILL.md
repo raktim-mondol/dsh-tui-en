@@ -13,15 +13,15 @@ Capture a complete, actionable bug report. Ask only the questions needed to fill
 2. Fill any critical gaps with at most 2-3 targeted questions: reproduction steps, environment (OS/terminal/node version), and whether it's deterministic.
 3. If the codebase is available, inspect the suspected area to add root-cause hypotheses (with file/line evidence where possible).
 4. Produce the report:
-   - **标题**: one-line symptom summary
-   - **现象**: observed vs expected behavior
-   - **复现步骤**: minimal steps, with inputs
-   - **环境**: OS / node version / dsh-tui version / terminal
-   - **影响**: severity + who/what is affected
-   - **根因假设**: evidence-based guesses, clearly labeled as hypotheses
-   - **建议**: fix direction or workaround
+   - **Title**: one-line symptom summary
+   - **Symptoms**: observed vs expected behavior
+   - **Reproduction**: minimal steps, with inputs
+   - **Environment**: OS / node version / dsh-tui version / terminal
+   - **Impact**: severity + who/what is affected
+   - **Root-cause hypotheses**: evidence-based guesses, clearly labeled as hypotheses
+   - **Suggestions**: fix direction or workaround
 
 ## Constraints
 
-- Never invent reproduction steps or environment details — mark unknowns as "待确认".
+- Never invent reproduction steps or environment details — mark unknowns as "to be confirmed".
 - Keep the report tight; a bug report is a working document, not an essay.

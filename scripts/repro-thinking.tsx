@@ -1,21 +1,24 @@
 /**
- * thinking spinner 残影回归（issue #72 症状之一）。
+ * Thinking-spinner ghost regression (one of the issue #72 symptoms).
  *
- * 背景：spinner 动画字符 ✳（U+2733）是 text-default emoji，终端画 1 格，
- * 但 stringWidth 的 JS 回退实现曾把 emoji-regex 匹配到的字符一律量 2 格。
- * 于是 spinner 行每次动画切到 ✳ 就整体错位 1 列，thinking 文字的残影
- * （"tthinking"、孤立 t）在屏幕上堆积不消失。
+ * Background: the spinner glyph ✳ (U+2733) is a text-default emoji that
+ * the terminal paints 1 cell wide, but stringWidth's JS fallback used to
+ * measure every emoji-regex match as 2 cells. Each time the spinner
+ * frame hit ✳ the whole row shifted by 1 column, and thinking-text
+ * ghosts ("tthinking", a stray t) piled up and never cleared.
  *
- * 本脚本 headless 渲染 Chat 全屏：working=true、spinnerMode='thinking'、
- * 助手文本持续流式增长（强制内容增长 + stickyScroll），捕获全部帧字节，
- * 用 xterm-headless 回放后断言可见区干净：
+ * This script headless-renders full-screen Chat: working=true,
+ * spinnerMode='thinking', assistant text streaming (forced growth +
+ * stickyScroll). Capture every frame byte, replay in xterm-headless,
+ * and assert the viewport is clean:
  *
- * - 恰有 1 行含 'thinking'（spinner 行本身；灌入文本刻意不含该词）
- * - 无 'tthinking' 叠字
- * - 无孤立残影 't'（任意列，两侧为空白或行尾）
+ * - exactly 1 row contains 'thinking' (the spinner row; streamed text
+ *   deliberately avoids that word)
+ * - no 'tthinking' overlap
+ * - no stray isolated 't' (any column, whitespace or EOL on both sides)
  *
- * 运行：node --import tsx/esm scripts/repro-thinking.tsx
- * 可选：COLS/ROWS 环境变量控制终端尺寸。失败以非零退出。
+ * Run: node --import tsx/esm scripts/repro-thinking.tsx
+ * Optional: COLS/ROWS env vars set the terminal size. Non-zero on fail.
  */
 process.env.FORCE_COLOR = '3'
 
@@ -54,9 +57,9 @@ class FakeStdin extends PassThrough {
   unref() { return this }
 }
 
-// ── 可变 channel：模拟一轮 thinking + 流式输出 ──
+// ── Mutable channel: one thinking turn + streaming output ──
 const rows: any[] = [
-  { id: 0, kind: 'user', text: '帮我分析一下这个渲染问题的可能原因' },
+  { id: 0, kind: 'user', text: 'Help me analyze possible causes of this render issue' },
 ]
 let version = 0
 const listeners = new Set<() => void>()
@@ -74,12 +77,15 @@ const channel = {
   spinnerMode: 'thinking',
   get responseChars() { return currentText.length },
   activeToolCount: 0,
+  mode: { id: 'default', plan: false },
+  modeIndex: 0,
+  cycleMode() {},
   turnStart: Date.now(),
-  lastUserText: '帮我分析一下这个渲染问题的可能原因',
+  lastUserText: 'Help me analyze possible causes of this render issue',
   pending: [],
   commandList: [],
   notifications: [],
-  activityEnabled: false, // 强制走 WorkingSpinner（而非 ActivityLine）
+  activityEnabled: false, // force WorkingSpinner (not ActivityLine)
   contextBarEnabled: false,
   subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn) },
   submit: () => {},
@@ -95,7 +101,7 @@ let currentText = ''
 let nextId = 1
 function pushChunk(chunk: string) {
   currentText += chunk
-  // 更新流式中的 assistant 行
+  // Update the in-flight assistant row
   const last = rows[rows.length - 1]
   if (last && last.kind === 'assistant' && last.streaming) {
     last.text = currentText
@@ -118,31 +124,31 @@ const instance = await render(
   },
 )
 
-// 启动稳定
+// Let the first paint settle
 await new Promise(r => setTimeout(r, 500))
 
-// 流式灌文本 ~6 秒（thinking 状态保持）。内容刻意全为中文、不含 'thinking'
-// 与孤立 ASCII 't'，让残影断言无歧义。
+// Stream text for ~6s while thinking stays on. The body avoids the word
+// 'thinking' and any isolated ASCII 't' so ghost asserts stay unambiguous.
 const CHUNKS = [
-  '好的，', '让我来分析', '这个问题。', '首先，', '渲染器', '使用相对', '光标移动',
-  '来重绘', '变化的单元格。', '如果虚拟', '光标与真实', '终端光标', '失步，',
-  '写入就会', '落在错误的', '位置。', '具体来说，', '动画行', '每 50ms',
-  '重绘一次，', '微光颜色', '每帧都在变化。', '这就导致', '该行所有单元格',
-  '每帧都被重写。', '如果光标模型', '偏差了一行，', '重写就会', '落在下一行，',
-  '留下残影。', '这就是', '多个字符', '堆积的原因。', '分析完毕。',
+  'OK, ', 'let me analyze ', 'this issue. ', 'First, ', 'the renderer ', 'uses relative ', 'cursor moves ',
+  'to redraw ', 'changed cells. ', 'If the virtual ', 'cursor and real ', 'terminal cursor ', 'fall out of sync, ',
+  'writes land ', 'in the wrong ', 'place. ', 'Specifically, ', 'the animation row ', 'redraws every 50ms, ',
+  'and shimmer colors ', 'change each frame. ', 'That causes ', 'every cell on that row ',
+  'to be rewritten each frame. ', 'If the cursor model ', 'is off by one row, ', 'the rewrite ', 'lands on the next row ',
+  'and leaves a ghost. ', 'That is why ', 'several glyphs ', 'pile up. ', 'Analysis done.',
 ]
 for (const chunk of CHUNKS) {
   pushChunk(chunk)
   await new Promise(r => setTimeout(r, 120))
 }
 
-// 再让 spinner 空转几帧
+// Let the spinner idle a few more frames
 await new Promise(r => setTimeout(r, 800))
 
 const byteStream = stdout.frames.join('')
 try { instance.unmount() } catch {}
 
-// ── xterm-headless 回放 ──
+// ── xterm-headless replay ──
 const term = new XTerm({ cols: COLS, rows: ROWS, scrollback: 500, allowProposedApi: true })
 term.write(byteStream)
 await new Promise(r => setTimeout(r, 1200))
@@ -153,29 +159,29 @@ for (let y = 0; y < ROWS; y++) {
   lines.push(buf.getLine(y)?.translateToString(true) ?? '')
 }
 
-// ── 残影检测 ──
+// ── Ghost detection ──
 const problems: string[] = []
 let thinkingRows = 0
 lines.forEach((line, y) => {
   if (line.includes('thinking')) thinkingRows++
-  if (/tthinking/.test(line)) problems.push(`row ${y}: 叠字残影 "tthinking" → ${JSON.stringify(line)}`)
-  // 孤立 't'：两侧为空白/行首行尾（灌入文本不含 ASCII 't'，出现即残影）
+  if (/tthinking/.test(line)) problems.push(`row ${y}: overlap ghost "tthinking" → ${JSON.stringify(line)}`)
+  // Isolated 't': whitespace / SOL / EOL on both sides (streamed text has no lone ASCII t)
   const m = line.match(/(?:^|\s)t(?=\s|$)/)
-  if (m) problems.push(`row ${y}: 孤立残影 't' → ${JSON.stringify(line)}`)
+  if (m) problems.push(`row ${y}: isolated 't' ghost → ${JSON.stringify(line)}`)
 })
 if (thinkingRows !== 1) {
-  problems.push(`含 'thinking' 的行数为 ${thinkingRows}（期望 1，即 spinner 行本身）`)
+  problems.push(`rows containing 'thinking': ${thinkingRows} (expected 1, the spinner row)`)
 }
 
 if (problems.length > 0) {
   const dump = '/tmp/repro-thinking-frames.bin'
   fs.writeFileSync(dump, byteStream)
-  console.error(`FAIL: thinking spinner 残影回归（帧字节已存 ${dump}）`)
+  console.error(`FAIL: thinking-spinner ghost regression (frames dumped to ${dump})`)
   console.error(`=== xterm-headless replay: ${COLS}x${ROWS} (viewport baseY=${buf.baseY}) ===`)
   lines.forEach((line, y) => console.error(`${String(y).padStart(3)}|${line}`))
   for (const p of problems) console.error(`- ${p}`)
   process.exit(1)
 }
 
-console.log(`PASS: thinking spinner 无残影（${COLS}x${ROWS}，spinner 行恰 1 处 'thinking'）`)
+console.log(`PASS: thinking spinner has no ghosts (${COLS}x${ROWS}, exactly 1 'thinking' row)`)
 process.exit(0)
