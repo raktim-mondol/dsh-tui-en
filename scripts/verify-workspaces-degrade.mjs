@@ -1,19 +1,28 @@
 #!/usr/bin/env node
 /**
- * verify-workspaces-degrade.mjs — tuiWorkspaces 服务可选化回归（issue #183）。
+ * verify-workspaces-degrade.mjs — tuiWorkspaces service optionality
+ * regression (issue #183).
  *
- * dsh CLI 从「安装锚点优先命中的拷贝」（通常是全局启动器）读 bundle 的
- * cordis.patch.yml，却从 profile 拷贝装载插件模块；两份拷贝版本错位时
- * 旧 patch 没有 dsh-tui-workspaces 行。本脚本锁定降级契约，防止回退：
+ * The dsh CLI reads the bundle's cordis.patch.yml from "whichever copy the
+ * install anchor hits first" (usually the global launcher), but loads
+ * plugin modules from the profile's copy; when the two copies are on
+ * mismatched versions, the older patch is missing the dsh-tui-workspaces
+ * row. This script locks down the degradation contract to prevent
+ * regressions:
  *
- *   - 代码层 inject 不得再含 tuiWorkspaces（硬注入 = 启动死锁）
- *   - plugin/channel 两处消费必须带 createLocalWorkspaceRuntime 兜底
- *   - profile 启动且服务缺失时恰好一处 warn（可诊断），裸嵌入静默
- *   - bundle patch 保留服务行 + 行级 inject 顺序保证（正常安装不降级）
- *   - 本地兜底运行时的行为：绝对路径/file URL 可解析、provider URI 返回
- *     undefined（触发既有的 fail-loud 报错）、list 至少含当前目录
+ *   - the code-level inject must never require tuiWorkspaces again (a hard
+ *     inject there means startup deadlocks)
+ *   - both consumers (plugin/channel) must carry the
+ *     createLocalWorkspaceRuntime fallback
+ *   - exactly one diagnosable warn when a profile launch is missing the
+ *     service; a bare embed stays silent
+ *   - the bundle patch keeps the service row + row-level inject ordering
+ *     guarantee (a normal install never degrades)
+ *   - the local-fallback runtime's own behavior: absolute paths/file URLs
+ *     resolve, a provider URI returns undefined (triggering the existing
+ *     fail-loud error), and list always includes at least the current directory
  *
- * 运行：pnpm build && node scripts/verify-workspaces-degrade.mjs
+ * Run: pnpm build && node scripts/verify-workspaces-degrade.mjs
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -68,7 +77,7 @@ assert.ok(
   'the workspaces row precedes the dsh-tui row',
 )
 
-// 本地兜底运行时行为：覆盖启动 workspace 目标解析的三类输入。
+// Local-fallback runtime behavior: covers the three input shapes for startup workspace-target resolution.
 const fallback = createLocalWorkspaceRuntime()
 const byPath = await fallback.resolve(process.cwd())
 assert.equal(byPath?.kind, 'local', 'absolute path resolves to a local target')

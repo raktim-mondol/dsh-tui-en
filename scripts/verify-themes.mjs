@@ -126,10 +126,12 @@ check('parse: name/displayName default to file name', () => {
 })
 
 check('parse: displayName internal CR/LF flattened at the entry', () => {
-  // displayName 会进入按固定行高切片的列表行（ThemePicker/Select）与状态栏
-  // 等单行 UI——内部换行必须在入口压平（四次审查 P3；ListItem 的递归压平
-  // 是第二道防线，不能替代入口断言）。\n、\r、\r\n、连续换行各自折叠为一个
-  // 空格。
+  // displayName flows into list rows sliced by a fixed row height
+  // (ThemePicker/Select) and single-line UI like the status bar — internal
+  // newlines must be flattened at the entry point (ListItem's recursive
+  // flattening is the second line of defense, not a substitute for this
+  // entry-point assertion). \n, \r, \r\n, and runs of newlines each collapse
+  // to a single space.
   for (const [raw, want] of [
     ['A\nB', 'A B'],
     ['A\rB', 'A B'],
