@@ -12,7 +12,12 @@
  *      — the version is pinned to this package so a stale pnpm store cache
  *      cannot drift the profile onto an older build;
  *   3. If the profile is initialized but its version does not match this
- *      package, print a one-line hint (run /update inside the TUI, or re-add);
+ *      package, handle it by direction (issue #183): profile newer (forward
+ *      skew) prints a one-line hint and keeps launching (run /update inside
+ *      the TUI, or re-add); profile older (reverse skew) refuses to launch
+ *      and prints the alignment command instead — in that direction the dsh
+ *      CLI applies the launcher's bundle patch to the profile's older
+ *      package, which is guaranteed to crash with a module-resolution error;
  *   4. Forward every remaining argument to `dsh --profile dsh-tui`.
  *
  * `--resume` is intercepted by this launcher: it reads the TUI-kept
@@ -27,9 +32,9 @@
  * both `en` and `zh` print English.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { shellQuote } from '../lib/types/utils/shellQuote.js'
 import { detectLegacyEnv, RENAMED_ENV } from '../lib/types/utils/paths.js'
@@ -50,6 +55,21 @@ const MSG = {
     `[dsh-tui] note: the profile is running v${installed} but this launcher is v${own}.\n` +
     `  To update the profile: run /update inside the TUI, or:\n` +
     `  dsh plugin --profile ${PROFILE} add ${PACKAGE}@latest`,
+  // Reverse skew (issue #183): the dsh CLI reads the bundle patch from the
+  // FIRST copy found from its own install anchor — this globally installed
+  // launcher — while the plugin modules load from the profile's copy. A
+  // launcher minor NEWER than the profile means the patch may reference
+  // subpath exports the profile's older package does not have, and boot
+  // crashes opaquely (ERR_PACKAGE_PATH_NOT_EXPORTED) before any TUI code
+  // runs. Fail loud with the fix instead. (Forward skew degrades to a
+  // working local-workspace fallback since 0.7.2 — soft note below.)
+  profileOlderThanLauncher: (installed, own) =>
+    `[dsh-tui] cannot start: the profile runs v${installed} but this launcher is v${own}.\n` +
+    `  The launcher's bundle patch would be applied to the profile's older package,\n` +
+    `  which does not export everything the patch references — boot would crash.\n` +
+    `  Align the profile with the launcher:\n` +
+    `  dsh plugin --profile ${PROFILE} add ${PACKAGE}@${own}\n` +
+    `  (or update everything to the latest release: dsh plugin --profile ${PROFILE} add ${PACKAGE}@latest)`,
   launchFailed: err => `[dsh-tui] Failed to launch: ${err.message}`,
   legacyEnv: (oldName, newName) => `[dsh-tui] note: env ${oldName} was renamed to ${newName}; the old name no longer takes effect.`,
 }
@@ -68,10 +88,17 @@ const isWin = process.platform === 'win32'
 // shellQuote first (same as the /update restart path in src/update.ts),
 // otherwise arguments that contain spaces or quotes get split.
 const shellOpt = isWin ? { shell: true } : {}
-const q = args => (isWin ? shellQuote(args) : args)
+// DEP0190 (issue #148): Node ≥22 deprecates `shell:true` combined with a
+// non-empty argument array — the check is syntactic, so passing already
+// shell-quoted args still warns, and a future major version may upgrade it
+// to a runtime error. Fold the escaped args into the command string instead
+// (shell:true + an empty argument array doesn't trigger it); the non-Windows
+// path keeps passing the array directly.
+const cmd = (command, args) =>
+  isWin ? [`${command} ${shellQuote(args).join(' ')}`, []] : [command, args]
 
 // --- 1. dsh CLI probe --------------------------------------------------------
-const probe = spawnSync('dsh', q(['--version']), { stdio: 'pipe', ...shellOpt })
+const probe = spawnSync(...cmd('dsh', ['--version']), { stdio: 'pipe', ...shellOpt })
 if (probe.error || probe.status !== 0) {
   console.error(msg('noDsh'))
   process.exit(1)
@@ -92,18 +119,27 @@ try {
   installedVersion = undefined
 }
 if (installedVersion === undefined) {
-  const pnpmProbe = spawnSync('pnpm', q(['--version']), { stdio: 'pipe', ...shellOpt })
+  const pnpmProbe = spawnSync(...cmd('pnpm', ['--version']), { stdio: 'pipe', ...shellOpt })
   if (pnpmProbe.error || pnpmProbe.status !== 0) {
     console.error(msg('noPnpm'))
     process.exit(1)
   }
   console.log(msg('bootstrapStart'))
-  const add = spawnSync('dsh', q(['plugin', '--profile', PROFILE, 'add', `${PACKAGE}@${ownVersion}`]), { stdio: 'inherit', ...shellOpt })
+  const add = spawnSync(...cmd('dsh', ['plugin', '--profile', PROFILE, 'add', `${PACKAGE}@${ownVersion}`]), { stdio: 'inherit', ...shellOpt })
   if (add.status !== 0) {
     console.error(msg('installFailed'))
     process.exit(add.status ?? 1)
   }
 } else if (installedVersion !== ownVersion) {
+  // Reverse skew is fatal (see MSG.profileOlderThanLauncher): compare
+  // major/minor only — patch-level differences never move the patch surface.
+  const majorMinor = v => v.split('-')[0].split('.').slice(0, 2).map(Number)
+  const [installedMajor, installedMinor] = majorMinor(installedVersion)
+  const [ownMajor, ownMinor] = majorMinor(ownVersion)
+  if (installedMajor < ownMajor || (installedMajor === ownMajor && installedMinor < ownMinor)) {
+    console.error(MSG.profileOlderThanLauncher(installedVersion, ownVersion))
+    process.exit(1)
+  }
   console.error(MSG.versionMismatch(installedVersion, ownVersion))
 }
 
@@ -112,22 +148,48 @@ if (installedVersion === undefined) {
 // inside the profile may be on different versions, so env is dual-written
 // (both old and new names). File reads prefer the new path and fall back
 // to the old one.
+// Supported forms (issue #53):
+//   --resume <id> / --resume=<id>   resume a specific session
+//   --resume / -c / --continue      resume the most recent session (resume.txt)
+// Every other positional argument is forwarded as-is to the dsh CLI, read
+// by the plugin via ctx.cmdlineArgs (initial prompt).
+const setResumeEnv = sessionId => {
+  process.env.DSH_TUI_RESUME_SESSION = sessionId
+  process.env.DSH_CC_RESUME_SESSION = sessionId
+}
+const readLastResumeTarget = () => {
+  for (const dir of ['.dsh-tui', '.dsh-cc']) {
+    try {
+      const sessionId = readFileSync(join(homedir(), dir, 'resume.txt'), 'utf8').trim()
+      if (sessionId) return sessionId
+    } catch {
+      // No historical session to resume — ignore silently and cold-start.
+    }
+  }
+  return ''
+}
 const args = []
-for (const a of process.argv.slice(2)) {
-  if (a === '--resume') {
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i]
+  if (a === '--resume' || a === '-c' || a === '--continue' || a.startsWith('--resume=')) {
     let sessionId = ''
-    for (const dir of ['.dsh-tui', '.dsh-cc']) {
-      try {
-        sessionId = readFileSync(join(homedir(), dir, 'resume.txt'), 'utf8').trim()
-        if (sessionId) break
-      } catch {
-        // No historical session to resume — ignore silently and cold-start.
-      }
+    if (a.startsWith('--resume=')) {
+      sessionId = a.slice('--resume='.length).trim()
+    } else if (a === '--resume' && argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) {
+      sessionId = argv[++i].trim()
     }
-    if (sessionId) {
-      process.env.DSH_TUI_RESUME_SESSION = sessionId
-      process.env.DSH_CC_RESUME_SESSION = sessionId
-    }
+    // The bare forms (including -c/--continue) fall back to resume.txt.
+    if (!sessionId) sessionId = readLastResumeTarget()
+    if (sessionId) setResumeEnv(sessionId)
+  } else if (
+    process.env.DSH_TUI_WORKSPACE_TARGET === undefined
+    && !a.startsWith('-')
+    && (isAbsolute(a) || /^[a-z][a-z0-9+.-]*:\/\//iu.test(a) || existsSync(resolve(a)))
+  ) {
+    // A workspace target is launcher syntax, not an argument for the profile
+    // app. The registry resolves local paths/file URLs and provider URIs.
+    process.env.DSH_TUI_WORKSPACE_TARGET = a
   } else {
     args.push(a)
   }
@@ -140,13 +202,13 @@ for (const oldName of detectLegacyEnv()) {
 }
 
 // --- 4. Launch ---------------------------------------------------------------
-const child = spawn('dsh', q(['--profile', PROFILE, ...args]), {
+const child = spawn(...cmd('dsh', ['--profile', PROFILE, ...args]), {
   stdio: 'inherit',
   env: process.env,
   ...shellOpt,
 })
 child.on('error', err => {
-  console.error(MSG.launchFailed(err))
+  console.error(msg('launchFailed')(err))
   process.exit(1)
 })
 child.on('exit', (code, signal) => {

@@ -21,6 +21,7 @@ import { FocusManager } from './focus.js';
 import { emptyFrame, type Frame, type FrameEvent } from './frame.js';
 import { dispatchClick, dispatchHover } from './hit-test.js';
 import instances from './instances.js';
+import { suppressInputFor } from './input-suppression.js';
 import { LogUpdate } from './log-update.js';
 import { nodeCache } from './node-cache.js';
 import { optimize } from './optimizer.js';
@@ -33,8 +34,8 @@ import createRenderer, { type Renderer } from './renderer.js';
 import { CellWidth, CharPool, cellAt, createScreen, HyperlinkPool, isEmptyCellAt, migrateScreenPools, StylePool } from './screen.js';
 import { applySearchHighlight } from './searchHighlight.js';
 import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
-import { SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, type Terminal, writeDiffToTerminal } from './terminal.js';
-import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ERASE_SCREEN, SGR_RESET } from './termio/csi.js';
+import { SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
+import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ENABLE_WIN32_INPUT_MODE, ERASE_SCREEN, SGR_RESET } from './termio/csi.js';
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, SHOW_CURSOR } from './termio/dec.js';
 import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, setClipboard, supportsTabStatus, wrapForMultiplexer } from './termio/osc.js';
 import { TerminalWriteProvider } from './useTerminalNotification.js';
@@ -317,6 +318,16 @@ export default class Ink {
     this.terminalRows = rows;
     this.altScreenParkPatch = makeAltScreenParkPatch(this.terminalRows);
 
+    // Every cached measurement in the tree was taken against a width that no
+    // longer exists. Nothing here is "dirty" in the reconciler's sense — no
+    // props changed — so without an explicit sweep the text nodes keep
+    // answering with the sizes they computed for the old terminal, and the
+    // rows that depend on flex arbitration come out assembled from two
+    // different layouts. Setting the root's width alone does not reach them:
+    // markDirty walks upward from a changed node, and here the change is the
+    // constraint every node was measured against.
+    dom.markTreeDirty(this.rootNode);
+
     // Alt screen: reset frame buffers so the next render repaints from
     // scratch (prevFrameContaminated → every cell written, wrapped in
     // BSU/ESU — old content stays visible until the new frame swaps
@@ -361,7 +372,9 @@ export default class Ink {
     // Disable extended key reporting first — editors that don't speak
     // CSI-u (e.g. nano) show "Unknown sequence" for every Ctrl-<key> if
     // kitty/modifyOtherKeys stays active. exitAlternateScreen re-enables.
-    DISABLE_KITTY_KEYBOARD + DISABLE_MODIFY_OTHER_KEYS + (this.altScreenMouseTracking ? DISABLE_MOUSE_TRACKING : '') + (
+    // win32-input-mode (native Windows) likewise must not leak into the
+    // editor — it would turn every key into INPUT_RECORD sequences.
+    DISABLE_WIN32_INPUT_MODE + DISABLE_KITTY_KEYBOARD + DISABLE_MODIFY_OTHER_KEYS + (this.altScreenMouseTracking ? DISABLE_MOUSE_TRACKING : '') + (
     // disable mouse (no-op if off)
     this.altScreenActive ? '' : '\x1b[?1049h') +
     // enter alt (already in alt if fullscreen)
@@ -390,32 +403,59 @@ export default class Ink {
    * returns, fullscreen scroll is dead.
    */
   exitAlternateScreen(): void {
-    this.options.stdout.write((this.altScreenActive ? ENTER_ALT_SCREEN : '') +
-    // re-enter alt — vim's rmcup dropped us to main
-    '\x1b[2J' +
-    // clear screen (now alt if fullscreen)
-    '\x1b[H' + (
-    // cursor home
-    this.altScreenMouseTracking ? ENABLE_MOUSE_TRACKING : '') + (
-    // re-enable mouse (skip if CLAUDE_CODE_DISABLE_MOUSE)
-    this.altScreenActive ? '' : '\x1b[?1049l') +
-    // exit alt (non-fullscreen only)
-    '\x1b[?25l' // hide cursor (Ink manages)
-    );
-    this.resumeStdin();
     if (this.altScreenActive) {
+      // Fullscreen: re-enter alt FIRST — terminal editors (vim, nano, less)
+      // write smcup/rmcup, so the editor's rmcup on exit dropped us to the
+      // main screen; without re-entering, the 2J below would wipe the
+      // user's main-screen scrollback and later renders would land in main
+      // (native scroll returns, fullscreen scroll dies).
+      this.options.stdout.write(ENTER_ALT_SCREEN +
+      '\x1b[2J' +
+      // clear screen
+      '\x1b[H' + (
+      // cursor home
+      this.altScreenMouseTracking ? ENABLE_MOUSE_TRACKING : '') +
+      // re-enable mouse (skip if CLAUDE_CODE_DISABLE_MOUSE)
+      '\x1b[?25l' // hide cursor (Ink manages)
+      );
+      this.resumeStdin();
+      // Swallow the terminal's post-restore chatter (async CPR/DECRPM
+      // replies, mouse fragments): resumeStdin's drain only covers bytes
+      // already buffered, and a stray ESC would clear a non-empty prompt
+      // (issue #123 field report).
+      suppressInputFor(120);
       this.resetFramesForAltScreen();
+      this.resume();
     } else {
+      // Inline: pop alt FIRST (a no-op when the editor's rmcup already did
+      // it), THEN clear+home the main screen and force a full redraw from
+      // home — the same proven sequence as forceRedraw()/Ctrl+L. The
+      // previous order (2J before 1049l, plain repaint(), no contamination
+      // flag) erased the alt buffer or left the blit fast path copying
+      // from an empty frontFrame: the transcript stayed blank until the
+      // next message, and the desynced log-update cursor duplicated the
+      // frame below (issue #123 field report).
+      this.options.stdout.write('\x1b[?1049l' +
+      // exit alt before touching the main screen
+      SGR_RESET + ERASE_SCREEN + CURSOR_HOME +
+      // BCE-safe clear from home, cursor parked top-left for the redraw
+      '\x1b[?25l' // hide cursor (Ink manages)
+      );
+      this.resumeStdin();
+      suppressInputFor(120);
       this.repaint();
+      // repaint()'s fresh empty frontFrame would let the blit fast path
+      // copy blanks and diff to nothing — same flag forceRedraw() sets.
+      this.prevFrameContaminated = true;
+      this.resume();
     }
-    this.resume();
     // Re-enable focus reporting and extended key reporting — terminal
     // editors (vim, nano, etc.) write their own modifyOtherKeys level on
     // entry and reset it on exit, leaving us unable to distinguish
     // ctrl+shift+<letter> from ctrl+<letter>. Pop-before-push keeps the
     // Kitty stack balanced (a well-behaved editor restores our entry, so
     // without the pop we'd accumulate depth on each editor round-trip).
-    this.options.stdout.write('\x1b[?1004h' + (supportsExtendedKeys() ? DISABLE_KITTY_KEYBOARD + ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS : ''));
+    this.options.stdout.write('\x1b[?1004h' + (supportsWin32InputMode() ? ENABLE_WIN32_INPUT_MODE : supportsExtendedKeys() ? DISABLE_KITTY_KEYBOARD + ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS : ''));
   }
   onRender() {
     if (this.isUnmounted || this.isPaused) {
@@ -911,8 +951,11 @@ export default class Ink {
     // Extended keys — re-assert if enabled (App.tsx enables these on
     // allowlisted terminals at raw-mode entry; a terminal reset clears them).
     // Pop-before-push keeps Kitty stack depth at 1 instead of accumulating
-    // on each call.
-    if (supportsExtendedKeys()) {
+    // on each call. win32-input-mode is a plain DEC private mode (no stack),
+    // so a bare re-set suffices.
+    if (supportsWin32InputMode()) {
+      this.options.stdout.write(ENABLE_WIN32_INPUT_MODE);
+    } else if (supportsExtendedKeys()) {
       this.options.stdout.write(DISABLE_KITTY_KEYBOARD + ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS);
     }
     if (!this.altScreenActive) {
@@ -1449,16 +1492,10 @@ export default class Ink {
         level: 'warn'
       });
     }
-    logForDebugging(`[stdin] resumeStdin: re-attaching ${this.stdinListeners.length} listener(s), wasRawMode=${this.wasRawMode}`);
-    this.stdinListeners.forEach(({
-      event,
-      listener
-    }) => {
-      stdin.addListener(event, listener);
-    });
-    this.stdinListeners = [];
 
-    // Re-enable raw mode if it was enabled before
+    // Raw mode FIRST: the editor restored the tty to canonical mode on
+    // exit, so keystrokes typed during the handoff window are sitting in
+    // the kernel line buffer; setRawMode(true) makes them readable.
     if (this.wasRawMode) {
       const stdinWithRaw = stdin as NodeJS.ReadStream & {
         setRawMode?: (mode: boolean) => void;
@@ -1468,6 +1505,27 @@ export default class Ink {
       }
       this.wasRawMode = false;
     }
+
+    // Drain every already-buffered byte BEFORE the listeners come back:
+    // line-buffer leftovers, editor exit-sequence replies (CPR/DECRPM),
+    // mouse-event fragments. Parsed as input they are destructive — a
+    // stray ESC clears a non-empty prompt, the rest lands as text garbage
+    // (issue #123 field report). Bytes arriving LATE (async terminal
+    // replies) are covered by the suppression window in
+    // exitAlternateScreen.
+    let chunk: unknown;
+    while ((chunk = stdin.read()) !== null) {
+      void chunk;
+    }
+
+    logForDebugging(`[stdin] resumeStdin: re-attaching ${this.stdinListeners.length} listener(s)`);
+    this.stdinListeners.forEach(({
+      event,
+      listener
+    }) => {
+      stdin.addListener(event, listener);
+    });
+    this.stdinListeners = [];
   }
 
   // Stable identity for TerminalWriteContext. An inline arrow here would
@@ -1536,6 +1594,8 @@ export default class Ink {
       // Disable extended key reporting (both kitty and modifyOtherKeys)
       writeSync(1, DISABLE_MODIFY_OTHER_KEYS);
       writeSync(1, DISABLE_KITTY_KEYBOARD);
+      // Disable win32-input-mode (no-op where never enabled)
+      writeSync(1, DISABLE_WIN32_INPUT_MODE);
       // Disable focus events (DECSET 1004)
       writeSync(1, DFE);
       // Disable bracketed paste mode

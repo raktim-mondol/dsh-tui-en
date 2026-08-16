@@ -6,7 +6,7 @@ import { useTheme } from './ThemeProvider.js'
 
 /**
  * Colors uncolored ThemedText in the subtree. Precedence: explicit `color` >
- * this > dimColor (ported from the leak's design-system, where message rows
+ * this > dimColor (in the Claude Code visual language, where message rows
  * set it to `text` on hover).
  */
 export const TextHoverColorContext = React.createContext<
@@ -39,9 +39,9 @@ export type Props = {
   readonly color?: keyof Theme | Color
 
   /**
-   * Same as `color`, but for background. Must be a theme key.
+   * Same as `color`, but for background.
    */
-  readonly backgroundColor?: keyof Theme
+  readonly backgroundColor?: keyof Theme | Color
 
   /**
    * Dim the color using the theme's inactive color.
@@ -84,7 +84,7 @@ export type Props = {
 
 /**
  * Theme-aware Text component that resolves theme color keys to raw colors
- * (ported from the leak's design-system). This is what lets every ported CC
+ * (in the Claude Code visual language). This is what lets every ported CC
  * component use `color="subtle"`-style theme keys unchanged.
  */
 export default function ThemedText({
@@ -110,9 +110,7 @@ export default function ThemedText({
       : dimColor
         ? (theme.inactive as Color)
         : resolveColor(color, theme)
-  const resolvedBackgroundColor = backgroundColor
-    ? (theme[backgroundColor] as Color)
-    : undefined
+  const resolvedBackgroundColor = resolveColor(backgroundColor, theme)
 
   return (
     <Text

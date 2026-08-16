@@ -14,6 +14,9 @@ permissions:
 jobs:
   npm:
     runs-on: ubuntu-latest
+    env:
+      # Gate scripts assert zh UI copy (same convention as CI).
+      DSH_TUI_LANG: zh
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +32,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build
+      - run: pnpm compile
+
+      - name: Verify clean compile output
+        run: |
+          test -f lib/types/index.js
+          test -f lib/types/dsh-adapter/invariant.js
+
+      - run: pnpm verify:build
+
+      - run: pnpm verify:package
 
       # Fail immediately when the tag and package.json version disagree, so
       # the wrong version cannot be published.
@@ -42,6 +54,10 @@ jobs:
       - run: node --import tsx/esm scripts/repro-askpanel.tsx
 
       - run: node --import tsx/esm scripts/repro-toolcards.tsx
+
+      # /provider 向导与面板 hideCustomInput 回归（发版门禁同 CI）。
+      - run: node scripts/verify-provider-wizard.mjs
+      - run: node --import tsx/esm scripts/verify-askpanel-hide-custom-input.tsx
 
       - run: pnpm publish --no-git-checks --access public --provenance
         env:

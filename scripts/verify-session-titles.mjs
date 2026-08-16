@@ -6,8 +6,8 @@
  *
  * Why this exists: picker titles used to come from `persistence.load()`,
  * which validates every event against KNOWN_SESSION_EVENT_TYPES and throws
- * the whole load on an unmarked third-party type (activity/status written
- * by working-activity before resume-repair). Every such session silently
+ * the whole load on an unmarked third-party type (for example an
+ * activity/status record in a legacy log). Every such session silently
  * fell back to the cwd basename in the picker — "history sessions were never renamed".
  *
  * Asserts:
@@ -32,7 +32,7 @@ process.env.DSH_TUI_SESSION_ROOT = root
 
 // Import AFTER the env override (root resolves at call time, but keep the
 // order obvious against future module-level reads).
-const { readSessionTitleFromLog } = await import('../lib/types/compat/sessionLog.js')
+const { readSessionTitleFromLog } = await import('../lib/types/dsh-adapter/compat/sessionLog.js')
 
 const writeSession = (sessionId, frames) => {
   const dir = join(root, '--work-space--', sessionId)

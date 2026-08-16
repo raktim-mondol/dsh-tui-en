@@ -16,9 +16,9 @@ const [{ PassThrough, Writable }, React, { render }, { Chat }, { QuestionStore }
   import('react'),
   import('../src/ui.js'),
   import('../src/screens/Chat.js'),
-  import('../src/questions.js'),
+  import('../src/dsh-adapter/questions.js'),
   import('../src/commands.js'),
-  import('../src/utils/sideQuestion.js'),
+  import('../src/dsh-adapter/sideQuestion.js'),
 ])
 
 class FakeStdout extends Writable {
@@ -72,6 +72,7 @@ function makeChannel() {
     provider: 'deepseek',
     tokens: { input: 120, output: 45 },
     cwd: 'C:/code/demo-project',
+    displayCwd: 'C:/code/demo-project',
     gitBranch: 'main',
     working: false,
     spinnerMode: 'requesting' as const,
@@ -167,7 +168,7 @@ function makeChannel() {
   await delay(400)
   stdin.write('/btw\r')
   await delay(300)
-  const usageNotified = channel.notifyCalls.some(text => text.includes('Usage: /btw'))
+  const usageNotified = channel.notifyCalls.some(text => text.includes('用法：/btw'))
   console.log('scenario4 bare /btw notifies usage:', usageNotified)
   await instance.unmount()
 }

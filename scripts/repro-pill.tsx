@@ -6,6 +6,9 @@
  * sequences on stdin → Chat wheel handler → ScrollBox.scrollBy.
  */
 process.env.FORCE_COLOR = '3'
+// This script asserts English UI copy; pin the language before any
+// module import resolves the startup lang (env > persisted > locale).
+process.env.DSH_TUI_LANG = 'en'
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render, AlternateScreen }, { Chat }, { QuestionStore }] = await Promise.all([
   import('node:stream'),
@@ -13,7 +16,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render, Alternat
   import('@xterm/headless'),
   import('../src/ui.js'),
   import('../src/screens/Chat.js'),
-  import('../src/questions.js'),
+  import('../src/dsh-adapter/questions.js'),
 ])
 
 const COLS = 100
@@ -58,6 +61,7 @@ const channel: any = {
   reasoningEffort: 'max',
   tokens: { input: 1, output: 1 },
   cwd: '/tmp/demo',
+  displayCwd: '/tmp/demo',
   gitBranch: 'main',
   working: false,
   spinnerMode: 'requesting',

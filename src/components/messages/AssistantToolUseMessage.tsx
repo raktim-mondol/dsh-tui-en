@@ -2,7 +2,7 @@ import React from 'react'
 import { Box, Text } from '../../ui.js'
 import { stringWidth } from '../../ink/stringWidth.js'
 import { useAnimationFrame } from '../../ink/hooks/use-animation-frame.js'
-import type { ToolCallView, ToolFileDiff, ToolResultView, ToolRow } from '../../channel.js'
+import type { ToolCallView, ToolFileDiff, ToolResultView, ToolRow } from '../../dsh-adapter/channel.js'
 import { ToolUseLoader } from '../ToolUseLoader.js'
 import { formatDuration } from '../../cc/format.js'
 
@@ -16,6 +16,15 @@ type Props = {
   isSelected?: boolean
   /** Row expanded on its own (persistent hover-grey background, CC). */
   isExpanded?: boolean
+  /**
+   * Trajectory pointer, rendered as one more `⎿` line under a failed call.
+   *
+   * It appears on the NEWEST unseen failure only, so a session with a dozen
+   * failed calls still shows exactly one pointer — the moment of failure is
+   * where the trajectory is worth mentioning, and mentioning it twelve times
+   * is worth less than mentioning it once.
+   */
+  footnote?: string
 }
 
 /** Tool display names: DSH emits lowercase tool ids (`bash`); Claude Code
@@ -46,7 +55,8 @@ function displayName(name: string): string {
 // body hangs under a `  ⎿  ` gutter (first line) / blank continuation, so
 // tool output is visually nested under its header instead of flush-left.
 
-type BodyTone = 'add' | 'del' | 'dim' | 'plain' | 'error'
+/** `hint` is the trajectory pointer: recessive, never competing with output. */
+type BodyTone = 'add' | 'del' | 'dim' | 'plain' | 'error' | 'hint'
 type BodyLine = { readonly text: string; readonly tone: BodyTone }
 
 /** CC's collapsed text body keeps 3 lines (renderTruncatedContent). */
@@ -216,8 +226,7 @@ function HeaderTitle({ name, title, isTerminal, displayArgs }: {
 /**
  * Tool-call card: `● Edit /path` header with a blinking status dot, then the
  * structured body under a `  ⎿  ` gutter — diff hunks in red/green, terminal
- * output, read content — instead of the raw result dump (ported from the
- * leak's `AssistantToolUseMessage.tsx` + the dsh-tools presentation views the
+ * output, read content — instead of the raw result dump (mirroring Claude Code's `AssistantToolUseMessage.tsx` + the dsh-tools presentation views the
  * channel captures per call).
  */
 export function AssistantToolUseMessage({
@@ -226,6 +235,7 @@ export function AssistantToolUseMessage({
   verbose,
   isSelected = false,
   isExpanded = false,
+  footnote,
 }: Props): React.ReactNode {
   const isRunning = tool.status === 'running'
   const isError = tool.status === 'error'
@@ -266,7 +276,11 @@ export function AssistantToolUseMessage({
     }
   }
   const cap = view?.card === 'diff' ? DIFF_BODY_MAX_LINES : TEXT_BODY_MAX_LINES
+  // The footnote rides OUTSIDE the cap: it is a pointer, not content, and a
+  // long error body must not be the reason it disappears.
   const lines = capLines(body, cap, verbose)
+  const rendered: BodyLine[] =
+    footnote === undefined ? lines : [...lines, { text: footnote, tone: 'hint' }]
 
   return (
     <Box
@@ -297,7 +311,7 @@ export function AssistantToolUseMessage({
             </Box>
           )}
         </Box>
-        {lines.map((line, index) => (
+        {rendered.map((line, index) => (
           <Box key={index} flexDirection="row">
             <Box width={5} flexShrink={0}>
               <Text dimColor>{index === 0 ? GUTTER_FIRST : GUTTER_REST}</Text>
@@ -311,7 +325,9 @@ export function AssistantToolUseMessage({
                       ? 'diffRemovedWord'
                       : line.tone === 'error'
                         ? 'error'
-                        : undefined
+                        : line.tone === 'hint'
+                          ? 'subtle'
+                          : undefined
                 }
                 dimColor={line.tone === 'dim'}
                 wrap="wrap"

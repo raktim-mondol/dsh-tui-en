@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from '../../ui.js'
-import { KeyboardShortcutHint } from '../design-system/KeyboardShortcutHint.js'
+import { t } from '../../i18n.js'
 import { Markdown } from '../Markdown.js'
 import { formatDuration } from '../../cc/format.js'
 
@@ -19,8 +19,8 @@ type Props = {
 
 /**
  * Thinking block: folded `∴ Thinking (ctrl+o to expand)`, expanded shows the
- * full reasoning text indented under `∴ Thinking…` (ported from the leak's
- * `messages/AssistantThinkingMessage.tsx`). When the channel records the
+ * full reasoning text indented under `∴ Thinking…`, mirroring Claude Code's
+ * `messages/AssistantThinkingMessage.tsx`. When the channel records the
  * reasoning duration, the label carries it (`∴ Thinking · 12s …`) — dsh-tui's
  * take on making thinking time visible in the transcript.
  */
@@ -47,10 +47,7 @@ export function AssistantThinkingMessage({
         onClick={onClick}
       >
         <Text dimColor italic>
-          ∴ Thinking{duration}{' '}
-          <Text dimColor>
-            <KeyboardShortcutHint shortcut="ctrl+o" action="expand" parens />
-          </Text>
+          ∴ {t('thinking-label')}{duration} {t('hint-expand-ctrl-o')}
         </Text>
       </Box>
     )
@@ -66,7 +63,7 @@ export function AssistantThinkingMessage({
       onClick={onClick}
     >
       <Text dimColor italic>
-        ∴ Thinking{duration}…
+        ∴ {t('thinking-label')}{duration}…
       </Text>
       <Box paddingLeft={2}>
         <Markdown dimColor>{thinking}</Markdown>

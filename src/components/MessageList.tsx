@@ -1,10 +1,9 @@
 import React from 'react'
 import { t } from '../i18n.js'
 import { Box, Text, useTerminalSize, type ScrollBoxHandle } from '../ui.js'
-import type { ChatRow, ToolRow, ToolCallView, ToolResultView } from '../channel.js'
+import type { ChatRow, ToolRow, ToolCallView, ToolResultView } from '../dsh-adapter/channel.js'
 import type { DOMElement } from '../ink/dom.js'
 import { Divider } from './design-system/Divider.js'
-import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js'
 import { UserPromptMessage } from './messages/UserPromptMessage.js'
 import { AssistantTextMessage } from './messages/AssistantTextMessage.js'
 import { AssistantThinkingMessage } from './messages/AssistantThinkingMessage.js'
@@ -58,6 +57,8 @@ export function MessageList({
   forceMountRowId,
   newSinceRowId,
   onUnseenCount,
+  failureHintRowId,
+  failureHint,
 }: {
   rows: readonly ChatRow[]
   expanded: boolean
@@ -82,6 +83,14 @@ export function MessageList({
   newSinceRowId?: number | null
   /** Reports how many new rows still sit below the viewport bottom edge. */
   onUnseenCount?: (count: number) => void
+  /**
+   * Row id that should carry the trajectory footnote — the newest unseen
+   * failure, or null. Exactly one row ever carries it: repeating the pointer
+   * under every historical failure is the clutter this design avoids.
+   */
+  failureHintRowId?: number | null
+  /** Footnote text, e.g. `ctrl+t for the full trajectory`. */
+  failureHint?: string
 }) {
   const hiddenCount = rows.length - MAX_RENDERED_ROWS
   // The thinking filter runs BEFORE virtualization so window indices line up.
@@ -122,6 +131,7 @@ export function MessageList({
   const localRefs = React.useRef(new Map<number, DOMElement>())
   /** Content-space offset of visibleRows[0] (header + dividers), measured. */
   const baseRef = React.useRef<number | null>(null)
+  const measureQueuedRef = React.useRef(false)
   const [, setMeasureTick] = React.useState(0)
   const [, setScrollTick] = React.useState(0)
 
@@ -243,7 +253,15 @@ export function MessageList({
         scrollHandle.setClampBounds(min, Math.max(min, base + mountedBottom - viewport))
       }
     }
-    if (changed) setMeasureTick(t => t + 1)
+    if (changed && !measureQueuedRef.current) {
+      // Layout corrections can cascade for many rows. Yield between commits
+      // so React does not count the valid convergence as nested updates.
+      measureQueuedRef.current = true
+      queueMicrotask(() => {
+        measureQueuedRef.current = false
+        setMeasureTick(t => t + 1)
+      })
+    }
   })
 
   // useCallback: the reference feeds MemoRow's shallow compare; a fresh
@@ -268,7 +286,7 @@ export function MessageList({
       )}
       {!showAll && hiddenCount > 0 && (
         <Box marginTop={1} onClick={onToggleAll}>
-          <Divider title={` ctrl+e to show ${hiddenCount} previous messages `} />
+          <Divider title={t('show-previous-messages', { n: hiddenCount })} />
         </Box>
       )}
       {topPad > 0 && <Box height={topPad} flexShrink={0} />}
@@ -285,6 +303,7 @@ export function MessageList({
               rowId={row.id}
               kind={row.kind}
               text={row.text}
+              executionTarget={row.executionTarget}
               streaming={row.streaming === true}
               durationMs={row.durationMs}
               time={row.time}
@@ -302,6 +321,7 @@ export function MessageList({
               toolResultText={tool?.resultText}
               toolResultFull={tool?.resultFull}
               toolErrorText={tool?.errorText}
+              toolFootnote={failureHintRowId === row.id ? failureHint : undefined}
               toolCallView={tool?.callView}
               toolResultView={tool?.resultView}
               toolStartedAt={tool?.startedAt}
@@ -330,6 +350,7 @@ type MemoRowProps = {
   rowId: number
   kind: ChatRow['kind']
   text: string
+  executionTarget: string | undefined
   streaming: boolean
   durationMs: number | undefined
   time: number | undefined
@@ -349,6 +370,8 @@ type MemoRowProps = {
   toolResultText: string | undefined
   toolResultFull: string | undefined
   toolErrorText: string | undefined
+  /** Trajectory footnote, present on at most one row (the newest failure). */
+  toolFootnote: string | undefined
   /** Presentation views are set-once stable refs (creation / settle), so a
    *  plain ref compare stays correct under the in-place mutation model. */
   toolCallView: ToolCallView | undefined
@@ -366,6 +389,7 @@ function TranscriptRow({
   rowId,
   kind,
   text,
+  executionTarget,
   streaming,
   durationMs,
   time,
@@ -383,6 +407,7 @@ function TranscriptRow({
   toolResultText,
   toolResultFull,
   toolErrorText,
+  toolFootnote,
   toolCallView,
   toolResultView,
   toolStartedAt,
@@ -508,6 +533,7 @@ function TranscriptRow({
             verbose={isExpanded || expanded}
             isSelected={isSelected}
             isExpanded={isExpanded}
+            footnote={toolFootnote}
           />
         </Box>
       )
@@ -528,7 +554,7 @@ function TranscriptRow({
     // `!` mode command echo, like CC's UserBashInputMessage.
       return (
         <Box marginTop={1} backgroundColor={background} ref={ref}>
-          <Text color="bashBorder">! {text}</Text>
+          <Text color="bashBorder">!{executionTarget ? ` [${executionTarget}]` : ''} {text}</Text>
         </Box>
       )
     case 'local-output':
@@ -554,7 +580,7 @@ function TranscriptRow({
           ) : (
             <Text dimColor italic>
               ∴ {t('compact-summary-folded')} · {compactPreview(text)}{' '}
-              <KeyboardShortcutHint shortcut="ctrl+o" action="expand" parens />
+              {t('hint-expand-ctrl-o')}
             </Text>
           )}
         </Box>

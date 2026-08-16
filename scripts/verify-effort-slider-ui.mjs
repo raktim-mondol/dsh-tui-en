@@ -21,6 +21,7 @@ import { Writable, PassThrough } from 'node:stream'
 import React from 'react'
 import { render } from '../lib/types/ui.js'
 import { Chat } from '../lib/types/screens/Chat.js'
+import { setLang } from '../lib/types/i18n.js'
 
 let failed = 0
 function check(name, ok, extra = '') {
@@ -81,6 +82,7 @@ function makeChannel() {
     provider: 'deepseek',
     tokens: { input: 0, output: 0 },
     cwd: '/tmp',
+    displayCwd: '/tmp',
     gitBranch: 'main',
     working: false,
     spinnerMode: 'requesting',
@@ -101,6 +103,12 @@ function makeChannel() {
     commandList: [
       { name: 'effort', description: 'Adjust the reasoning effort (slider)' },
     ],
+    commandCompletions(input) {
+      const prefix = input.replace(/^\//u, '').trim().toLowerCase()
+      return this.commandList
+        .filter((command) => command.name.startsWith(prefix))
+        .map((command) => ({ ...command, commandLine: `/${command.name}`, replacement: `/${command.name} ` }))
+    },
     contextSegments: { system: 0, prompt: 0, assistant: 0, thinking: 0, tools: 0 },
     get mode() { return MODES[modeIndex] },
     get modeIndex() { return modeIndex },
@@ -166,7 +174,10 @@ function makeChannel() {
 
 const toPlain = s =>
   s
-    .replace(/\x1b\[(\d+)C/g, () => ' '.repeat(8))
+    // 光标前移按真实格数展开：浮层面板覆盖既有行时 diff 会跳过未变单元格
+    // （两个空格之间只发 CSI n C），固定 8 空格会把 "Reasoning effort"
+    // 拆成多格空格导致断言漏匹配。
+    .replace(/\x1b\[(\d+)C/g, (_, n) => ' '.repeat(Number(n)))
     .replace(/\x1b\[[0-9;?>:]*[a-zA-Z]/g, '')
     .replace(/\x1b\]9;[^\x07]*\x07/g, '')
 
@@ -183,6 +194,10 @@ const instance = await render(
 await sleep(700)
 
 const screen = () => toPlain(stdout.frames.join(''))
+
+// Pin the UI language so the assertions below don't depend on the host's
+// persisted /lang choice or OS locale (the slider chrome is localized).
+setLang('en')
 
 // 1. /effort bare → slider opens with the current level (High) checked.
 stdin.write('/effort')
@@ -218,13 +233,32 @@ check('/effort off applied', channel.setEffortCalls.includes('off'), JSON.string
 stdin.write('\x1b[Z')
 await sleep(300)
 s = screen()
-check('statusline shows mode label', s.includes('plan mode'), s.slice(-300))
+check('statusline shows mode label', s.includes('计划模式') || /plan mode/.test(s), s.slice(-300))
 stdin.write('\x1b[Z')
 await sleep(300)
 check('second backtab → full', channel.mode.id === 'full', channel.mode.id)
 stdin.write('\x1b[Z')
 await sleep(300)
 check('third backtab → default (no segment)', channel.modeIndex === 0, String(channel.modeIndex))
+
+// 6. zh locale: the slider chrome hot-swaps to the localized strings
+//    (picker i18n branch: picker-title-effort / hint-adjust-done).
+setLang('zh')
+stdin.write('/effort')
+await sleep(250)
+stdin.write('\r')
+await sleep(400)
+s = screen()
+check('zh: slider title 推理强度', s.includes('推理强度'), '')
+check('zh: hint line localized', s.includes('调整') && s.includes('完成'), '')
+// Clear the frame buffer so the check only sees the post-Esc repaint —
+// slicing the joined backlog can still reach the open-slider frame.
+stdout.frames.length = 0
+stdin.write('\x1b')
+await sleep(300)
+s = screen()
+check('zh: Esc closed the slider', !s.includes('推理强度'), '')
+setLang('en')
 
 instance.unmount()
 process.exit(failed)

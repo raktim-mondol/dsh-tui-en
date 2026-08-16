@@ -1,19 +1,20 @@
 #!/usr/bin/env node
 /**
- * verify-launcher.mjs — bin/dsh-tui.js one-shot launcher regression (issue #108).
+ * verify-launcher.mjs — bin/dsh-tui.js 直达启动器回归（issue #108）。
  *
- * Puts a dsh stub on PATH that records argv token-by-token (plus an empty
- * pnpm stub) and covers:
- *   - args forwarded as-is to `dsh --profile dsh-tui` (spaces stay one token)
- *   - a broken profile (dir exists, package.json unreadable) re-bootstraps
- *     and pins the version to this package
- *   - a version mismatch prints a hint but still launches
- *   - user-facing messages are English: DSH_TUI_LANG=zh also prints English
- *     (Chinese has been removed)
- *   - shellQuote unit (the win32 shell:true path never runs on CI Linux, so
- *     the escape rules themselves are covered here)
+ * PATH 上放一个逐参数记录 argv 的 dsh stub（外加空 pnpm stub），覆盖：
+ *   - 参数原样透传给 `dsh --profile dsh-tui`（含空格参数不拆分）
+ *   - 残骸 profile（目录在、package.json 不可读）触发重新自举，且版本号
+ *     与本包对齐
+ *   - profile 已装版本与启动器不一致时打印提示；前向错位（profile 更新）
+ *     不阻塞启动（0.7.2 起 TUI 降级可用），反向错位（profile 更旧，issue
+ *     #183）拒绝启动并给出对齐命令——dsh CLI 会从启动器拷贝读 bundle
+ *     patch 套到 profile 旧包上，启动必然 opaque 崩溃
+ *   - 面向用户的消息双语：DSH_TUI_LANG=zh 输出中文，否则默认英文
+ *   - shellQuote 单元（win32 的 shell:true 路径 CI 跑不到 Windows，只能靠
+ *     单测覆盖转义规则本身）
  *
- * Run: pnpm build && node scripts/verify-launcher.mjs
+ * 运行：pnpm build && node scripts/verify-launcher.mjs
  */
 import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -33,22 +34,21 @@ function check(name, ok) {
   if (!ok) failures++
 }
 
-// --- Test env: temp DSH_HOME + argv-recording dsh stub -----------------------------
+// --- 测试环境：临时 DSH_HOME + 记录 argv 的 dsh stub ----------------------------
 const tmp = mkdtempSync(join(tmpdir(), 'verify-launcher-'))
 const home = join(tmp, 'home')
 const stubDir = join(tmp, 'stub-bin')
 const stubLog = join(tmp, 'stub.log')
 const isWin = process.platform === 'win32'
 mkdirSync(stubDir, { recursive: true })
-// Encode each argv token in <angle> brackets so a split is obvious; always exit 0.
+// argv 逐参数 <angle> 编码，参数被拆分时一目了然；退出码恒 0。
 writeFileSync(join(stubDir, 'dsh'), '#!/bin/sh\nfor a in "$@"; do printf \'<%s>\' "$a"; done >> "$DSH_STUB_LOG"\nprintf \'\\n\' >> "$DSH_STUB_LOG"\nexit 0\n')
 writeFileSync(join(stubDir, 'pnpm'), '#!/bin/sh\nexit 0\n')
 chmodSync(join(stubDir, 'dsh'), 0o755)
 chmodSync(join(stubDir, 'pnpm'), 0o755)
-// Windows: the launcher uses shell:true / cmd, which only sees .cmd/.bat —
-// a bare sh script is invisible, so we need a .cmd stub. Log format matches
-// the sh stub byte-for-byte (angle encoding + newline) so both share the
-// same assertions. cmd must be pure ASCII + CRLF; node comes from runBin PATH.
+// Windows：启动器经 shell:true 走 cmd，只认 .cmd/.bat，扩展名无关的 sh 脚本
+// 不可见——需要 .cmd stub。日志格式与 sh stub 逐字节一致（角度编码 + 换行），
+// 新言共用同一套断言。cmd 必须纯 ASCII + CRLF；node 由 runBin 的 PATH 提供。
 if (isWin) {
   writeFileSync(
     join(stubDir, 'dsh.cmd'),
@@ -57,14 +57,13 @@ if (isWin) {
   )
   writeFileSync(join(stubDir, 'pnpm.cmd'), '@echo off\r\n@exit /b 0\r\n', 'ascii')
 }
-// cmd.exe needs node on PATH (stub dependency) and System32 (shell);
-// PATH separators differ by platform.
+// cmd.exe 需要 PATH 里的 node（stub 依赖）与 System32（shell 解释器）；
+// PATH 分隔符平台不同。
 const sep = isWin ? ';' : ':'
 const winBasics = ['C:\\Windows\\System32', 'C:\\Windows']
 const stubPath = [stubDir, ...(isWin ? [dirname(process.execPath), ...winBasics] : ['/usr/bin', '/bin'])].join(sep)
-// No-dsh env: must not include the node dir — when node and dsh share a
-// directory (D:\\node) the real dsh would leak in. The bin is spawned by
-// absolute path, so PATH only needs cmd.exe (System32).
+// 无 dsh 环境：绝不能含 node 目录——本机 node 与 dsh 同目录（D:\\node）时会把真 dsh 带进来。
+// bin 自身经绝对路径 spawn，不需要 PATH 里的 node；仅需 cmd.exe（System32）。
 const noDshPath = (isWin ? winBasics : ['/usr/bin', '/bin']).join(sep)
 
 function setProfileVersion(version) {
@@ -88,8 +87,8 @@ function runBin(args, extraEnv = {}) {
       HOME: tmp,
       DSH_HOME: home,
       DSH_STUB_LOG: stubLog,
-      // launcher spawn(shell:true) trips DEP0190 on Windows and would
-      // dirty the "silent launch" stderr checks — disable in tests.
+      // 启动器 spawn(shell:true) 在 Windows 触 DEP0190 弃用警告，
+      // 会污染「静默启动」类断言的 stderr——测试环境下关掉。
       NODE_OPTIONS: '--no-deprecation',
       ...extraEnv,
     },
@@ -97,8 +96,8 @@ function runBin(args, extraEnv = {}) {
   })
 }
 
-// --- 1. Broken profile re-bootstraps, version pinned to this package -------------
-setProfileVersion(undefined) // dir exists, package.json unreadable
+// --- 1. 残骸 profile 触发重新自举，版本号与本包对齐 ----------------------------
+setProfileVersion(undefined) // 目录在、package.json 不可读
 resetStubLog()
 let r = runBin([])
 check('bootstrap: broken profile triggers reinstall', stubCalls().some(c => c.includes('<plugin>') && c.includes('<add>')))
@@ -106,30 +105,45 @@ check('bootstrap: pinned to the launcher version', stubCalls().some(c => c.inclu
 check('bootstrap: launches after reinstall', stubCalls().at(-1) === '<--profile><dsh-tui>')
 check('bootstrap: exits 0', r.status === 0)
 
-// --- 2. Matching versions: args forwarded as-is, no hint --------------------------
+// --- 2. 版本一致：参数原样透传，无提示 ----------------------------------------
 setProfileVersion(ownVersion)
 resetStubLog()
 r = runBin(['foo', 'a b'])
 check('passthrough: args forwarded after --profile', stubCalls().at(-1) === '<--profile><dsh-tui><foo><a b>')
 check('passthrough: silent when aligned', r.stderr.trim() === '')
 
-// --- 3. Version mismatch: print a hint but still launch ---------------------------
+// --- 3. 前向错位（profile 更新）：打印提示但不阻塞启动（0.7.2 起降级可用）---
+const [ownMajor, ownMinor] = ownVersion.split('-')[0].split('.').map(Number)
+const newerProfile = `${ownMajor}.${ownMinor + 1}.0`
+setProfileVersion(newerProfile)
+resetStubLog()
+r = runBin([])
+check('mismatch: hint names both versions', r.stderr.includes(`v${newerProfile}`) && r.stderr.includes(`v${ownVersion}`))
+check('mismatch: still launches', stubCalls().at(-1) === '<--profile><dsh-tui>' && r.status === 0)
+
+// --- 3.5 反向错位（profile 更旧，issue #183）：拒绝启动并给出对齐命令 --------
+// dsh CLI 的 bundle patch 取自启动器拷贝、插件模块取自 profile 拷贝；启动器
+// 次版本更新时 patch 可能引用旧包没有的子路径导出，启动必然 opaque 崩溃——
+// 启动器必须先于 dsh 拦截。
 setProfileVersion('0.0.0')
 resetStubLog()
 r = runBin([])
-check('mismatch: hint names both versions', r.stderr.includes('v0.0.0') && r.stderr.includes(`v${ownVersion}`))
-check('mismatch: still launches', stubCalls().at(-1) === '<--profile><dsh-tui>' && r.status === 0)
+check('reverse skew: refuses to launch', r.status === 1 && !stubCalls().some(c => c.includes('<--profile>')))
+check('reverse skew: names both versions', r.stderr.includes('v0.0.0') && r.stderr.includes(`v${ownVersion}`))
+check('reverse skew: prints the align command', r.stderr.includes(`add @deepseek-harness-tui/dsh-tui@${ownVersion}`))
+r = runBin([], { DSH_TUI_LANG: 'en' })
+check('reverse skew: English message', r.stderr.includes('cannot start'))
 
-// --- 4. Missing-dsh error is English (default and /lang zh both English)
+// --- 4. 消息双语：缺 dsh 时的报错（契约同 TUI：DSH_TUI_LANG 指定才生效，否则默认中文）
 const envNoDsh = { PATH: noDshPath }
 r = runBin([], { ...envNoDsh, DSH_TUI_LANG: 'en' })
 check('i18n: DSH_TUI_LANG=en prints English', r.stderr.includes('dsh CLI not found'))
 r = runBin([], { ...envNoDsh, DSH_TUI_LANG: 'zh' })
-check('i18n: DSH_TUI_LANG=zh also prints English', r.stderr.includes('dsh CLI not found'))
+check('i18n: DSH_TUI_LANG=zh prints Chinese', r.stderr.includes('未检测到 dsh CLI'))
 r = runBin([], envNoDsh)
-check('i18n: default (unset) prints English', r.stderr.includes('dsh CLI not found'))
+check('i18n: default (unset) prints Chinese', r.stderr.includes('未检测到 dsh CLI'))
 
-// --- 5. shellQuote unit (escape rules for the win32 shell:true path) ---------
+// --- 5. shellQuote 单元（win32 shell:true 路径的转义规则）---------------------
 check('shellQuote: plain tokens pass through', shellQuote(['plugin', '--profile', 'dsh-tui']).join(' ') === 'plugin --profile dsh-tui')
 check('shellQuote: spaces get quoted', shellQuote(['a b']).join(' ') === '"a b"')
 check('shellQuote: embedded quotes are doubled', shellQuote(['a"b c']).join(' ') === '"a""b c"')

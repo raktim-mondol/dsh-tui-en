@@ -28,8 +28,6 @@ const PREFS_DIR = DATA_DIR
 export const LANGS = ['en'] as const
 
 const dict = {
-
-  // ── channel.ts ───────────────────────────────────────────────────────
   'activity-indicator-already': 'Indicator already set: {{name}}',
   'activity-indicator-switched': 'Indicator switched: {{name}} (saved)',
   'activity-pref-write-failed': 'Cannot write ~/.dsh-tui/working-activity.json, switch not saved',
@@ -92,22 +90,41 @@ const dict = {
   'subagent-archived': ' archived',
   'subagent-query-failed': 'Query failed · {{err}}',
   'agent-preset-switched': 'Agent preset switched: {{preset}}',
-
-  // ── questions.ts ─────────────────────────────────────────────────────
+  'context-low-warning': 'Context low ({{percent}}% remaining) · Run /clear or start a new session',
+  'rewind-unavailable': 'Rewind unavailable — session services not loaded',
+  'rewind-settling': 'Cannot rewind — the turn is still settling, try again in a moment',
+  'rewind-fork-failed': 'Cannot rewind to this point · {{err}}',
+  'rewind-create-failed': 'Rewind failed — could not create the replacement session',
+  'rewind-attach-failed': 'Session rewound, but workspace attachment failed · {{err}}',
+  'resume-while-working': 'Cannot resume while a turn is running',
+  'resume-unavailable': 'Resume unavailable — agents service not loaded',
+  'resume-failed': 'Resume failed · {{err}}',
+  'resume-attach-failed': 'Session resumed, but workspace attachment failed · {{err}}',
+  'new-session-while-working': 'Cannot start a new session while a turn is running',
+  'new-session-unavailable': 'New session unavailable — agents service not loaded',
+  'new-session-failed': 'New session failed · {{err}}',
+  'new-session-attach-failed': 'Session created, but workspace attachment failed · {{err}}',
+  'model-switch-while-working': 'Cannot switch models while a turn is running',
+  'model-switch-unavailable': 'Model switch unavailable — session services not loaded',
+  'model-switch-fork-failed': 'Cannot switch models · {{err}}',
+  'model-switch-failed': 'Model switch failed · {{err}}',
+  'model-switch-attach-failed': 'Model switched, but workspace attachment failed · {{err}}',
+  'compact-unavailable': 'Compaction unavailable · no compaction service in this leaf',
+  'compact-while-working': 'Cannot compact while a turn is running',
+  'compact-working': 'Compacting conversation…',
+  'compact-done': 'Conversation compacted',
+  'compact-nothing': 'Nothing to compact',
+  'compact-failed': 'Compaction failed · {{err}}',
+  'turn-failed': 'Turn error{{detail}}',
   'questionnaire-answered': '📋 Questionnaire answered · {{total}} questions',
-
-  // ── customTheme.ts (doc example only) ───────────────────────────────
   'theme-sakura-name': 'Sakura Pink',
-
-  // ── utils/loaded-context.ts ─────────────────────────────────────────
   'context-truncated': '… (truncated)',
   'context-sections': 'System prompt {{n}} sections',
   'context-files': 'Workspace instructions ×{{n}}',
   'context-runtime': 'Runtime context {{n}} items',
   'context-skills': 'Skills {{n}}',
   'context-tools': 'Tools {{n}}',
-
-  // ── screens/Chat.tsx ────────────────────────────────────────────────
+  'skill-unavailable': 'Skill {{name}} is gone or not user-invocable',
   'skill-audit-prompt': 'Use the audit skill to do a thorough code audit of the current project, finding security, correctness and quality issues.',
   'skill-bug-prompt': 'Use the bug skill to help me write a complete bug report (symptoms, reproduction steps, expected behavior).',
   'skill-practice-prompt': 'Use the practice skill to run a round of programming practice with me.',
@@ -145,6 +162,28 @@ const dict = {
   'status-state': 'Status   {{state}}',
   'status-session': 'Session   {{id}}',
   'status-dir': 'Directory   {{cwd}}',
+  'workspace-picker-title': 'Workspace',
+  'workspace-picker-hint': '**Enter** switch and start a new session · Esc to exit · or type /workspace open <path-or-URI>',
+  'workspace-none': 'No workspaces available',
+  'workspace-list-failed': 'Failed to list workspaces · {{err}}',
+  'workspace-uri-invalid': 'Cannot resolve workspace target: {{uri}}',
+  'workspace-uri-failed': 'Failed to load workspace · {{err}}',
+  'workspace-switch-working': 'Cannot switch workspaces while the agent is running',
+  'workspace-open-invalid': 'Cannot open workspace: {target} is not an existing directory',
+  'workspace-switched': 'Workspace switched: {{target}}',
+  'workspace-flow-hint': '**Enter** select · Esc to exit',
+  'workspace-flow-edit-hint': '**Enter** select current directory · Tab enter a path · Esc to exit',
+  'workspace-flow-input-hint': 'Enter an absolute path · **Enter** load directory · Esc back',
+  'workspace-flow-input-empty': 'Directory path cannot be empty',
+  'workspace-flow-loading': 'Connecting and loading directories… · Esc to close',
+  'workspace-command-usage': 'Usage: /workspace resume | rename <name> | open <path-or-URI>{{commands}}',
+  'workspace-open-usage': 'Usage: /workspace open <path-or-URI>',
+  'workspace-rename-usage': 'Usage: /workspace rename <name>',
+  'workspace-command-unknown': 'Unknown workspace subcommand: {{command}}',
+  'workspace-command-empty': 'This workspace action has no available targets',
+  'workspace-command-failed': 'Workspace action failed · {{err}}',
+  'workspace-renamed': 'Workspace renamed: {{title}}',
+  'workspace-rename-failed': 'Failed to rename workspace · {{err}}',
   'cost-cache-rate': 'Cache rate {{rate}}% · {{read}} read / {{write}} write',
   'cost-context': 'Context {{pct}}%',
   'status-title': 'Title   {{title}}',
@@ -191,22 +230,21 @@ const dict = {
   'btw-hint-loading': 'Esc cancel',
   'btw-hint-done': '↑/↓ scroll · Space/Enter/Esc dismiss · c copy',
   'btw-llm-unavailable': 'Side question unavailable (llm service not mounted)',
-
-  // ── plugin.ts — boot-time rename notices (issue #120) ───────────────
+  'exit-press-again': 'Press Ctrl+C again to exit',
+  'new-session-started': 'New session started',
+  'command-not-found': '/{{name}}: no such command',
+  'thinking-toggled': 'Thinking {{state}}',
+  'thinking-on': 'on',
+  'thinking-off': 'off',
+  'tokens-usage': 'Tokens: {{in}} in · {{out}} out',
+  'tokens-usage-context': '{{usage}} · {{percent}}% of context',
   'legacy-dir-migrated': 'Data directory copied from ~/.dsh-tui to ~/.dsh-tui (the old directory is kept; delete it yourself once satisfied)',
   'legacy-env-renamed': 'Environment variable {{old}} was renamed to {{new}}; the old name no longer takes effect',
-
-  // ── components/ActivityLine.tsx ──────────────────────────────────────
+  'update-aborted-no-profile': 'dsh-tui update aborted: no dsh profile resolved.',
   'activity-ctx-warn': '⚠ ctx ',
-
-  // ── components/ActivityPicker.tsx ─────────────────────────────────────
   'activity-random-each-preset': 'random preset each time',
-
-  // ── components/PresetPicker.tsx ──────────────────────────────────────
   'preset-default-tag': ' (default)',
   'preset-broken-tag': ' (failed to load)',
-
-  // ── channel.ts — reasoning-effort notifications ──────────────────────
   'effort-unavailable': 'Reasoning effort switching unavailable (llm service not mounted)',
   'effort-read-failed': 'Failed to read reasoning efforts · {{error}}',
   'effort-single-tier': 'Current model has a single reasoning effort ({{name}})',
@@ -215,21 +253,17 @@ const dict = {
   'effort-invalid': 'Unknown reasoning effort {{id}} (this model offers: {{ids}})',
   'effort-current': 'Current reasoning effort {{name}}',
   'effort-usage': 'Usage: /effort (slider) | /effort <id> | /effort status',
-
-  // ── channel.ts — Shift+Tab session modes ────────────────────────────
   'mode-switched': 'Mode → {{name}}',
   'mode-default': 'default',
   'mode-plan': 'plan mode',
   'mode-full': 'full access',
   'mode-plan-unavailable': 'The active preset does not register /plan; cannot toggle plan mode',
-
-  // ── components/LogoV2.tsx ───────────────────────────────────────────
   'logo-tagline': 'Explore the uncharted!',
   'logo-tip-model': 'switch model',
   'logo-tip-help': 'view commands',
   'logo-tip-tab': 'autocomplete',
-
-  // ── components/PromptInput.tsx ──────────────────────────────────────
+  'logo-tip-trace': 'trajectory',
+  'logo-tip-prefix': 'Tip: ',
   'input-sent-after-turn': 'Sent, processed after the current turn',
   'input-interrupted-next': 'Interrupted · processed next',
   'input-queued-after-turn': 'Queued · processed after the turn',
@@ -238,11 +272,16 @@ const dict = {
   'input-empty': 'Empty input, nothing to send',
   'input-interrupt-immediate': 'Interrupted current turn, processing immediately',
   'input-clipboard-empty': 'Clipboard is empty',
+  'input-editor-unavailable': 'No editor available — set the $EDITOR (or $VISUAL) environment variable',
+  'input-editor-failed': 'External editor failed: {{name}}',
+  'input-clipboard-read-failed': 'Failed to read the clipboard',
+  'input-clipboard-unavailable': 'Cannot read clipboard: no usable wl-paste / xclip / xsel (not installed or session unreachable)',
+  'input-clipboard-image-saved': 'Clipboard image saved to a temp file; path inserted',
+  'input-image-pasted': 'Pasted image {{token}}',
+  'input-image-paste-failed': 'Could not paste image: {{err}}',
   'input-pending-steer-label': 'Steer · delivered next',
   'input-pending-queue-label': 'Queued · delivered after the turn',
   'input-pending-actions-hint': 'Retract · Esc interrupts and sends immediately',
-
-  // ── components/whaleFrames.ts (frame labels) ────────────────────────
   'frame-blink': 'blink',
   'frame-fin-1': 'fin1',
   'frame-fin-2': 'fin2',
@@ -255,21 +294,114 @@ const dict = {
   'frame-tail-1': 'tail1',
   'frame-tail-2': 'tail2',
   'frame-tail-3': 'tail3',
-
-  // ── components/MessageList.tsx ──────────────────────────────────────
+  'help-for-commands': '/ for commands',
+  'help-this-help': '? for this help',
+  'help-verbose-output': '{{mod}}o for verbose output',
+  'help-toggle-context': '{{mod}}t to toggle context',
+  'help-search-history': '{{mod}}r to search history',
+  'help-interrupt': 'ctrl+c to interrupt',
+  'help-exit': 'ctrl+d to exit',
+  'help-redraw': '{{mod}}l to redraw',
+  'help-clear-input': 'esc to clear input',
+  'help-history-nav': '↑/↓ for history',
+  'help-move-cursor': '←/→ to move cursor',
+  'help-word-jumps': '{{mod}}←/→ for word jumps',
+  'help-complete-command': 'tab to complete command',
+  'help-cycle-mode': 'shift+tab to cycle mode',
+  'help-open-editor': 'ctrl+x to open editor',
+  'help-commands-title': 'commands:',
+  'interrupted-by-user': 'Interrupted ',
+  'interrupted-ask-next': '· What should DeepSeek do instead?',
   'load-earlier': ' ↑ load earlier messages (full session log; /export for full text) ',
+  'show-previous-messages': ' ctrl+e to show {{n}} previous messages ',
   'resume-none-in-cwd': 'No resumable sessions in the current directory',
+  'resume-resumed': 'Session resumed',
+  'resume-delete-confirm': 'Delete "{{name}}"? The session log is removed permanently.',
+  'resume-deleted': 'Deleted session {{name}}',
+  'resume-delete-failed': 'Could not delete session {{name}}',
+  'resume-rename-placeholder': 'New session name…',
+  'resume-rename-failed': 'Could not rename session {{name}}',
+  'resume-hint-delete': '**Enter** to delete · Esc to cancel',
+  'resume-hint-rename': '**Enter** to save · Esc to cancel',
+  'resume-title': 'Resume session',
+  'session-loading': 'Reading sessions…',
+  'session-list-failed': 'Could not read the session list · {{err}}',
+  'session-resume-refused': 'That session could not be resumed — the reason is in the conversation (switching is refused while the model is working)',
+  'session-resume-failed': 'Resuming the session failed · {{err}}',
+  'session-when-now': 'just now',
+  'session-when-minutes': '{{n}}m ago',
+  'session-when-hours': '{{n}}h ago',
+  'session-when-days': '{{n}}d ago',
+  'session-when-date': '{{month}}/{{day}}',
+  'session-children': '{{n}} runs',
+  'session-kind-root': 'Conversation',
+  'session-kind-fork': 'Rewound branch',
+  'session-kind-subagent': 'Sub-agent run',
+  'session-project-unknown': '(no directory recorded)',
+  'session-scope-all': 'all projects',
+  'session-search-placeholder': 'Type to search · {{scope}}',
+  'session-count-shown': '{{n}} sessions',
+  'session-count-subagents': '{{n}} runs folded',
+  'session-count-empty': '{{n}} empty',
+  'session-clean-confirm': 'Remove {{n}} sessions that hold no conversation? Their logs are deleted permanently.',
+  'session-cleaned': 'Removed {{n}} empty sessions',
+  'session-preview-times': 'created {{created}} · last active {{updated}}',
+  'session-preview-loading': 'Reading the end of this session…',
+  'session-preview-empty': 'No exchanges to preview in this session',
+  'session-toggle-on': 'on',
+  'session-toggle-off': 'off',
+  'session-hint-list': '**Enter** resume · Tab preview · {{mod}}a all projects ({{projects}}) · {{mod}}s runs ({{runs}}) · {{mod}}b this branch · {{mod}}r rename · {{mod}}d delete · {{mod}}x clean · Esc exit',
+  'session-hint-list-mid': '**Enter** resume · Tab preview · {{mod}}a projects · {{mod}}s runs · {{mod}}r rename · {{mod}}d delete · Esc exit',
+  'session-hint-list-short': '**Enter** resume · Tab preview · Esc exit',
+  'hint-confirm-exit': '**Enter** to confirm · Esc to exit',
+  'hint-confirm-cancel': '**Enter** to confirm · Esc to cancel',
+  'hint-select-exit': '**Enter** to select · Esc to exit',
+  'hint-rewind-back': '**Enter** to rewind · Esc to back',
+  'hint-adjust-done': '**←/→** to adjust · Enter/Esc to done',
+  'hint-history-search': '↑/↓ to navigate · **Enter** to select · Esc to cancel',
+  'hint-expand-ctrl-o': '(ctrl+o to expand)',
+  'picker-title-model': 'Model',
+  'picker-title-theme': 'Color theme',
+  'picker-title-activity': 'Indicator preset',
+  'picker-title-effort': 'Reasoning effort',
+  'model-loading': 'Loading models',
+  'model-loading-subtitle': 'Querying the provider…',
+  'model-switching': 'Switching model to {{name}}…',
+  'model-switched': 'Model switched to {{name}}',
+  'rewind-title': 'Rewind',
+  'rewind-subtitle': 'Pick a message to rewind the conversation to',
+  'rewind-confirm-title': 'Rewind conversation to this message?',
+  'rewind-confirm-desc': 'conversation restarts here',
+  'rewind-empty': 'No messages to rewind to',
+  'rewind-last-message': 'last message',
+  'rewind-none': 'Nothing to rewind yet',
+  'rewind-done': 'Rewound — edit and press Enter to resend',
+  'thinking-title': 'Toggle thinking mode',
+  'thinking-subtitle': 'Enable or disable thinking for this session.',
+  'thinking-enabled': 'Enabled',
+  'thinking-enabled-desc': 'DeepSeek will think before responding',
+  'thinking-disabled': 'Disabled',
+  'thinking-disabled-desc': 'DeepSeek will respond without extended thinking',
+  'thinking-mid-warning': 'Changing thinking mode mid-conversation will increase latency and may reduce quality. For best results, set this at the start of a session.',
+  'thinking-proceed': 'Do you want to proceed?',
+  'thinking-label': 'Thinking',
+  'history-search-title': 'Search history',
+  'history-search-placeholder': 'Type to search…',
+  'history-search-empty': 'No matching commands',
+  'time-now': 'now',
+  'time-minutes-ago': '{{n}}m ago',
+  'time-hours-ago': '{{n}}h ago',
+  'time-days-ago': '{{n}}d ago',
+  'search-no-matches': 'no matches',
   'rename-usage': 'Usage  /rename <new title>',
   'rename-current': 'Current title  {{title}}',
   'rename-done': 'Renamed to "{{title}}"',
   'compact-summary-folded': 'Summary folded',
-
-  // ── components/ThemePicker.tsx ──────────────────────────────────────
+  'new-message': '1 new message',
+  'new-messages': '{{n}} new messages',
   'theme-builtin-base': 'Built-in · {{name}} base',
   'theme-auto-base': 'Built-in · follows the system/terminal background (light/dark)',
   'theme-user-base': '{{base}} base · ~/.dsh-tui/themes/{{name}}.json',
-
-  // ── components/LoadedContextPanel.tsx ───────────────────────────────
   'context-panel-collapse': 'Collapse',
   'context-panel-expand': 'Expand',
   'context-panel-sections': 'System prompt · {{n}} sections',
@@ -277,8 +409,6 @@ const dict = {
   'context-panel-runtime': 'Runtime context · {{n}} items',
   'context-panel-skills': 'Skills · {{n}}',
   'context-panel-tools': 'Tools · {{n}}',
-
-  // ── components/questions/AskUserQuestionPanel.tsx ───────────────────
   'question-select-or-answer': 'Select at least one option, or type an answer on the last line',
   'question-answer-or-check': 'Type an answer or check options before submitting',
   'question-type-answer-first': 'Type your answer before submitting',
@@ -295,33 +425,94 @@ const dict = {
   'question-custom-tab': 'Custom answer',
   'question-attached-label': '(attached: {{label}})',
   'question-direct-input': 'Type directly…',
-
-  // ── components/approvals/ApprovalPanel.tsx ──────────────────────────
   'approval-waiting': ' Awaiting approval · {{tool}} ',
   'approval-proceed': 'Do you want to proceed?',
   'approval-yes': 'Yes, allow once',
   'approval-no': 'No',
   'approval-hint': '↑/↓ select · Enter confirm · Esc reject',
-
-  // ── components/questions/PlanReviewPanel.tsx ────────────────────────
   'plan-review-fallback-header': 'Plan review',
   'plan-review-feedback-placeholder': 'Tell the model what to change…',
   'plan-review-approve-needs-empty': 'Clear the feedback to approve (or press Enter on the input row to send it)',
   'plan-review-hint': '↑/↓ select · 1/2 quick-pick · type feedback · Enter submit · Esc dismiss',
-
-  // Slash-command descriptions live in LOCAL_COMMANDS (and the DSH
-  // registry for external commands). tOr('cmd-desc-<name>', fallback)
-  // still works if a key is added here later.
-
-  // ── /lang command ───────────────────────────────────────────────────
+  'provider-unavailable': '/provider requires starting through a dsh profile (settings / credentials / llm-pi-ai services not mounted)',
+  'provider-q-mode': 'Which kind of model provider do you want to add?',
+  'provider-opt-catalog': 'Built-in provider',
+  'provider-opt-catalog-desc': 'Built-in catalog such as openai, anthropic, deepseek — endpoint and protocol inherited',
+  'provider-opt-custom': 'Custom API endpoint',
+  'provider-opt-custom-desc': 'An OpenAI/Anthropic-compatible gateway or self-hosted server',
+  'provider-q-catalog': 'Choose a provider',
+  'provider-opt-other-route': 'Other (enter a route name)',
+  'provider-opt-other-route-desc': 'A catalog route not listed above',
+  'provider-q-route-id': 'Enter a route name',
+  'provider-q-route-id-detail': 'Lowercase letter first, digits and dashes allowed, e.g. my-gateway',
+  'provider-route-id-invalid': 'Invalid route name: must start with a lowercase letter, only lowercase letters / digits / dashes',
+  'provider-q-apikey': 'Enter the API key',
+  'provider-q-apikey-detail': 'The key is stored in ~/.dsh/.credentials.yaml (mode 0600) and never shown in the transcript',
+  'provider-q-baseurl-choice': 'Override the default API endpoint (baseURL)?',
+  'provider-opt-baseurl-skip': 'Skip — use the default endpoint',
+  'provider-opt-baseurl-input': 'Enter a baseURL now',
+  'provider-q-baseurl': 'Enter the baseURL',
+  'provider-q-protocol': 'Choose the wire protocol',
+  'provider-protocol-completions-desc': 'OpenAI Chat Completions compatible (most gateways)',
+  'provider-protocol-responses-desc': 'OpenAI Responses API',
+  'provider-protocol-anthropic-desc': 'Anthropic Messages API',
+  'provider-discovery-running': 'Discovering the models this endpoint advertises…',
+  'provider-discovery-failed': 'Model discovery failed — enter model ids manually instead',
+  'provider-q-models': 'Select the models to enable (add more comma-separated on the input row)',
+  'provider-q-models-fallback': 'Enter model ids (comma-separated)',
+  'provider-models-required': 'A custom endpoint needs at least one model id',
+  'provider-q-confirm': 'Write this provider configuration?',
+  'provider-route-exists-warning': '⚠ This route is already configured — writing overwrites it',
+  'provider-opt-confirm-write': 'Write and enable',
+  'provider-opt-confirm-cancel': 'Cancel',
+  'provider-line-route': 'Route: {{route}}',
+  'provider-line-keyref': 'Key ref: {{ref}} (stored in ~/.dsh/.credentials.yaml)',
+  'provider-line-keyref-env': 'Key ref: {{ref}} (already in the process environment, write skipped)',
+  'provider-line-baseurl': 'baseURL: {{url}}',
+  'provider-line-protocol': 'Protocol: {{api}}',
+  'provider-line-models': 'Models: {{models}}',
+  'provider-line-models-catalog': 'Models: the whole catalog (not narrowed)',
+  'provider-rollback-ok': 'Rolled back the just-written key',
+  'provider-rollback-failed': 'Key rollback failed — check ~/.dsh/.credentials.yaml manually',
+  'provider-write-failed': 'Failed to write the provider configuration · {{err}}',
+  'provider-cancelled': 'Provider setup cancelled',
+  'provider-success': 'Provider {{route}} added',
+  'provider-switch-hint': 'Run /model to switch to the new provider’s models',
+  'provider-q-switch': 'Switch to the new provider now?',
+  'provider-opt-switch-now': 'Switch to {{model}}',
+  'provider-opt-switch-keep': 'Keep the current model',
+  'cmd-desc-workspace-resume': 'Switch to another workspace',
+  'cmd-desc-workspace-rename': 'Rename the current workspace',
+  'cmd-desc-workspace-open': 'Open a path or workspace URI',
   'lang-current': 'Current language  {{lang}}',
   'lang-switch-hint': 'Switch      /lang en',
   'lang-persist-hint': 'Persisted    ~/.dsh-tui/lang.json (survives restart; DSH_TUI_LANG wins)',
   'lang-switched': 'Language switched: {{lang}} (saved)',
   'lang-unknown': 'Unknown language "{{lang}}" · /lang to view all (en)',
   'lang-switch-failed': 'Language "{{lang}}" switch failed (cannot write ~/.dsh-tui/lang.json)',
-
-  // ── components/TraceView.tsx (/trace, issue #80) ─────────────────────
+  'status-cache-label': 'cache ',
+  'traj-title': 'Trajectory',
+  'traj-totals': '{{turns}} turns · {{steps}} rows',
+  'traj-errors': '{{n}} failed',
+  'traj-retries': '{{n}} retries',
+  'traj-matches': '{{n}}/{{total}} matched',
+  'traj-tab-timeline': 'Timeline',
+  'traj-tab-hotspot': 'Hotspot',
+  'traj-hot-tools': 'Tools',
+  'traj-hot-model': 'Model',
+  'traj-hot-turns': 'Turns',
+  'traj-sort-duration': 'by duration',
+  'traj-sort-count': 'by count',
+  'traj-sort-tokens': 'by tokens',
+  'traj-proj-sequence': 'even',
+  'traj-proj-time': 'wall-clock',
+  'traj-proj-compressed': 'compressed',
+  'traj-hint-timeline': '**↑/↓** move · **←/→** view · **[ ]** failures · **{ }** turns · **/** query · **m** projection · **enter** detail · **q** exit',
+  'traj-hint-hotspot': '**↑/↓** move · **←/→** view · **t** sort · **enter** locate in timeline · **q** exit',
+  'traj-hint-query': '**tool:** **kind:** **turn:** **err:** **run:** **>10s** **tok>1k** · bare word = full text · **enter** apply · **esc** clear',
+  'traj-hint-expanded': '**j/k** page · **enter/esc** collapse · **q** exit',
+  'traj-empty': 'No trajectory events yet',
+  'traj-hint-failure': '{{key}} for the full trajectory',
   'trace-title': 'Trace',
   'trace-subtitle': 'Session event timeline · filter: {{filter}} · {{count}} entries',
   'trace-empty': 'No trace events yet',
@@ -332,13 +523,18 @@ const dict = {
   'trace-filter-progress': 'progress',
 } as const
 
+
 export type I18nKey = keyof typeof dict
 export type I18nParams = Record<string, string | number>
 
 /** The active language, module-level so non-React modules (channel.ts,
- *  loaded-context.ts) resolve strings without a context. Defaults to `en`.
- *  `zh` remains a valid persisted code for compatibility; strings are English. */
-let activeLang: Lang = 'en'
+ *  loaded-context.ts) resolve strings without a context. `zh` remains a
+ *  valid persisted code for compatibility; strings are English regardless. */
+// Resolved at import time (env var → persisted /lang → OS locale → en) so
+// direct consumers of t() — repro/verify scripts that never reach
+// plugin.apply — still get the pinned language instead of a hardcoded default.
+// detectLocaleLang() below always resolves to 'en', so this is always 'en'.
+let activeLang: Lang = resolveStartupLang()
 
 /** Emitted on every language switch so React screens can re-render. */
 type Listener = () => void
@@ -434,12 +630,16 @@ export function writeLangPref(lang: Lang, dir: string = PREFS_DIR): boolean {
  * Guess the user's language from the OS locale (`LC_ALL`, `LC_MESSAGES`,
  * `LANG`), defaulting to `en`. Only consulted when nothing else (env var,
  * cordis.yml `lang`, persisted `/lang` choice) pinned a language.
+ * This build is English-only: every locale, including an absent locale
+ * variable (typical on Windows) or the POSIX/C locale, resolves to `en`.
  */
 export function detectLocaleLang(): Lang {
+  // `||` (not `??`): an EMPTY locale variable means "unset" and must fall
+  // through to the next one — runners and shells sometimes export LC_ALL=''.
   const raw =
-    process.env.LC_ALL ??
-    process.env.LC_MESSAGES ??
-    process.env.LANG ??
+    process.env.LC_ALL ||
+    process.env.LC_MESSAGES ||
+    process.env.LANG ||
     ''
   const locale = raw.split('.')[0]?.toLowerCase() ?? ''
   if (locale.startsWith('en')) return 'en'
@@ -447,10 +647,14 @@ export function detectLocaleLang(): Lang {
 }
 
 /**
- * Resolve the startup language: the persisted `/lang` choice, else the OS
- * locale guess, else `en`. The env var / config precedence lives in
- * plugin.apply (see {@link resolveStartupLang} consumers).
+ * Resolve the startup language: `DSH_TUI_LANG` when it holds a valid value
+ * (pinned at process start — the repro/verify scripts rely on this for
+ * deterministic UI copy), else the persisted `/lang` choice, else the OS
+ * locale guess, else `en`. The cordis.yml `lang` precedence lives in
+ * plugin.apply.
  */
 export function resolveStartupLang(): Lang {
+  const envLang = process.env.DSH_TUI_LANG
+  if (isLang(envLang)) return envLang
   return readLangPref() ?? detectLocaleLang()
 }
