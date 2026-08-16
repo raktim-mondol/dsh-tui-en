@@ -43,9 +43,11 @@ export function RewindPicker({
   }
 
   const { rows: terminalRows } = useTerminalSize()
-  // 焦点窗口化按行预算：首项带 'last message' 描述占 2 行、其余 1 行
-  //（ListItem 保证单行截断）。rewind 是不可见确认的高危操作，焦点必须
-  // 始终在屏。框架行：浮层预留 8 + Pane 2 + 标题块 3 + 页脚 1 = 14。
+  // Focus windowing is budgeted by rows: the first item with its 'last
+  // message' description takes 2 rows, the rest take 1 (ListItem guarantees
+  // single-line truncation). Rewind is a high-risk operation with no
+  // undo-confirm, so focus must always stay on screen. Chrome rows: 8
+  // floater reserve + 2 Pane + 3 title block + 1 footer = 14.
   const { start, end } = listWindow(
     rows.map((_, i) => (i === 0 ? 2 : 1)),
     focusIndex,

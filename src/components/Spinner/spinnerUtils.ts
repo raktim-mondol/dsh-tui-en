@@ -1,21 +1,22 @@
 /**
- * Spinner 动画的通用工具集：平台相关的帧字符选择、RGB 颜色插值、
- * HSL 色相转 RGB，以及 `rgb(...)` 颜色字符串的解析与记忆化。
- * 这些纯函数被 Spinner 组件及若干加载/装饰元素复用。
+ * Common utilities for the Spinner animation: platform-dependent frame
+ * character selection, RGB color interpolation, HSL hue to RGB conversion,
+ * and parsing/memoizing `rgb(...)` color strings. These pure functions are
+ * reused by the Spinner component and several loading/decoration elements.
  */
 
 export type RGBColor = { r: number; g: number; b: number }
 
-/** Ghostty 终端专属帧序列：星形符号逐帧放大，末帧为实心星。 */
+/** Ghostty-terminal-only frame sequence: a star glyph that grows each frame, ending on a solid star. */
 const GHOSTTY_FRAME_SET = ['·', '✢', '✳', '✶', '✻', '*']
-/** macOS 帧序列：末帧换成八芒星。 */
+/** macOS frame sequence: the final frame swaps to an eight-point star. */
 const MACOS_FRAME_SET = ['·', '✢', '✳', '✶', '✻', '✽']
-/** 其余平台默认帧序列：第三帧用普通星号。 */
+/** Default frame sequence for every other platform: the third frame uses a plain asterisk. */
 const FALLBACK_FRAME_SET = ['·', '✢', '*', '✶', '✻', '✽']
 
 /**
- * 返回适合当前终端/平台的 spinner 帧字符序列。
- * 每次调用都返回独立数组，调用方可以安全持有或改动，互不影响。
+ * Returns the spinner frame-character sequence for the current terminal/platform.
+ * Each call returns an independent array — callers can hold onto or mutate it safely, with no cross-call interference.
  */
 export function getDefaultCharacters(): string[] {
   if (process.env.TERM === 'xterm-ghostty') {
@@ -27,8 +28,8 @@ export function getDefaultCharacters(): string[] {
 }
 
 /**
- * 在两种颜色之间按系数 t 线性插值（t ∈ [0, 1]），
- * 各分量四舍五入到整数后返回。
+ * Linearly interpolates between two colors by factor t (t ∈ [0, 1]),
+ * rounding each component to an integer before returning.
  */
 export function interpolateColor(
   color1: RGBColor,
@@ -45,15 +46,15 @@ export function interpolateColor(
 }
 
 /**
- * 把 RGB 对象格式化为 `rgb(r,g,b)` 字符串，供 Ink 的 Text 组件使用。
+ * Formats an RGB object as an `rgb(r,g,b)` string, for use with Ink's Text component.
  */
 export function toRGBColor(color: RGBColor): string {
   return `rgb(${color.r},${color.g},${color.b})`
 }
 
 /**
- * 计算色相在六个扇区中的基准 RGB 分量（未加亮度偏移）。
- * 扇区按 60° 划分：红→黄→绿→青→蓝→品红→红。
+ * Computes the base RGB components for a hue within its one of six sectors (before adding the lightness offset).
+ * Sectors are 60° each: red → yellow → green → cyan → blue → magenta → red.
  */
 function hueSector(
   hue: number,
@@ -69,9 +70,10 @@ function hueSector(
 }
 
 /**
- * 把色相角（单位：度）转换为 RGB 颜色。
- * 采用固定饱和度 0.7、亮度 0.6 的 HSL 参数（波形动画的配色基准）；
- * 色相先归一化到 [0, 360)，任意角度（含负数、超一圈）都能安全转换。
+ * Converts a hue angle (in degrees) to an RGB color.
+ * Uses a fixed HSL saturation of 0.7 and lightness of 0.6 (the wave
+ * animation's color baseline); the hue is normalized to [0, 360) first, so
+ * any angle — negative or past a full turn — converts safely.
  */
 export function hueToRgb(hue: number): RGBColor {
   const wrapped = ((hue % 360) + 360) % 360
@@ -88,15 +90,16 @@ export function hueToRgb(hue: number): RGBColor {
   }
 }
 
-/** 匹配 `rgb(r,g,b)` 文本，分量允许任意空格。 */
+/** Matches `rgb(r,g,b)` text, allowing arbitrary whitespace around components. */
 const RGB_STRING_PATTERN = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/
 
-/** 按输入字符串记忆化解析结果，重复调用不再做正则匹配。 */
+/** Memoizes parse results by input string, so repeated calls skip the regex match. */
 const rgbParseCache = new Map<string, RGBColor | null>()
 
 /**
- * 解析 `rgb(r,g,b)` 颜色字符串；格式不合法时返回 null。
- * 同一输入的解析结果会被缓存（含 null），之后取用零成本。
+ * Parses an `rgb(r,g,b)` color string; returns null on malformed input.
+ * The parse result for a given input is cached (null included), so
+ * subsequent lookups are free.
  */
 export function parseRGB(colorStr: string): RGBColor | null {
   const remembered = rgbParseCache.get(colorStr)

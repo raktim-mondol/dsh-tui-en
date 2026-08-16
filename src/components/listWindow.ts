@@ -1,23 +1,30 @@
 /**
- * 焦点居中的列表窗口：长列表只渲染焦点附近的一段，保证焦点行始终可见。
- * 瞬态面板走 OverlayAbove 零高度浮层后，超高部分会被 overflow 裁掉且焦点
- * 可能落在被裁区（P1 审查实证：30 行终端 30 个模型时焦点在索引 0 完全不
- * 可见），窗口化是硬要求。
+ * A focus-centered list window: a long list renders only the slice around
+ * the focus item, so the focused row stays visible. Once a transient panel
+ * goes through OverlayAbove's zero-height floater, the overflowing part gets
+ * clipped and the focus item can land in the clipped region (a 30-row
+ * terminal with 30 models put focus at index 0 completely off-screen) —
+ * windowing is a hard requirement.
  *
- * 按**行**而非项数预算：ListItem 带 description 时占两行（正文 + 描述），
- * 容器还可能有 gap 空行——只数项数会把焦点裁出屏外（二次审查实证：每项
- * 一行描述时索引 0 仍不可见）。调用方须保证每项行高固定（ListItem 对字符
- * 串内容 truncate + 压平换行后恒为 1 + (description ? 1 : 0) 行）。
+ * Budgeted by **rows**, not item count: a ListItem with a description takes
+ * two rows (body + description), and the container may also add gap rows —
+ * counting items alone crops the focus row off-screen (confirmed: with a
+ * one-row description per item, index 0 was still invisible). Callers must
+ * guarantee each item has a fixed row height (ListItem's string-content
+ * truncation + newline flattening makes it always 1 + (description ? 1 : 0)
+ * rows).
  *
- * 扩展策略：从焦点项出发向两侧交替扩张，优先补累计行数较少的一侧（焦点
- * 大致居中）；任一侧再加会超预算或已到边界时停。焦点项本身超过 maxRows
- * 时仍单独返回焦点项——焦点可见性优先于预算。
+ * Expansion strategy: alternately expand outward from the focus item toward
+ * whichever side has used fewer cumulative rows so far (keeping focus
+ * roughly centered); stop on either side once expanding it would exceed the
+ * budget or hit a boundary. If the focus item itself exceeds maxRows, it's
+ * still returned alone — focus visibility outranks the budget.
  *
- * @param heights - 每项的固定行高（≥1）。
- * @param focusIndex - 键盘焦点项下标（越界自动 clamp）。
- * @param maxRows - 列表区可用行数（终端高减去浮层预留与面板框架行）。
- * @param gap - 相邻项之间的空行数（容器 gap，如 HistorySearchDialog 的 1）。
- * @returns [start, end) 切片区间。
+ * @param heights - Each item's fixed row height (≥1).
+ * @param focusIndex - The keyboard-focused item's index (out-of-range values clamp).
+ * @param maxRows - Rows available to the list area (terminal height minus the floater reserve and panel chrome rows).
+ * @param gap - Blank rows between adjacent items (the container's gap, e.g. HistorySearchDialog's 1).
+ * @returns The [start, end) slice range.
  */
 export function listWindow(
   heights: readonly number[],

@@ -6,41 +6,47 @@ import { getCliHighlightPromise, type CliHighlight } from '../cc/cliHighlight.js
 import { MarkdownTable } from './MarkdownTable.js'
 
 /**
- * Markdown 渲染组件：marked 分词 + ANSI 格式化。
+ * Markdown rendering component: marked tokenization + ANSI formatting.
  *
- * 表格 token 交给 MarkdownTable 渲染为带边框的 flexbox 布局；
- * 其余块级内容由 formatToken 转成 ANSI 字符串，合并后包进单个
- * Text（整段去首尾空白）。代码块高亮由 cli-highlight 异步提供，
- * 加载完成后自动触发一次重渲染。无 markdown 语法的纯文本走快速
- * 路径，直接合成段落 token，省掉 lexer 调用。
+ * Table tokens go to MarkdownTable, rendered as a bordered flexbox layout;
+ * every other block-level token is turned into an ANSI string by
+ * formatToken, concatenated, and wrapped in a single Text (leading/trailing
+ * whitespace trimmed for the whole block). Code-block highlighting arrives
+ * asynchronously from cli-highlight and triggers one re-render once loaded.
+ * Plain text with no markdown syntax takes a fast path — a paragraph token
+ * is synthesized directly, skipping the lexer call.
  */
 
 type Props = {
   children: string
-  /** 为 true 时全部文本内容以 dim 样式呈现 */
+  /** When true, all text content renders dim. */
   dimColor?: boolean
-  /** 为 false 时跳过 token 缓存（流式尾部的内容逐帧变化，缓存必然失效） */
+  /** When false, skips the token cache (streaming tail content changes every frame, so a cache entry would never be a hit). */
   cacheTokens?: boolean
 }
 
-// ---- token 缓存 ----
+// ---- Token cache ----
 //
-// marked.lexer 在组件重挂载时是最贵的开销；消息内容不可变，相同文本
-// 必然产出相同 token，因此以原文为 key 缓存。
+// marked.lexer is the most expensive part of a component remount; message
+// content is immutable, so the same text always produces the same tokens —
+// cache keyed on the raw text.
 //
-// 容量控制不能只看条数：Token 的 raw/text 字段是输入字符串的切片，
-// 会钉住整段输入常驻内存；流式渲染时输入逐帧增长，若只按条数限流，
-// LRU 会保留大量接近最终形态的快照（1MB 消息 ≈ 500 条 × 1MB ≈
-// 500MB）。这里用字符预算限制保留量，超长内容干脆不缓存（重挂载时
-// 重跑 lexer，极少发生且远比常驻便宜）。
+// Capacity can't be bounded by entry count alone: a Token's raw/text fields
+// are slices of the input string, which pin the whole input in memory;
+// during streaming the input grows every frame, so count-only throttling
+// would let the LRU hold a pile of near-final snapshots (a 1MB message ≈
+// 500 entries × 1MB ≈ 500MB). Bounded here by a character budget instead —
+// content past that length just isn't cached (a remount re-runs the lexer,
+// which is rare and far cheaper than keeping it resident).
 const TOKEN_CACHE_CAPACITY = 200
 const TOKEN_CACHE_CHAR_BUDGET = 200_000
 const TOKEN_CACHE_MAX_SOURCE_LENGTH = 20_000
 const tokenCache = new Map<string, Token[]>()
 let tokenCacheChars = 0
 
-// 语法探针：命中任意 markdown 结构标记才值得走 lexer；内容过长时
-// 只探测开头一段，纯文本直接跳过约 3ms 的 lexer 调用。
+// Syntax probe: only worth hitting the lexer if any markdown structural
+// marker is present; for long content, only probe a leading window — plain
+// text skips the ~3ms lexer call entirely.
 const MD_SYNTAX_MARKERS = /[#*`|[>\-_~]|\n\n|^\d+\. |\n\d+\. /
 const SYNTAX_PROBE_WINDOW = 500
 
@@ -51,7 +57,7 @@ function looksLikePlainText(s: string): boolean {
 }
 
 function lexWithCache(content: string, allowCache: boolean): Token[] {
-  // 快速路径：纯文本直接合成单个段落 token，不触碰 lexer。
+  // Fast path: plain text synthesizes a single paragraph token directly, no lexer call.
   if (looksLikePlainText(content)) {
     return [
       {
@@ -64,11 +70,12 @@ function lexWithCache(content: string, allowCache: boolean): Token[] {
   }
   if (!allowCache) return marked.lexer(content)
 
-  // 直接用内容字符串做 key：V8 在字符串头缓存哈希，首次插入后 Map
-  // 查找无需再算哈希，也比 sha256 少一次摘要分配与碰撞风险。
+  // Use the content string itself as the key: V8 caches a string's hash at
+  // its head, so after the first insert a Map lookup needs no re-hashing —
+  // cheaper and less collision-prone than a sha256 digest.
   const hit = tokenCache.get(content)
   if (hit) {
-    tokenCache.delete(content) // 提升为最近使用
+    tokenCache.delete(content) // promote to most-recently-used
     tokenCache.set(content, hit)
     return hit
   }
@@ -89,8 +96,9 @@ function lexWithCache(content: string, allowCache: boolean): Token[] {
 }
 
 /**
- * 把 lexer 产出的 token 列表转成 React 节点序列：table 独立渲染，
- * 其余 token 的 ANSI 文本先累积拼接，再统一包成 Text（去除首尾空白）。
+ * Turns the lexer's token list into a sequence of React nodes: tables
+ * render independently; every other token's ANSI text is accumulated and
+ * concatenated, then wrapped into one Text (leading/trailing whitespace stripped).
  */
 function renderTokensToNodes(
   tokens: Token[],
@@ -130,8 +138,10 @@ function renderTokensToNodes(
 }
 
 /**
- * 混合渲染 Markdown 内容：表格用带边框的 flexbox 组件，其余内容由
- * formatToken 生成 ANSI 字符串放入 Text。高亮对象异步就绪后自动刷新。
+ * Renders mixed Markdown content: tables use the bordered flexbox
+ * component, everything else goes through formatToken into ANSI strings
+ * inside a Text. Refreshes automatically once the highlight object becomes
+ * ready asynchronously.
  */
 export function Markdown({ children, dimColor = false, cacheTokens = true }: Props): React.ReactNode {
   const [highlight, setHighlight] = React.useState<CliHighlight | null>(null)

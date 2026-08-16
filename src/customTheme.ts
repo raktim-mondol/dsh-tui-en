@@ -167,9 +167,11 @@ export function parseCustomTheme(
     warn(`theme "${fileName}": unsafe "name" ("${name}"); file skipped`)
     return undefined
   }
-  // displayName 是用户数据入口：内部换行在此压平——它会进入 ThemePicker
-  // 的列表行（窗口化按固定行高切片，多行会破坏行高契约），也可能出现在
-  // 其他单行 UI（状态栏等）。ListItem 侧的递归压平是第二道防线。
+  // displayName is a user-data entry point: internal newlines are flattened
+  // here — it flows into ThemePicker's list rows (windowed by a fixed row
+  // height; multiple rows would break that contract) and can also appear in
+  // other single-line UI (the status bar, etc). ListItem's recursive
+  // flattening is the second line of defense.
   const displayName =
     typeof raw.displayName === 'string' && raw.displayName.trim() !== ''
       ? raw.displayName.trim().replace(/[\r\n]+/g, ' ')

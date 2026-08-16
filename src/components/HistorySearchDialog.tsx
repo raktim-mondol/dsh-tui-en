@@ -29,11 +29,12 @@ export function HistorySearchDialog({
 }): React.ReactNode {
   const isTerminalFocused = useTerminalFocus()
   const { rows: terminalRows } = useTerminalSize()
-  // 焦点窗口化按行预算：每项恒 2 行（命令 + age 描述，ListItem 保证单行
-  // 截断），容器 gap={1} 项间再空 1 行。只数项数会把焦点裁出浮层（二次
-  // 审查实证）。
-  // 框架行：浮层预留 8 + Pane 2 + 标题 1 + gap 1 + SearchBox 3（圆角边框）
-  // + gap 1 + gap 1 + 页脚 1 = 18。
+  // Focus windowing is budgeted by rows: each item is always 2 rows
+  // (command + age description, ListItem guarantees single-line
+  // truncation), plus the container's gap={1} adding 1 blank row between
+  // items. Counting items alone crops the focus row out of the floater.
+  // Chrome rows: 8 floater reserve + 2 Pane + 1 title + 1 gap + 3 SearchBox
+  // (rounded border) + 1 gap + 1 gap + 1 footer = 18.
   const { start, end } = listWindow(
     matches.map(() => 2),
     focusIndex,

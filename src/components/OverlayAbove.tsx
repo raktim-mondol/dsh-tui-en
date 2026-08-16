@@ -2,24 +2,30 @@ import React from 'react'
 import { Box } from '../ui.js'
 
 /**
- * 瞬态面板的浮层容器：absolute 定位 + bottom:'100%' 把面板底边钉在锚点
- * （父元素）顶边，向上覆盖转录尾部行，自身**不占布局高度**。
+ * A floater container for transient panels: absolute positioning +
+ * bottom:'100%' pins the panel's bottom edge to its anchor's (parent's) top
+ * edge, covering the transcript's tail rows from above, while occupying
+ * **zero layout height** of its own.
  *
- * 为什么必须这样：inline 模式下整帧是内容高度。瞬态面板（picker/补全/
- * 对话框）若以 in-flow 方式挂载，帧高随之增长——终端滚动把帧顶行（splash、
- * 历史）推进 scrollback；面板关闭时的收缩重绘又把这些行重新写回视口，同一
- * 行在 scrollback 和视口各存一份（"每切一次 /model 多一份启动画"的真机报
- * 告）。浮层只改写既有行的单元格内容（帧高不变、零滚动、零沉积），关闭时
- * 原样写回，全程无重复。
+ * Why this is necessary: in inline mode the whole frame is the content
+ * height. If a transient panel (picker/completion/dialog) mounted in-flow,
+ * the frame height would grow along with it — terminal scrolling pushes the
+ * frame's top rows (splash, history) into scrollback, and the shrinking
+ * redraw when the panel closes rewrites those same rows back into the
+ * viewport, leaving one copy in scrollback and another in the viewport
+ * (reported on real machines as "an extra splash frame every /model
+ * switch"). A floater only rewrites the cell content of existing rows
+ * (frame height never changes, zero scrolling, zero duplication) and writes
+ * back unchanged on close — no repeats anywhere in the flow.
  *
- * 先例：PromptInput 通知行（position=absolute marginTop={-1}）。
+ * Precedent: PromptInput's notification row (position=absolute marginTop={-1}).
  */
 export function OverlayAbove({
   children,
   maxHeight,
 }: {
   children: React.ReactNode
-  /** 防止面板高过可用区域时探出帧顶（短会话 + 高列表）。 */
+  /** Keeps the panel from poking past the frame top when it's taller than the available area (short session + a tall list). */
   maxHeight?: number | undefined
 }): React.ReactNode {
   return (
@@ -34,9 +40,12 @@ export function OverlayAbove({
       opaque
       {...(maxHeight === undefined ? {} : { maxHeight })}
     >
-      {/* flexShrink={0}：内容超高时让 overflow 从顶部裁整行，而不是被 yoga
-          把某个中间行挤成零高（挤压态的零高行会被渲染器跳过，列表中间凭
-          空少一行且下方整体上移——30 模型实测焦点行消失）。 */}
+      {/* flexShrink={0}: when content overflows, overflow clips whole rows
+          from the top instead of yoga squeezing some middle row to zero
+          height (a squeezed zero-height row gets skipped by the renderer,
+          silently dropping a row in the middle of the list and shifting
+          everything below it up — with 30 models this made the focus row
+          vanish). */}
       <Box flexDirection="column" flexShrink={0}>
         {children}
       </Box>

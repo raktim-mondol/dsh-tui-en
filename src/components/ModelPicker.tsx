@@ -13,8 +13,9 @@ import { listWindow } from './listWindow.js'
  * descriptions), plus the Enter/Esc hint line. The DSH agent's model is
  * fixed at creation time, so a selection notifies "restart to apply".
  *
- * 长列表按焦点窗口化（Select 同款）：picker 经 OverlayAbove 浮层挂载后有
- * maxHeight 裁剪，全量渲染会让焦点行被裁掉（看不到焦点按 Enter）。
+ * Long lists are focus-windowed (same as Select): once the picker mounts
+ * through OverlayAbove's floater it has a maxHeight clip, and rendering the
+ * full list would crop the focus row out (Enter on an invisible focus row).
  */
 export function ModelPicker({
   models,
@@ -26,9 +27,10 @@ export function ModelPicker({
   currentModel: string
 }): React.ReactNode {
   const { rows: terminalRows } = useTerminalSize()
-  // 焦点窗口化按行预算：ListItem 带 description 时占 2 行（正文+描述，均
-  // truncate 成单行），只数项数会把焦点裁出浮层（二次审查实证）。
-  // 框架行：浮层预留 8 + Pane 2 + 标题 2 + 页脚 1 = 13。
+  // Focus windowing is budgeted by rows: a ListItem with a description
+  // takes 2 rows (body + description, both truncated to a single line) —
+  // counting items alone crops the focus row out of the floater.
+  // Chrome rows: 8 floater reserve + 2 Pane + 2 title + 1 footer = 13.
   const { start, end } = listWindow(
     models.map(m => (m.description ? 2 : 1)),
     focusIndex,
