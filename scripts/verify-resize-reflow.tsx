@@ -43,11 +43,10 @@
  * Run: node --import tsx/esm scripts/verify-resize-reflow.tsx
  */
 process.env.FORCE_COLOR = '3'
-// Asserts Chinese UI copy, so it pins the language rather than inheriting the
-// ambient one — the same rule the English-asserting scripts follow since
-// fb87339. `activeLang` resolves at import from env → persisted pref → OS
-// locale, none of which a CI runner or another developer's machine is obliged
-// to agree with.
+// Pins the language rather than inheriting the ambient one, for determinism
+// across machines/CI. This build's i18n dict is English-only — `zh` is still
+// a valid persisted code for compatibility, but resolves to the same English
+// text — so the pin has no effect on the rendered copy this check compares.
 process.env.DSH_TUI_LANG = 'zh'
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }] =

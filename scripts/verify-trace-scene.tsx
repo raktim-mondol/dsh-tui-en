@@ -21,11 +21,11 @@
  * Run: node --import tsx/esm scripts/verify-trace-scene.tsx
  */
 process.env.FORCE_COLOR = '3'
-// Asserts Chinese UI copy, so it pins the language rather than inheriting the
-// ambient one — the same rule the English-asserting scripts follow since
-// fb87339. `activeLang` resolves at import from env → persisted pref → OS
-// locale, none of which a CI runner or another developer's machine is obliged
-// to agree with.
+// This build's i18n dict is English-only; `zh` is still a valid persisted
+// language code for compatibility, but every string resolves to the same
+// English text regardless. Pinning it here (rather than inheriting the
+// ambient language) doubles as a regression check for that compat contract:
+// the assertions below all match English UI copy even with `zh` active.
 process.env.DSH_TUI_LANG = 'zh'
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { TrajectoryScene }, { Chat }, { QuestionStore }] =
@@ -198,15 +198,15 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   await sleep(160)
   const first = screen()
 
-  check('scene shows its title and totals', first.includes('轨迹') && /\d+\s*轮/.test(first), first.split('\n')[0]?.trim())
-  check('scene shows both view tabs', first.includes('时序') && first.includes('热点'))
+  check('scene shows its title and totals', first.includes('Trajectory') && /\d+\s*turns?/.test(first), first.split('\n')[0]?.trim())
+  check('scene shows both view tabs', first.includes('Timeline') && first.includes('Hotspot'))
   check('ledger renders tool rows with names', first.includes('read_file') && first.includes('grep_repo'))
   check('ledger folds the burst run', /web_search\s*×4/.test(first), /web_search[^\n]*/.exec(first)?.[0]?.trim())
   check('ledger surfaces the retry row', first.includes('RATE_LIMIT') || first.includes('RTY'))
   check('ledger renders durations', /\d+(ms|\.\ds)/.test(first))
   check('cursor pointer is visible', first.includes('▸'))
   check('wake band renders block glyphs', /[▁▂▃▄▅▆▇█]/.test(first))
-  check('hint line documents the keys', first.includes('查询') || first.includes('query'))
+  check('hint line documents the keys', first.includes('query'))
 
   // The inspector must occupy the same rows no matter where the cursor is —
   // fixed geometry is what keeps cursor movement from resizing the frame.
@@ -214,7 +214,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   // non-blank lines would be wrong — the pane pads with blanks by design —
   // so the invariant is measured where it matters: the hint line's row.
   const hintRow = (text: string): number =>
-    text.split('\n').findIndex(line => line.includes('退出') || line.includes('exit'))
+    text.split('\n').findIndex(line => line.includes('exit'))
   const cursorRow = (text: string): number => text.split('\n').findIndex(line => line.includes('▸'))
   const before = hintRow(first)
   const rowAtStart = cursorRow(first)
@@ -259,7 +259,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   stdin.write('\x1b[C')
   await sleep(180)
   const hotspot = screen()
-  check('→ switches to the hotspot view', hotspot.includes('工具') || hotspot.includes('Tools'))
+  check('→ switches to the hotspot view', hotspot.includes('Tools'))
   check('hotspot ranks tools by cost', /web_search|read_file/.test(hotspot))
   check('hotspot draws bars', /[█▌]/.test(hotspot))
   stdin.write('\x1b[D')
@@ -319,7 +319,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
       check('Ctrl+T enters the alternate screen', term.buffer.active.type === 'alternate',
         term.buffer.active.type)
       check('the conversation is no longer on screen', !inScene.includes('conversation line 0'))
-      check('the scene is painted there', /[\u2500-\u259f]/.test(inScene) || inScene.includes('时序'))
+      check('the scene is painted there', /[\u2500-\u259f]/.test(inScene) || inScene.includes('Timeline'))
     }
     stdin.write('q')
     await sleep(round === 0 ? 200 : 70)
@@ -430,7 +430,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   // scoped to that row on purpose: the startup tip also names the key, so a
   // whole-screen search could not tell the two channels apart.
   const hintRowOf = (text: string): string =>
-    text.split('\n').find(line => line.includes('shortcuts') || line.includes('快捷键')) ?? ''
+    text.split('\n').find(line => line.includes('shortcuts')) ?? ''
   const statusArea = hintRowOf(startup)
   check('the status line carries a live wake strip', /[▁▂▃▄▅▆▇█]/.test(statusArea),
     statusArea.trim().slice(-42))
@@ -438,7 +438,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     statusArea.trim().slice(-42))
 
   // E — exactly one footnote, on the failure.
-  const footnotes = (startup.match(/看完整轨迹|full trajectory/g) ?? []).length
+  const footnotes = (startup.match(/full trajectory/g) ?? []).length
   check('a failed call carries exactly one trajectory footnote', footnotes === 1, `${footnotes}`)
 
   // Opening the scene marks the failures seen and retires both pointers.
@@ -449,7 +449,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   const after = screen()
   const afterStatus = hintRowOf(after)
   check('the footnote clears once the trajectory has been opened',
-    (after.match(/看完整轨迹|full trajectory/g) ?? []).length === 0, '')
+    (after.match(/full trajectory/g) ?? []).length === 0, '')
   check('the key hint retires once the trajectory has been opened',
     !/ctrl\+t|⌘t/.test(afterStatus), afterStatus.trim().slice(-42))
   check('the wake strip stays after the hint retires', /[▁▂▃▄▅▆▇█]/.test(afterStatus), '')
@@ -484,7 +484,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
           rows: [],
           // A long CJK title is the case that truncates first, so it is the
           // one that shows a wrong container width soonest.
-          sessionTitle: '你是终稿评审助理。任务：对 11 份终稿做逐行一致性审计',
+          sessionTitle: 'You are the final-draft review assistant. Task: run a line-by-line consistency audit across 11 final drafts',
         }) as never,
         questionStore: new QuestionStore() as never,
         onExit: () => {},
@@ -497,7 +497,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     await sleep(420)
 
     const rows = screen().split('\n')
-    const hintRow = rows.find(line => /[▁▂▃▄▅▆▇█▶·]/.test(line) && (line.includes('shortcuts') || line.includes('快捷键')))
+    const hintRow = rows.find(line => /[▁▂▃▄▅▆▇█▶·]/.test(line) && (line.includes('shortcuts')))
     if (hintRow === undefined) {
       // Below `miniWakeWidth`'s floor the strip is meant to be absent; above
       // it, a missing row is itself the failure.

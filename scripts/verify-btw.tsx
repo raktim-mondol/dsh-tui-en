@@ -78,10 +78,17 @@ function makeChannel() {
     spinnerMode: 'requesting' as const,
     responseChars: 0,
     activeToolCount: 0,
+    mode: { id: 'default', plan: false },
     turnStart: 0,
     lastUserText: '',
     pending: [],
     commandList: LOCAL_COMMANDS,
+    commandCompletions(input: string) {
+      const prefix = input.replace(/^\//u, '').trim().toLowerCase()
+      return this.commandList
+        .filter(command => command.name.startsWith(prefix))
+        .map(command => ({ ...command, commandLine: `/${command.name}`, replacement: `/${command.name} ` }))
+    },
     notifications: [],
     contextSegments: { system: 0, prompt: 0, assistant: 0, thinking: 0, tools: 0 },
     subscribe: () => () => {},
@@ -168,7 +175,7 @@ function makeChannel() {
   await delay(400)
   stdin.write('/btw\r')
   await delay(300)
-  const usageNotified = channel.notifyCalls.some(text => text.includes('用法：/btw'))
+  const usageNotified = channel.notifyCalls.some(text => text.includes('Usage: /btw'))
   console.log('scenario4 bare /btw notifies usage:', usageNotified)
   await instance.unmount()
 }
