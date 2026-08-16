@@ -40,7 +40,7 @@ writeFileSync(
   `#!/bin/sh
 if [ "$1" = "--version" ]; then echo stub; exit 0; fi
 if [ "$1" = "--list-types" ]; then printf 'text/plain\\n'; exit 0; fi
-printf 'UI粘贴内容'
+printf 'pasted-content'
 `,
   { mode: 0o755 },
 )
@@ -135,12 +135,12 @@ try {
 
   // 2. The stub clipboard text lands in the prompt.
   await sleep(600)
-  check('clipboard text lands in the prompt', screenHas('UI粘贴内容'))
+  check('clipboard text lands in the prompt', screenHas('pasted-content'))
 
   // 3. Busy latch released: a second Ctrl+V pastes again (doubled text).
   stdinObj.write('\x16')
   await sleep(800)
-  check('second Ctrl+V pastes again (busy latch released)', screenHas('UI粘贴内容UI粘贴内容'))
+  check('second Ctrl+V pastes again (busy latch released)', screenHas('pasted-contentpasted-content'))
 } finally {
   await instance.unmount()
   rmSync(stubDir, { recursive: true, force: true })

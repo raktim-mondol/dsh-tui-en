@@ -1,21 +1,31 @@
 /**
- * 外部编辑器 TTY 交接回归（issue #123 实机冒烟发现的三个 bug）：
+ * External editor TTY handoff regression (three bugs found in a real-machine
+ * smoke test, issue #123):
  *
- * 1. 退出编辑器后 transcript 空白，发消息才重绘——vim 系编辑器的 rmcup
- *    已把我们弹回主屏，exitAlternateScreen 的 2J 落在主屏把内容擦了，
- *    而 inline 分支只调 repaint() 没置 prevFrameContaminated，blit 快路径
- *    从空 frontFrame 拷贝 → diff 无输出 → 空白。
- * 2. 输入框被清空只剩个 'i'——交接窗口的残留/晚到字节被解析成输入：
- *    游离 ESC 触发"单击清空"，其余字节落为文本。
- * 3. 乱码（如 [48;93;223;1953;2453）——同理，终端应答残片插入输入框。
+ * 1. The transcript goes blank after quitting the editor and only redraws
+ *    once a message is sent — a vim-family editor's rmcup already bounced us
+ *    back to the main screen, exitAlternateScreen's 2J lands on the main
+ *    screen and erases the content, while the inline branch only calls
+ *    repaint() without setting prevFrameContaminated — the blit fast path
+ *    copies from an empty frontFrame → the diff produces no output → blank.
+ * 2. The input box gets cleared down to a lone 'i' — leftover/late bytes
+ *    from the handoff window get parsed as input: a stray ESC triggers
+ *    "single-tap clear", the rest of the bytes land as text.
+ * 3. Garbled text (e.g. [48;93;223;1953;2453) — same cause, a fragment of a
+ *    terminal response gets inserted into the input box.
  *
- * 本测试用 xterm headless + 假编辑器（node 子进程）端到端复现：
- * - 编辑器会话期间向 stdin 写入 '\x1b\x1b'（缓冲到恢复时若无 drain/
- *   抑制，双击 Esc 会清空输入并打开 rewind 选择器）
- * - 会话期间对 xterm writeSync rmcup（\x1b[?1049l），模拟 nvim 退出把
- *   终端弹回主屏，让我们的 2J 落在主屏（bug 1 的现场条件）
- * - 拦截 FakeStdout 里的 1049l（恢复流程起点），setImmediate 注入"晚到"
- *   终端应答乱码 + 'i'（落在 120ms 抑制窗口内，确定性覆盖 bug 2/3）
+ * This test reproduces the bug end to end with xterm headless + a fake
+ * editor (a node child process):
+ * - Writes '\x1b\x1b' to stdin during the editor session (buffered; without
+ *   drain/suppression on resume, a double-Esc would clear the input and
+ *   open the rewind picker)
+ * - Does an xterm writeSync of rmcup (\x1b[?1049l) during the session,
+ *   simulating nvim exiting and bouncing the terminal back to the main
+ *   screen, so our 2J lands there too (the on-the-ground condition for bug 1)
+ * - Intercepts the 1049l inside FakeStdout (the start of the resume flow)
+ *   and injects "late" garbled terminal-response bytes + 'i' via
+ *   setImmediate (landing inside the 120ms suppression window,
+ *   deterministically covering bugs 2/3)
  *
  * Run: node --import tsx/esm scripts/repro-external-editor.tsx
  */
@@ -37,8 +47,9 @@ const COLS = 100
 const ROWS = 40
 const term = new XTerm({ cols: COLS, rows: ROWS, scrollback: 50, allowProposedApi: true })
 
-// 看到恢复流程的 1049l 时，立刻注入"晚到的终端应答"——此时
-// suppressInputFor 已在同一同步块内武装完毕，乱码必然落在窗口内。
+// The moment the resume flow's 1049l is seen, immediately inject the "late
+// terminal response" — suppressInputFor is already armed within the same
+// synchronous block by this point, so the garbled bytes are guaranteed to land inside the window.
 let lateGarbageInjected = false
 class FakeStdout extends Writable {
   columns = COLS
@@ -108,7 +119,7 @@ const channel: any = {
 }
 const bump = () => { channel.version++; for (const cb of listeners) cb() }
 
-// 假编辑器：睡 600ms（覆盖整个交接注入窗口）后把 ' EDITED' 追加进草稿。
+// Fake editor: sleeps 600ms (covering the whole handoff injection window) then appends ' EDITED' to the draft.
 const scratch = mkdtempSync(join(tmpdir(), 'dsh-tui-repro-editor-'))
 const helper = join(scratch, 'fake-editor.cjs')
 writeFileSync(helper, `
@@ -132,47 +143,48 @@ const check = (name: string, ok: boolean, extra = '') => {
   if (!ok) failed++
 }
 
-// 预备：transcript 放一条历史消息（bug 1 的断言目标——空白的是它），
-// 输入框打上草稿。
-channel.rows.push({ id: rowId++, kind: 'user', text: 'transcript-anchor-历史消息' })
+// Setup: put one history message in the transcript (bug 1's assertion
+// target — it's the one that goes blank), and a draft in the input box.
+channel.rows.push({ id: rowId++, kind: 'user', text: 'transcript-anchor-history-message' })
 bump()
 await sleep(300)
-check('预备: transcript 历史消息可见', screenHas('transcript-anchor'))
+check('setup: transcript history message visible', screenHas('transcript-anchor'))
 
-stdinObj.write('什么是cordis')
+stdinObj.write('what is cordis')
 await sleep(300)
-check('预备: 草稿已入输入框', screenHas('什么是cordis'))
+check('setup: draft is in the input box', screenHas('what is cordis'))
 
-// Ctrl+X → 假编辑器（600ms 后写盘退出）
+// Ctrl+X → fake editor (writes to disk and exits after 600ms)
 stdinObj.write('\x18')
 await sleep(250)
-// 交接会话期间的残留字节：若无 drain/抑制，恢复后双击 Esc = 清输入 +
-// 空输入再 Esc = 打开 rewind 选择器。
+// Leftover bytes during the handoff session: without drain/suppression, a
+// double-Esc after resume = clear input, then Esc on empty input = open the rewind picker.
 stdinObj.write('\x1b\x1b')
 await sleep(100)
-// 模拟 nvim 的 rmcup：终端被弹回主屏，随后我们的 2J 将落在主屏上。
-// write 回调在 xterm 解析完毕后触发，保证与后续 2J 的先后顺序。
+// Simulates nvim's rmcup: the terminal gets bounced back to the main
+// screen, so our subsequent 2J lands there too. The write callback fires
+// after xterm finishes parsing, guaranteeing ordering with the following 2J.
 await new Promise<void>(resolve => term.write('\x1b[?1049l', resolve))
 
-// 等回填完成（编辑器 600ms 写盘 + 往返）
+// Wait for the fill-back to complete (editor's 600ms disk write + round trip)
 let roundTripped = false
 for (let i = 0; i < 100; i++) {
   await sleep(50)
-  if (screenHas('什么是cordis EDITED')) { roundTripped = true; break }
+  if (screenHas('what is cordis EDITED')) { roundTripped = true; break }
 }
-check('往返: 编辑结果回填输入框', roundTripped)
-// 让晚到乱码（FakeStdout 注入）与任何延迟副作用落定
+check('round trip: edit result filled back into the input box', roundTripped)
+// Let the late garbled bytes (injected by FakeStdout) and any delayed side effects settle
 await sleep(600)
 
-check('bug1: transcript 历史消息仍可见（全量重绘）', screenHas('transcript-anchor'))
-check('bug2: 输入框内容完整（未被 ESC 清空）', screenHas('什么是cordis EDITED'))
-check('bug2: rewind 选择器未被残留双击 Esc 打开', !screenHas('Pick a message to rewind'))
-check('bug3: 终端应答残片未落入界面', !screenHas('48;93') && !screenHas('2453'))
+check('bug1: transcript history message still visible (full redraw)', screenHas('transcript-anchor'))
+check('bug2: input box content intact (not cleared by ESC)', screenHas('what is cordis EDITED'))
+check('bug2: rewind picker not opened by a leftover double-Esc', !screenHas('Pick a message to rewind'))
+check('bug3: no terminal-response fragment leaked into the UI', !screenHas('48;93') && !screenHas('2453'))
 
-// 活性：抑制窗口已过的正常输入必须可用
+// Liveness: normal input must work again once the suppression window has passed
 stdinObj.write('X')
 await sleep(300)
-check('活性: 抑制窗口结束后输入正常', screenHas('什么是cordis EDITEDX'))
+check('liveness: input works normally after the suppression window ends', screenHas('what is cordis EDITEDX'))
 
 if (savedEditor === undefined) delete process.env.EDITOR
 else process.env.EDITOR = savedEditor
