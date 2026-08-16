@@ -1,38 +1,51 @@
 /**
- * 长列表 picker 焦点窗口化回归（P1 一/二次审查实证）：限高浮层
- *（OverlayAbove maxHeight + overflow hidden）下全量渲染的列表会把焦点行
- * 裁出屏外；且窗口化若只按**项数**切片，带 description 的列表项（恒 2 行：
- * 正文 + 描述）依然会把焦点裁出去——30 行终端 30 个带描述的模型，焦点在
- * 索引 0 完全不可见，用户可能盲按 Enter（rewind 场景尤其危险）。
+ * Long-list picker focus-windowing regression: under a height-limited
+ * floater (OverlayAbove maxHeight + overflow hidden), rendering a list in
+ * full crops the focus row off-screen; and if windowing slices by **item
+ * count** alone, a list item with a description (always 2 rows: body +
+ * description) still crops the focus row out — a 30-row terminal with 30
+ * models each carrying a description leaves focus at index 0 completely
+ * invisible, and the user may blind-press Enter (especially dangerous in
+ * the rewind scenario).
  *
- * 覆盖（二/三次审查 P2 要求）：
- *  - listWindow 纯函数边界表 + 性质扫描（焦点恒在窗内、窗口不超行预算）；
- *  - ListItem 单行契约直接断言：顶层字符串 / JSX 插值数组 / 嵌套 Fragment
- *    内嵌换行均被压平，description 同样单行化，实际屏幕行数与声明行高一致；
- *  - ModelPicker：30 个**带 description** 的模型，首/中焦点在屏；
- *  - HistorySearchDialog：30 条历史（每项恒 2 行 + 容器 gap=1），首/中/末焦点在屏；
- *  - ThemePicker：displayName 含内部换行的自定义主题单行渲染（生产路径）；
- *  - RewindPicker：30 条用户消息，首/中/末焦点在屏（首项带 'last message' 描述）。
+ * Coverage:
+ *  - listWindow pure-function boundary table + property sweep (focus always
+ *    inside the window, window never exceeds the row budget);
+ *  - ListItem's single-line contract asserted directly: top-level string /
+ *    JSX-interpolated array / nested Fragment embedded newlines all
+ *    flatten, description single-lines too, actual on-screen row count
+ *    matches the declared row height;
+ *  - ModelPicker: 30 models **with a description**, focus on-screen at the
+ *    first/middle position;
+ *  - HistorySearchDialog: 30 history entries (always 2 rows + container
+ *    gap=1), focus on-screen at first/middle/last;
+ *  - ThemePicker: a custom theme whose displayName has internal newlines
+ *    renders on one line (production path);
+ *  - RewindPicker: 30 user messages, focus on-screen at first/middle/last
+ *    (the first item carries a 'last message' description).
  *
- * "在屏"判定：焦点行的 ❯/正文是 suggestion 主题色（#ABC2EC），逐单元格
- * 比对前景色——转录里同文本的用户消息回显行（灰底）不会误判为在屏。
+ * "On-screen" is determined by: the focus row's ❯/body text is the
+ * suggestion theme color (#ABC2EC), compared cell by cell against the
+ * foreground color — a transcript echo row with the same text (grey
+ * background) won't be mistaken as on-screen.
  *
- * 运行：node --import tsx/esm scripts/repro-picker-windowing.tsx
- * DUMP=1 可在每个断言点转储屏幕。
+ * Run: node --import tsx/esm scripts/repro-picker-windowing.tsx
+ * DUMP=1 dumps the screen at every assertion point.
  */
 process.env.FORCE_COLOR = '3'
 process.env.TERM_PROGRAM = 'WezTerm'
 process.env.DSH_TUI_THEME = 'dark'
 process.env.DSH_TUI_LANG = 'zh'
 
-// 隔离 HOME：modelPrefs/history 在模块加载时解析 homedir()，必须先切到
-// 临时目录再 import src；picker 交互不落任何真实偏好文件。
+// Isolate HOME: modelPrefs/history resolve homedir() at module load, so
+// this must switch to a temp directory before importing src; picker
+// interaction never touches any real preference file.
 const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
 const { tmpdir } = await import('node:os')
 const { join: joinPath } = await import('node:path')
 process.env.HOME = mkdtempSync(joinPath(tmpdir(), 'dshtui-repro-home-'))
 
-// ctrl+r 数据源：30 条历史命令（每项渲染 2 行：命令 + age 描述）。
+// ctrl+r data source: 30 history commands (each renders 2 rows: command + age description).
 const NOW = Date.now()
 mkdirSync(joinPath(process.env.HOME, '.dsh-tui'), { recursive: true })
 writeFileSync(
@@ -42,9 +55,10 @@ writeFileSync(
   ).join('\n') + '\n',
   'utf8',
 )
-// /theme 数据源：displayName 带内部换行的自定义主题（customTheme 允许保
-// 留内部换行；ThemePicker 的 label 是包着 displayName 的 Fragment——三轮
-// 审查实证的生产路径）。
+// /theme data source: a custom theme whose displayName carries internal
+// newlines (customTheme allows displayName to keep internal newlines;
+// ThemePicker's label is a Fragment wrapping the displayName — a confirmed
+// production path).
 mkdirSync(joinPath(process.env.HOME, '.dsh-tui', 'themes'), { recursive: true })
 writeFileSync(
   joinPath(process.env.HOME, '.dsh-tui', 'themes', 'nltheme.json'),
@@ -97,10 +111,12 @@ class FakeStdin extends PassThrough {
 }
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-// console.error 收集（四/五次审查）：生产默认 patchConsole，React key
-// warning 会被写进错误日志而非终端；这里拦截 console.error 并在结尾做
-// **严格零断言**——只筛 React 警告会静默吞掉其他错误让 CI 误绿（五次审查
-// 实证：注入 console.error('synthetic failure') 后脚本仍报通过）。
+// console.error collection: production defaults to patchConsole, so a
+// React key warning would land in the error log instead of the terminal;
+// this intercepts console.error and asserts **strictly zero** at the end —
+// filtering to only React warnings would silently swallow other errors and
+// let CI go green regardless (confirmed: injecting
+// console.error('synthetic failure') still reported the script as passing).
 const consoleErrors: string[] = []
 const origConsoleError = console.error
 console.error = (...args: unknown[]) => {
@@ -124,11 +140,13 @@ function dump(tag: string) {
   screenLines().forEach((l, i) => console.log(String(i).padStart(2), l.replace(/\s+$/u, '').slice(0, 90)))
 }
 
-/** dark 主题 suggestion 色（焦点行 ❯/正文的 fg）。 */
+/** dark theme's suggestion color (the fg of the focus row's ❯/body). */
 const SUGGESTION_RGB = 0xABC2EC
 /**
- * 焦点行是否在屏：含 `text` 且至少一个单元格前景为 suggestion 色。转录里
- * 同文本的用户消息回显行不是这个颜色，不会被误判（rewind 断言依赖这点）。
+ * Whether the focus row is on-screen: contains `text` and at least one
+ * cell's foreground is the suggestion color. A transcript echo row with the
+ * same text is not this color, so it won't be mistaken (the rewind
+ * assertions depend on this).
  */
 function focusLineVisible(text: string): boolean {
   const buf = term.buffer.active
@@ -144,8 +162,9 @@ function focusLineVisible(text: string): boolean {
 }
 
 // ---------------------------------------------------------------- listWindow
-// 纯函数边界表（二次审查建议）：每个用例的期望值都按"焦点居中、两侧交替扩
-// 张、预算内尽量多放"手工推过。
+// Pure-function boundary table: every case's expected value was hand-derived
+// following "focus centered, alternately expand both sides, fit as much as
+// the budget allows".
 const winCases: Array<{
   name: string
   heights: number[]
@@ -154,21 +173,21 @@ const winCases: Array<{
   gap?: number
   want: readonly [number, number]
 }> = [
-  { name: '空列表', heights: [], focus: 0, maxRows: 10, want: [0, 0] },
-  { name: '单项', heights: [2], focus: 0, maxRows: 10, want: [0, 1] },
-  { name: '焦点上越界 clamp', heights: [1, 1, 1], focus: 99, maxRows: 3, want: [0, 3] },
-  { name: '焦点下越界 clamp', heights: [1, 1, 1], focus: -1, maxRows: 3, want: [0, 3] },
-  { name: '单行居中', heights: Array(30).fill(1), focus: 10, maxRows: 5, want: [8, 13] },
-  { name: '首边界', heights: Array(30).fill(1), focus: 0, maxRows: 5, want: [0, 5] },
-  { name: '末边界', heights: Array(30).fill(1), focus: 29, maxRows: 5, want: [25, 30] },
-  { name: '偶数预算偏上', heights: Array(30).fill(1), focus: 10, maxRows: 4, want: [8, 12] },
-  { name: '预算 1 仅焦点', heights: Array(30).fill(1), focus: 10, maxRows: 1, want: [10, 11] },
-  { name: '预算 0 仍含焦点', heights: Array(30).fill(1), focus: 10, maxRows: 0, want: [10, 11] },
-  { name: '双行项按行切', heights: Array(30).fill(2), focus: 0, maxRows: 17, want: [0, 8] },
-  { name: '双行+gap', heights: Array(30).fill(2), focus: 0, maxRows: 12, gap: 1, want: [0, 4] },
-  { name: '混合行高（首项 2 行）', heights: [2, ...Array(29).fill(1)], focus: 0, maxRows: 4, want: [0, 3] },
-  { name: '焦点项自身超预算', heights: [5, 5, 5], focus: 1, maxRows: 3, want: [1, 2] },
-  { name: 'gap 居中', heights: Array(30).fill(1), focus: 10, maxRows: 5, gap: 1, want: [9, 12] },
+  { name: 'empty list', heights: [], focus: 0, maxRows: 10, want: [0, 0] },
+  { name: 'single item', heights: [2], focus: 0, maxRows: 10, want: [0, 1] },
+  { name: 'focus clamps when out of range above', heights: [1, 1, 1], focus: 99, maxRows: 3, want: [0, 3] },
+  { name: 'focus clamps when out of range below', heights: [1, 1, 1], focus: -1, maxRows: 3, want: [0, 3] },
+  { name: 'single-row centering', heights: Array(30).fill(1), focus: 10, maxRows: 5, want: [8, 13] },
+  { name: 'start boundary', heights: Array(30).fill(1), focus: 0, maxRows: 5, want: [0, 5] },
+  { name: 'end boundary', heights: Array(30).fill(1), focus: 29, maxRows: 5, want: [25, 30] },
+  { name: 'even budget biases upward', heights: Array(30).fill(1), focus: 10, maxRows: 4, want: [8, 12] },
+  { name: 'budget of 1 shows only the focus item', heights: Array(30).fill(1), focus: 10, maxRows: 1, want: [10, 11] },
+  { name: 'budget of 0 still includes the focus item', heights: Array(30).fill(1), focus: 10, maxRows: 0, want: [10, 11] },
+  { name: 'two-row items sliced by row count', heights: Array(30).fill(2), focus: 0, maxRows: 17, want: [0, 8] },
+  { name: 'two-row items + gap', heights: Array(30).fill(2), focus: 0, maxRows: 12, gap: 1, want: [0, 4] },
+  { name: 'mixed row heights (first item 2 rows)', heights: [2, ...Array(29).fill(1)], focus: 0, maxRows: 4, want: [0, 3] },
+  { name: 'the focus item alone exceeds the budget', heights: [5, 5, 5], focus: 1, maxRows: 3, want: [1, 2] },
+  { name: 'centering with a gap', heights: Array(30).fill(1), focus: 10, maxRows: 5, gap: 1, want: [9, 12] },
 ]
 for (const c of winCases) {
   const got = listWindow(c.heights, c.focus, c.maxRows, c.gap ?? 0)
@@ -178,7 +197,8 @@ for (const c of winCases) {
     `want [${c.want[0]},${c.want[1]}) got [${got.start},${got.end})`,
   )
 }
-// 性质扫描：任意输入下焦点恒在窗内；窗口超过预算只允许发生在"仅焦点项"时。
+// Property sweep: for any input, focus is always inside the window; the
+// window may exceed the budget only when it's the focus item alone.
 {
   let sweepOk = true
   let badCase = ''
@@ -199,12 +219,14 @@ for (const c of winCases) {
       }
     }
   }
-  check('listWindow 性质扫描（焦点在窗内且不超预算）', sweepOk, badCase)
+  check('listWindow property sweep (focus inside window, budget respected)', sweepOk, badCase)
 }
 
-// ------------------------------------------- ListItem 单行契约（三轮审查 P2）
-// 直接渲染带标记行的组件树，断言实际屏幕行数与声明行高一致：换行压平必须
-// 穿透顶层字符串、JSX 插值数组、嵌套 Fragment；description 同样单行化。
+// ------------------------------------------- ListItem single-line contract
+// Renders the component tree with marker rows directly, asserting the
+// actual on-screen row count matches the declared row height: newline
+// flattening must reach through top-level strings, JSX-interpolated
+// arrays, and nested Fragments; description single-lines the same way.
 {
   const term2 = new XTerm({ cols: COLS, rows: ROWS, scrollback: 0, allowProposedApi: true })
   class FakeStdout2 extends Writable {
@@ -243,25 +265,25 @@ for (const c of winCases) {
     lines2.push(term2.buffer.active.getLine(y)?.translateToString(true) ?? '')
   }
   const rowOf2 = (needle: string) => lines2.findIndex(l => l.includes(needle))
-  check('契约：顶层字符串换行压平（恰 1 行）',
+  check('contract: top-level string newline flattening (exactly 1 row)',
     rowOf2('M1') === rowOf2('M0') + 2 && (lines2[rowOf2('M0') + 1] ?? '').includes('Foo Bar'),
     lines2.slice(rowOf2('M0'), rowOf2('M1') + 1).map(l => l.trim()).join(' ⏎ '))
-  check('契约：插值数组字符串片段换行压平（恰 1 行）',
+  check('contract: interpolated array string fragment flattening (exactly 1 row)',
     rowOf2('M2') === rowOf2('M1') + 2 && (lines2[rowOf2('M1') + 1] ?? '').includes('aa bb / cc'),
     lines2.slice(rowOf2('M1'), rowOf2('M2') + 1).map(l => l.trim()).join(' ⏎ '))
-  check('契约：Fragment 内字符串换行压平（恰 1 行，色块同行）',
+  check('contract: string newline flattening inside a Fragment (exactly 1 row, swatch on the same row)',
     rowOf2('M3') === rowOf2('M2') + 2 &&
       (lines2[rowOf2('M2') + 1] ?? '').includes('Frag Ment') &&
       (lines2[rowOf2('M2') + 1] ?? '').includes('XX'),
     lines2.slice(rowOf2('M2'), rowOf2('M3') + 1).map(l => l.trim()).join(' ⏎ '))
-  check('契约：description 换行压平（正文+描述恰 2 行）',
+  check('contract: description newline flattening (body+description exactly 2 rows)',
     rowOf2('M4') === rowOf2('M3') + 3 && (lines2[rowOf2('M3') + 2] ?? '').includes('D1 D2'),
     lines2.slice(rowOf2('M3'), rowOf2('M4') + 1).map(l => l.trim()).join(' ⏎ '))
   ui2.unmount()
 }
 
-// ----------------------------------------------------------------- app 场景
-// 30 轮用户消息垫底（rewind 数据源；rewind 列表 = 用户消息新→旧）。
+// ----------------------------------------------------------------- app scenarios
+// 30 rounds of user messages as filler (the rewind data source; the rewind list is user messages newest→oldest).
 const events: Array<Record<string, unknown>> = []
 for (let i = 0; i < 30; i++) {
   events.push(
@@ -270,7 +292,7 @@ for (let i = 0; i < 30; i++) {
       seq: i * 3 + 1,
       time: NOW + i * 30 + 5,
       type: 'user/message',
-      data: { source: { kind: 'user' }, content: [{ type: 'text', text: `rewind 消息 ${String(i).padStart(2, '0')}` }] },
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: `rewind message ${String(i).padStart(2, '0')}` }] },
     },
     { seq: i * 3 + 2, time: NOW + i * 30 + 10, type: 'turn/end', data: { turn: i, reason: { kind: 'completed' } } },
   )
@@ -283,8 +305,9 @@ function makeAgent(id: string, sessionEvents: readonly unknown[]) {
     ctx: stubAgentCtx, followup() {}, steer() {}, inbox: { remove: () => true },
   }
 }
-// 30 个**带 description** 的模型：每项 2 行——一次审查后的无描述场景
-// 已不能覆盖这条生产路径（二次审查实证：索引 0 焦点仍被裁出屏外）。
+// 30 models **with a description**: 2 rows each — a no-description
+// scenario no longer covers this production path (confirmed: index 0's
+// focus was still cropped off-screen).
 const MODELS = Array.from({ length: 30 }, (_, i) => ({
   provider: 'fake-provider',
   id: `model-${String(i).padStart(2, '0')}`,
@@ -330,14 +353,14 @@ const typeKeys = async (s: string, stepMs = 40) => {
   await sleep(200)
   stdin.write('\r')
   await sleep(600)
-  // 焦点初始落在当前模型 model-00（索引 0）：每项 2 行也必须留在屏内。
-  check('/model 焦点 0 在屏（带描述，每项 2 行）', focusLineVisible('Model 00'))
-  check('/model 打开缓冲区零增长', term.buffer.active.length === bufBefore,
+  // Focus starts on the current model model-00 (index 0): even at 2 rows per item it must stay on screen.
+  check('/model focus 0 on-screen (with description, 2 rows per item)', focusLineVisible('Model 00'))
+  check('/model opening causes zero buffer growth', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('model focus 0')
   for (let i = 0; i < 20; i++) { stdin.write('\x1b[B'); await sleep(25) }
   await sleep(400)
-  check('/model ↓×20 焦点 20 在屏', focusLineVisible('Model 20'))
+  check('/model ↓×20 focus 20 on-screen', focusLineVisible('Model 20'))
   dump('model focus 20')
   stdin.write('\x1b')
   await sleep(400)
@@ -348,30 +371,33 @@ const typeKeys = async (s: string, stepMs = 40) => {
   const bufBefore = term.buffer.active.length
   stdin.write('\x12') // ctrl+r
   await sleep(500)
-  // 历史新→旧：最新一条是上一阶段真实键入的 '/model'（appendHistory 落盘），
-  // 之后才是预置的 histcmd-29…00。焦点 0 = '/model'。
-  check('ctrl+r 焦点 0 在屏（2 行项 + gap）', focusLineVisible('/model'))
-  check('ctrl+r 打开缓冲区零增长', term.buffer.active.length === bufBefore,
+  // History newest→oldest: the newest entry is the '/model' really typed in
+  // the previous phase (appendHistory persisted it), followed by the
+  // pre-seeded histcmd-29…00. Focus 0 = '/model'.
+  check('ctrl+r focus 0 on-screen (2-row items + gap)', focusLineVisible('/model'))
+  check('ctrl+r opening causes zero buffer growth', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('history focus 0')
-  stdin.write('\x1b[A') // ↑ 从 0 回绕到末项
+  stdin.write('\x1b[A') // ↑ wraps from 0 to the last item
   await sleep(300)
-  check('ctrl+r ↑ 回绕末项焦点在屏', focusLineVisible('histcmd-00'))
-  stdin.write('\x1b[B') // ↓ 回绕回 0
+  check('ctrl+r ↑ wraps to the last item, focus on-screen', focusLineVisible('histcmd-00'))
+  stdin.write('\x1b[B') // ↓ wraps back to 0
   await sleep(200)
   for (let i = 0; i < 15; i++) { stdin.write('\x1b[B'); await sleep(25) }
   await sleep(300)
-  // 索引 15 = histcmd-15（索引 0 是 '/model'，索引 1 才是 histcmd-29）。
-  check('ctrl+r ↓×15 焦点 15 在屏', focusLineVisible('histcmd-15'))
+  // Index 15 = histcmd-15 (index 0 is '/model', index 1 is histcmd-29).
+  check('ctrl+r ↓×15 focus 15 on-screen', focusLineVisible('histcmd-15'))
   dump('history focus 15')
   stdin.write('\x1b')
   await sleep(400)
 }
 
 // ------------------------------------------------------------ ThemePicker
-// 生产路径（三轮审查 P2）：displayName 含内部换行的自定义主题，label 是包
-// 着 displayName + 色块的 Fragment。压平后该行只占一行且名字与色块同行。
-// 放在 history 阶段之后：键入 '/theme' 会落一条历史，不影响前面的断言。
+// Production path: a custom theme whose displayName has internal newlines,
+// label is a Fragment wrapping displayName + a color swatch. After
+// flattening, the row occupies exactly one line with the name and swatch
+// on it. Placed after the history phase: typing '/theme' adds a history
+// entry, which doesn't affect the earlier assertions.
 {
   await typeKeys('/theme')
   await sleep(200)
@@ -379,10 +405,10 @@ const typeKeys = async (s: string, stepMs = 40) => {
   await sleep(600)
   const lines = screenLines()
   const nameRow = lines.findIndex(l => l.includes('Foo Bar NL'))
-  check('/theme 换行 displayName 单行渲染且色块同行',
+  check('/theme newline displayName renders on one line with the swatch',
     nameRow !== -1 && (lines[nameRow] ?? '').includes('██'),
-    nameRow === -1 ? '未找到 Foo Bar NL 行' : lines[nameRow]!.trim().slice(0, 60))
-  check('/theme 无换行泄漏行（Bar NL 不得单独成行）',
+    nameRow === -1 ? 'Foo Bar NL row not found' : lines[nameRow]!.trim().slice(0, 60))
+  check('/theme has no leaked newline row (Bar NL must not become its own row)',
     !lines.some(l => /^\s*Bar NL/u.test(l)))
   dump('theme newline displayName')
   stdin.write('\x1b')
@@ -392,39 +418,41 @@ const typeKeys = async (s: string, stepMs = 40) => {
 // ------------------------------------------------------------ RewindPicker
 {
   const bufBefore = term.buffer.active.length
-  stdin.write('\x1b') // 双击 Esc（空输入）打开 rewind
+  stdin.write('\x1b') // double-Esc (empty input) opens rewind
   await sleep(100)
   stdin.write('\x1b')
   await sleep(600)
-  // 焦点 0 = 最新用户消息；首项带 'last message' 描述（2 行）。
-  check('rewind 焦点 0 在屏（首项 2 行）', focusLineVisible('rewind 消息 29'))
-  check('rewind 首项描述行在屏', screenLines().some(l => l.includes('最近一条消息')))
-  check('rewind 打开缓冲区零增长', term.buffer.active.length === bufBefore,
+  // Focus 0 = the newest user message; the first item carries a 'last message' description (2 rows).
+  check('rewind focus 0 on-screen (first item 2 rows)', focusLineVisible('rewind message 29'))
+  check('rewind first item description row on-screen', screenLines().some(l => l.includes('last message')))
+  check('rewind opening causes zero buffer growth', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('rewind focus 0')
-  stdin.write('\x1b[A') // ↑ 回绕到末项 = 最老一条
+  stdin.write('\x1b[A') // ↑ wraps to the last item = the oldest one
   await sleep(300)
-  check('rewind ↑ 回绕末项焦点在屏', focusLineVisible('rewind 消息 00'))
-  stdin.write('\x1b[B') // ↓ 回绕回 0
+  check('rewind ↑ wraps to the last item, focus on-screen', focusLineVisible('rewind message 00'))
+  stdin.write('\x1b[B') // ↓ wraps back to 0
   await sleep(200)
   for (let i = 0; i < 15; i++) { stdin.write('\x1b[B'); await sleep(25) }
   await sleep(300)
-  // 索引 15 = rewind 消息 14（索引 0 是最新的 29）。
-  check('rewind ↓×15 焦点 15 在屏', focusLineVisible('rewind 消息 14'))
+  // Index 15 = rewind message 14 (index 0 is the newest, 29).
+  check('rewind ↓×15 focus 15 on-screen', focusLineVisible('rewind message 14'))
   dump('rewind focus 15')
   stdin.write('\x1b')
   await sleep(400)
 }
 
 instance.unmount()
-// 先恢复再断言：恢复后产生的错误走原生 console.error 直接可见，不会被吞；
-// 若上面任一阶段抛异常，顶层未捕获即以非零退出，CI 照样红。
+// Restore first, then assert: errors produced after restoring go through
+// native console.error and are directly visible, not swallowed; if any
+// phase above throws, the uncaught exception exits non-zero at the top
+// level and CI still goes red.
 console.error = origConsoleError
-check('全程无 console.error（React key warning 等）', consoleErrors.length === 0,
+check('no console.error anywhere (React key warnings, etc.)', consoleErrors.length === 0,
   consoleErrors[0]?.split('\n')[0]?.slice(0, 120) ?? '')
 if (failed > 0) {
-  console.log(`\n${failed} 项失败`)
+  console.log(`\n${failed} failed`)
   process.exit(1)
 }
-console.log('\n全部通过')
+console.log('\nAll passed')
 process.exit(0)
