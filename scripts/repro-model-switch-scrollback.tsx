@@ -1,24 +1,31 @@
 /**
- * `/model` 切换 scrollback 重复沉积回归（真机取证：每次切换 scrollback 多一份
- * splash 拷贝，+18 行/次）。真实 channel（createChannel）+ 最小 fake agent /
- * sessions / agents 服务，逐键走完整 UI 路径（输入 /model → 补全浮层 → picker
- * → fork+replay）；xterm-headless 开 2000 行 scrollback 重建终端视角，断言
- * splash/历史等唯一 UI 文本在 scrollback + 视口中恰好一份、缓冲区零增长。
+ * `/model` switch scrollback duplication regression (found on a real
+ * machine: every switch deposits one extra splash copy into scrollback,
+ * +18 lines each time). Uses the real channel (createChannel) + a minimal
+ * fake agent/sessions/agents service, driving the full UI path key by key
+ * (type /model → completion floater → picker → fork+replay); xterm-headless
+ * with 2000 lines of scrollback rebuilds the terminal's view, asserting
+ * unique UI text like the splash/history appears exactly once across
+ * scrollback + viewport, with zero buffer growth.
  *
- * 根因：补全/picker 等瞬态面板 in-flow 挂载使帧高涨落，帧顶行被滚进
- * scrollback 后遭关闭重绘二次写入。修复：瞬态面板改 OverlayAbove 零高度浮层。
+ * Root cause: transient panels (completion/picker) mounted in-flow let the
+ * frame height rise and fall; the frame's top rows get scrolled into
+ * scrollback and then rewritten a second time by the closing redraw. Fix:
+ * transient panels moved to OverlayAbove's zero-height floater.
  *
- * 运行：node --import tsx/esm scripts/repro-model-switch-scrollback.tsx
+ * Run: node --import tsx/esm scripts/repro-model-switch-scrollback.tsx
  */
 process.env.FORCE_COLOR = '3'
-process.env.TERM_PROGRAM = 'WezTerm'  // DEC-2026 同步输出路径
-process.env.DSH_TUI_THEME = 'dark'     // 跳过 OSC 11 探测，保持确定性
-process.env.DSH_TUI_LANG = 'zh'        // 固定中文 UI（splash 标语断言）
+process.env.TERM_PROGRAM = 'WezTerm'  // DEC-2026 synchronized-output path
+process.env.DSH_TUI_THEME = 'dark'     // skip OSC 11 probing, stay deterministic
+process.env.DSH_TUI_LANG = 'en'        // pin the UI language (splash tagline assertion)
 
-// 隔离 HOME：switchModel 会把 picker 选择写进 ~/.dsh-tui/model.json
-// （modelPrefs.PREFS_DIR 在模块加载时按 homedir() 解析），不隔离会把
-// fake-provider 写进真机配置——真机下一次启动所有回合报
-// "no adapter registered for provider fake-provider"。必须在 import src 之前。
+// Isolate HOME: switchModel writes the picker's choice into
+// ~/.dsh-tui/model.json (modelPrefs.PREFS_DIR resolves via homedir() at
+// module load), so without isolation this would write fake-provider into
+// the real machine's config — every turn on the next real launch would then
+// report "no adapter registered for provider fake-provider". Must run
+// before importing src.
 const { mkdtempSync } = await import('node:fs')
 const { tmpdir } = await import('node:os')
 const { join: joinPath } = await import('node:path')
@@ -75,12 +82,12 @@ function check(name: string, ok: boolean, extra = '') {
   if (!ok) failed += 1
 }
 
-/** 唯一标记在 scrollback+视口中的出现次数（逐行包含匹配）。 */
+/** How many times a unique marker appears across scrollback+viewport (line-by-line substring match). */
 function countMarker(marker: string): number {
   return fullBufferLines().filter(l => l.includes(marker)).length
 }
 
-// ---- SessionEvent 预制：2 轮历史（user + reasoning + 长 assistant） ----------
+// ---- SessionEvent fixtures: 2 rounds of history (user + reasoning + a long assistant reply) ----
 let seq = 0
 let now = Date.now()
 function ev(type: string, data: Record<string, unknown>): Record<string, unknown> {
@@ -99,16 +106,16 @@ function assistantEvent(text: string, turn: number) {
 const events: Array<Record<string, unknown>> = []
 for (let turn = 0; turn < 2; turn++) {
   events.push(ev('turn/start', { turn }))
-  events.push(userEvent(`历史问题 ${turn}：检查一下构建配置`))
+  events.push(userEvent(`history question ${turn}: check the build config`))
   const body = Array.from(
     { length: 12 },
-    (_, i) => `- 第 ${turn}-${i} 条历史回答要点：装配、主题、同步与加密打包`,
+    (_, i) => `- history answer point ${turn}-${i}: assembly, theming, sync, and encrypted packaging`,
   ).join('\n')
-  events.push(assistantEvent(`历史回答 ${turn}：\n\n${body}`, turn))
+  events.push(assistantEvent(`history answer ${turn}:\n\n${body}`, turn))
   events.push(ev('turn/end', { turn, reason: { kind: 'completed' } }))
 }
 
-// ---- 最小 fake agent / sessions / agents --------------------------------------
+// ---- Minimal fake agent / sessions / agents -----------------------------------
 const stubAgentCtx = { on: () => () => {} }
 function makeAgent(id: string, sessionEvents: readonly unknown[]) {
   return {
@@ -155,7 +162,7 @@ const ctx = {
   logger: { warn() {} },
 }
 
-// ---- 真实 channel + 真实 Chat ---------------------------------------------------
+// ---- Real channel + real Chat ---------------------------------------------------
 const channel = createChannel(ctx as never, makeAgent('a1', events) as never, {
   model: 'deepseek-v4-flash',
   cwd: '/tmp/demo',
@@ -171,17 +178,17 @@ const instance = await render(
 )
 await sleep(1200)
 
-const SPLASH = '探索未至之境'
-const HIST0 = '历史问题 0：检查一下构建配置'
-const HIST1 = '历史回答 1：'
+const SPLASH = 'Explore the uncharted!'
+const HIST0 = 'history question 0: check the build config'
+const HIST1 = 'history answer 1:'
 
-console.log(`boot: buffer=${term.buffer.active.length} 行 (视口 ${ROWS})`)
-check('boot 后 splash 恰好一份', countMarker(SPLASH) === 1, `实际 ${countMarker(SPLASH)}`)
-check('boot 后历史行恰好一份', countMarker(HIST0) === 1 && countMarker(HIST1) === 1,
-  `问题=${countMarker(HIST0)} 回答=${countMarker(HIST1)}`)
+console.log(`boot: buffer=${term.buffer.active.length} lines (viewport ${ROWS})`)
+check('splash appears exactly once after boot', countMarker(SPLASH) === 1, `got ${countMarker(SPLASH)}`)
+check('history rows appear exactly once after boot', countMarker(HIST0) === 1 && countMarker(HIST1) === 1,
+  `question=${countMarker(HIST0)} answer=${countMarker(HIST1)}`)
 
-// ---- 走真实 UI 路径：输入 /model → 回车开 picker → ↓ → 回车切换 ----------------
-// 与真机操作逐键一致：补全面板、picker、notify、fork+replay 全部经过。
+// ---- Drive the real UI path: type /model → Enter opens the picker → ↓ → Enter switches
+// Matches real key-by-key operation: goes through the completion panel, picker, notify, and fork+replay.
 const bufLen = (tag: string) =>
   console.log(`  [${tag}] buffer=${term.buffer.active.length} scrollback=${term.buffer.active.baseY}`)
 const typeKeys = async (keys: string) => {
@@ -194,25 +201,25 @@ bufLen('boot')
 await typeKeys('/model')
 await sleep(200)
 bufLen('typed /model')
-stdin.write('\r')            // 打开 picker（slash 命令派发）
+stdin.write('\r')            // opens the picker (slash-command dispatch)
 await sleep(600)
 bufLen('picker open')
-stdin.write('\x1b[B')        // ↓ 选中下一个模型
+stdin.write('\x1b[B')        // ↓ selects the next model
 await sleep(200)
-stdin.write('\r')            // 确认 → fork + replay
+stdin.write('\r')            // confirms → fork + replay
 await sleep(1500)
 bufLen('switched')
 
-check('切换后模型名生效', channel.model === 'deepseek-v4-pro', `实际 ${channel.model}`)
-check('切换后 splash 恰好一份', countMarker(SPLASH) === 1, `实际 ${countMarker(SPLASH)}`)
-check('切换后历史行恰好一份', countMarker(HIST0) === 1 && countMarker(HIST1) === 1,
-  `问题=${countMarker(HIST0)} 回答=${countMarker(HIST1)}`)
-check('历史问题 1 恰好一份', countMarker('历史问题 1：检查一下构建配置') === 1,
-  `实际 ${countMarker('历史问题 1：检查一下构建配置')}`)
-check('历史片段 0-8 恰好一份', countMarker('第 0-8 条历史回答要点') === 1,
-  `实际 ${countMarker('第 0-8 条历史回答要点')}`)
+check('model name takes effect after switch', channel.model === 'deepseek-v4-pro', `got ${channel.model}`)
+check('splash appears exactly once after switch', countMarker(SPLASH) === 1, `got ${countMarker(SPLASH)}`)
+check('history rows appear exactly once after switch', countMarker(HIST0) === 1 && countMarker(HIST1) === 1,
+  `question=${countMarker(HIST0)} answer=${countMarker(HIST1)}`)
+check('history question 1 appears exactly once', countMarker('history question 1: check the build config') === 1,
+  `got ${countMarker('history question 1: check the build config')}`)
+check('history fragment 0-8 appears exactly once', countMarker('history answer point 0-8') === 1,
+  `got ${countMarker('history answer point 0-8')}`)
 
-// ---- 再切一次：确认沉积随切换次数线性增长 --------------------------------------
+// ---- Switch once more: confirm deposits don't grow linearly with switch count ---
 await typeKeys('/model')
 await sleep(200)
 stdin.write('\r')
@@ -221,13 +228,16 @@ stdin.write('\x1b[B')
 await sleep(200)
 stdin.write('\r')
 await sleep(1500)
-check('二次切换后 splash 恰好一份', countMarker(SPLASH) === 1, `实际 ${countMarker(SPLASH)}`)
+check('splash appears exactly once after the second switch', countMarker(SPLASH) === 1, `got ${countMarker(SPLASH)}`)
 
-// ---- Esc 只关不切换：浮层整体条件挂载的回归场景 -----------------------------
-// 关键前置：等 splash 动画彻底稳定（不再有新帧）。动画每 tick 会把 ScrollBox
-// 标脏、强制全量重绘，掩盖"关闭浮层后被覆盖行留空"的缺陷（条件挂载缺失时，
-// 干净 ScrollBox 的 blit 会跳过 absoluteClear 覆盖行——真实终端上动画停止
-// 后这些行永久空白）。覆盖区内的历史尾行没有动画治疗，是最敏感的探针。
+// ---- Esc only closes, doesn't switch: the floater's overall conditional-mount case
+// Key precondition: wait for the splash animation to fully settle (no more new
+// frames). Every animation tick marks the ScrollBox dirty and forces a full
+// redraw, which masks the "rows covered by a closed floater are left blank"
+// defect (without conditional mounting, a clean ScrollBox's blit skips the
+// absoluteClear-covered rows — on a real terminal, once the animation stops,
+// those rows stay permanently blank). The history tail rows inside the
+// covered area get no animation "healing", making them the most sensitive probe.
 const waitQuiet = async () => {
   const deadline = Date.now() + 20_000
   let last = rawChunks.length
@@ -236,31 +246,31 @@ const waitQuiet = async () => {
     if (rawChunks.length === last) return
     last = rawChunks.length
   }
-  console.log('  [warn] 动画 20s 未稳定，继续执行（历史行断言不受影响）')
+  console.log('  [warn] animation did not settle within 20s, continuing anyway (does not affect the history-row assertions)')
 }
 await waitQuiet()
 const modelBeforeEsc = channel.model
 const bufBeforeEsc = term.buffer.active.length
 await typeKeys('/model')
 await sleep(200)
-stdin.write('\r')            // 打开 picker
+stdin.write('\r')            // opens the picker
 await sleep(600)
-stdin.write('\x1b')          // Esc：只关闭，不切换
+stdin.write('\x1b')          // Esc: only closes, does not switch
 await sleep(600)
-check('Esc 不改动模型', channel.model === modelBeforeEsc, `实际 ${channel.model}`)
-check('Esc 关闭后被覆盖历史行仍在',
-  countMarker('第 1-8 条历史回答要点') === 1 && countMarker('第 1-11 条历史回答要点') === 1,
-  `1-8=${countMarker('第 1-8 条历史回答要点')} 1-11=${countMarker('第 1-11 条历史回答要点')}`)
-check('Esc 开关周期缓冲区零增长', term.buffer.active.length === bufBeforeEsc,
+check('Esc does not change the model', channel.model === modelBeforeEsc, `got ${channel.model}`)
+check('covered history rows survive after Esc closes',
+  countMarker('history answer point 1-8') === 1 && countMarker('history answer point 1-11') === 1,
+  `1-8=${countMarker('history answer point 1-8')} 1-11=${countMarker('history answer point 1-11')}`)
+check('buffer has zero growth over the Esc open/close cycle', term.buffer.active.length === bufBeforeEsc,
   `${bufBeforeEsc} → ${term.buffer.active.length}`)
 
-console.log(`final: buffer=${term.buffer.active.length} 行 (视口 ${ROWS}, scrollback ${term.buffer.active.length - ROWS})`)
+console.log(`final: buffer=${term.buffer.active.length} lines (viewport ${ROWS}, scrollback ${term.buffer.active.length - ROWS})`)
 const fullResets = rawChunks.join('').match(/\x1b\[10000S/g)?.length ?? 0
-check('全程无 full-reset (CSI 10000S)', fullResets === 0, `实际 ${fullResets}`)
+check('no full-reset (CSI 10000S) at any point', fullResets === 0, `got ${fullResets}`)
 
 if (process.env.DUMP === '1') {
   const buf = term.buffer.active
-  console.log('---- scrollback 内容 ----')
+  console.log('---- scrollback contents ----')
   for (let y = 0; y < buf.baseY; y++) {
     const l = buf.getLine(y)?.translateToString(true) ?? ''
     if (l.trim()) console.log(String(y).padStart(3), l.slice(0, 90))
@@ -269,8 +279,8 @@ if (process.env.DUMP === '1') {
 
 instance.unmount()
 if (failed > 0) {
-  console.log(`\n${failed} 项失败`)
+  console.log(`\n${failed} failed`)
   process.exit(1)
 }
-console.log('\n全部通过')
+console.log('\nAll passed')
 process.exit(0)
