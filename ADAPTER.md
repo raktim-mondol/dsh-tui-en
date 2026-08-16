@@ -1,42 +1,48 @@
-# Adapter 边界与上游契约
+# Adapter Boundary and Upstream Contract
 
-## 边界规则
+## Boundary Rule
 
-官方 `@deepseek-ai/*` 包只允许在 `src/dsh-adapter/` 内被 import。
-UI 层(`screens/`、`components/`、`ink/`、`hooks/`、`utils/`、`cc/`)
-一律通过 adapter 的 facade(`src/dsh-adapter/types.ts` 的类型 re-export、
-`channel.ts`/`plugin.ts` 等运行期服务)间接接触上游。
+Official `@deepseek-ai/*` packages may only be imported inside
+`src/dsh-adapter/`. The UI layer (`screens/`, `components/`, `ink/`,
+`hooks/`, `utils/`, `cc/`) touches upstream only indirectly, through the
+adapter's facade (type re-exports from `src/dsh-adapter/types.ts`, runtime
+services like `channel.ts`/`plugin.ts`).
 
-门禁:`pnpm run verify:boundary`(扫描全部源码,发现越界 import 即失败;
-已挂进 `build`)。
+Gate: `pnpm run verify:boundary` (scans the whole source tree; any
+out-of-bounds import fails; wired into `build`).
 
-## 上游契约
+## Upstream Contract
 
-- 校验版本线:`0.1.0-rc.6`(`src/dsh-adapter/contract.ts`)
-- 白名单包:blessed list(harness 包按 rc 号校验,框架包 cordis/schemastery 按 major 校验)
-- 启动时:检测到 drift 打 warning;CI 上 `pnpm run verify:contract` 直接失败
+- Validated version line: `0.1.0-rc.6` (`src/dsh-adapter/contract.ts`)
+- Blessed package list (harness packages validated by rc number, framework
+  packages cordis/schemastery validated by major version)
+- At startup: drift logs a warning; on CI, `pnpm run verify:contract` fails outright
 
 ## Patch Surface
 
-`cordis.patch.yml` 里对官方行的干预已快照到 `patch-surface.snapshot.json`:
+`cordis.patch.yml`'s interventions on official rows are snapshotted to
+`patch-surface.snapshot.json`:
 
-- **disables**:23 行,与官方 `@deepseek-ai/dsh-web-app` 自己的 patch 对齐
-  (preset 所有权迁移的结构性禁用,官方 web 也这么做),TUI 特有的禁用为 0;
-  官方 web-app 另多禁一行 `hmr`(TUI 不需要)
-- **config overrides**:6 行(system-prompt / llm-deepseek / agent-loop /
-  sandbox-policy / approval / session-persistence-jsonl),全部是表面发行配置
-- **inserts**:8 行(dsh-tui、working-activity、storage、storage-json、
-  storage-domain、workspace、agent-presets、cordis-host-runner;后 6 个与官方
-  web-app 共用)
+- **disables**: 23 rows, aligned with official `@deepseek-ai/dsh-web-app`'s
+  own patch (the structural disables from preset-ownership migration —
+  official web does the same); TUI-specific disables: 0. Official web-app
+  additionally disables one more row, `hmr` (which the TUI doesn't need)
+- **config overrides**: 6 rows (system-prompt / llm-deepseek / agent-loop /
+  sandbox-policy / approval / session-persistence-jsonl), all surface-level release config
+- **inserts**: 8 rows (dsh-tui, working-activity, storage, storage-json,
+  storage-domain, workspace, agent-presets, cordis-host-runner; the last 6
+  are shared with official web-app)
 
-上游发版后如果 patch 面变化,`pnpm run verify:patch-surface` 会在 CI 先爆;
-确认差异后执行 `node --import tsx/esm scripts/verify-patch-surface.ts --snapshot`
-重新生成快照。
+If the patch surface changes after an upstream release, `pnpm run
+verify:patch-surface` fails first in CI; after confirming the diff is
+intentional, run `node --import tsx/esm scripts/verify-patch-surface.ts
+--snapshot` to regenerate the snapshot.
 
-## 升级流程
+## Upgrade Process
 
-1. `pnpm add` 各 `@deepseek-ai/*` 到新 rc 版本
-2. `pnpm run build`(typecheck + 三道门禁)
-3. 若 patch-surface 或 contract 报警:审查差异,更新 `contract.ts` 校验版本 /
-   重新生成快照
-4. 业务 UI 代码原则上零修改;若需要改,改动必须落在 `src/dsh-adapter/` 内
+1. `pnpm add` each `@deepseek-ai/*` package to the new rc version
+2. `pnpm run build` (typecheck + all three gates)
+3. If patch-surface or contract warns: review the diff, update
+   `contract.ts`'s validated version / regenerate the snapshot
+4. Business UI code should need zero changes in principle; if a change is
+   needed, it must land inside `src/dsh-adapter/`

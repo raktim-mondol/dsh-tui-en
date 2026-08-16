@@ -24,7 +24,7 @@ try {
     { path: join(dshHome, '.agent-presets'), trust: 'user' },
   ])
   const liangshen = discovered.find(preset => preset.id === 'liangshen')
-  assert.equal(liangshen?.name, '梁神模式')
+  assert.equal(liangshen?.name, 'Liangshen Mode')
   assert.equal(liangshen?.broken, undefined)
 
   const conflictingHome = join(temporary, 'conflicting-home')
