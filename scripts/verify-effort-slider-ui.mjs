@@ -174,9 +174,10 @@ function makeChannel() {
 
 const toPlain = s =>
   s
-    // 光标前移按真实格数展开：浮层面板覆盖既有行时 diff 会跳过未变单元格
-    // （两个空格之间只发 CSI n C），固定 8 空格会把 "Reasoning effort"
-    // 拆成多格空格导致断言漏匹配。
+    // Expand cursor-forward moves by their real column count: when a
+    // floater panel covers existing rows, the diff skips unchanged cells
+    // (emitting only CSI n C between two spaces) — a fixed 8-space
+    // expansion would split "Reasoning effort" and miss the assertion.
     .replace(/\x1b\[(\d+)C/g, (_, n) => ' '.repeat(Number(n)))
     .replace(/\x1b\[[0-9;?>:]*[a-zA-Z]/g, '')
     .replace(/\x1b\]9;[^\x07]*\x07/g, '')
@@ -233,7 +234,7 @@ check('/effort off applied', channel.setEffortCalls.includes('off'), JSON.string
 stdin.write('\x1b[Z')
 await sleep(300)
 s = screen()
-check('statusline shows mode label', s.includes('计划模式') || /plan mode/.test(s), s.slice(-300))
+check('statusline shows mode label', /plan mode/.test(s), s.slice(-300))
 stdin.write('\x1b[Z')
 await sleep(300)
 check('second backtab → full', channel.mode.id === 'full', channel.mode.id)
@@ -241,23 +242,25 @@ stdin.write('\x1b[Z')
 await sleep(300)
 check('third backtab → default (no segment)', channel.modeIndex === 0, String(channel.modeIndex))
 
-// 6. zh locale: the slider chrome hot-swaps to the localized strings
-//    (picker i18n branch: picker-title-effort / hint-adjust-done).
+// 6. zh compat: `zh` is still a valid persisted language code, but this
+//    build's i18n dict is English-only, so the slider chrome (picker i18n
+//    branch: picker-title-effort / hint-adjust-done) renders the same
+//    English text regardless.
 setLang('zh')
 stdin.write('/effort')
 await sleep(250)
 stdin.write('\r')
 await sleep(400)
 s = screen()
-check('zh: slider title 推理强度', s.includes('推理强度'), '')
-check('zh: hint line localized', s.includes('调整') && s.includes('完成'), '')
+check('zh: slider title stays English (compat)', s.includes('Reasoning effort'), '')
+check('zh: hint line stays English (compat)', s.includes('to adjust') && /Esc to don/.test(s), '')
 // Clear the frame buffer so the check only sees the post-Esc repaint —
 // slicing the joined backlog can still reach the open-slider frame.
 stdout.frames.length = 0
 stdin.write('\x1b')
 await sleep(300)
 s = screen()
-check('zh: Esc closed the slider', !s.includes('推理强度'), '')
+check('zh: Esc closed the slider', !s.includes('Reasoning effort'), '')
 setLang('en')
 
 instance.unmount()
