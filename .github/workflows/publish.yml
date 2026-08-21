@@ -20,9 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # vendor/dsh-std 是 @dsh-std/* workspace 依赖的来源（#308）：
-          # 不拉子模块时 prepare→compile 在空目录上构建出悬空链接，
-          # tsc 全线 TS2307。
+          # vendor/dsh-std is the source of the @dsh-std/* workspace
+          # dependencies (#308): without checking out the submodule,
+          # prepare→compile builds a dangling link against an empty
+          # directory, and tsc fails across the board with TS2307.
           submodules: recursive
 
       - uses: pnpm/action-setup@v4
@@ -69,11 +70,14 @@ jobs:
       - run: node scripts/verify-provider-wizard.mjs
       - run: node --import tsx/esm scripts/verify-askpanel-hide-custom-input.tsx
 
-      # 用 npm 而非 pnpm 发布：@dsh-std/* 是 bundledDependencies（workspace
-      # 包，#308），pnpm 在 isolated linker 下拒绝。发布包装器只在 npm
-      # pack/publish 期间把 7 个 bundled 包改成精确版本的 optionalDependencies，
-      # 让 Bun 不再解析 workspace:*；退出后恢复源码 manifest。
-      # 本地已先发布过同一版本（tag 补推）时跳过，避免 E403 红 run。
+      # Publish with npm rather than pnpm: @dsh-std/* are bundledDependencies
+      # (workspace packages, #308), which pnpm refuses under the isolated
+      # linker. The publish wrapper only rewrites the 7 bundled packages to
+      # pinned-version optionalDependencies during npm pack/publish, so Bun
+      # no longer resolves workspace:*; it restores the source manifest on
+      # exit.
+      # Skipped when this exact version was already published locally (a
+      # re-pushed tag), to avoid a red E403 run.
       - name: Skip when already published
         id: published
         run: |

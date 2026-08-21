@@ -79,18 +79,18 @@ npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
 ### Quick start
 
 1. Click the **editor-title whale button** (or the command-palette entry
-   `dsh-tui: Start new session / 启动新会话`) — a **DeepSeek** terminal opens
+   `dsh-tui: Start new session`) — a **DeepSeek** terminal opens
    on the Beside column and runs dsh-tui automatically; the **activity-bar
    whale icon** opens the sidebar session history (its welcome view offers
    start/resume buttons);
 2. Click again = **another concurrent session**; older sessions keep running
    in their own terminals;
-3. **Resume the last session**: `dsh-tui: Resume last session / 恢复上次会话`;
+3. **Resume the last session**: `dsh-tui: Resume last session`;
 4. **Resume a specific session**: expand a project group in the sidebar
-   "会话历史" and click the session entry;
+   "Session History" and click the session entry;
 5. **Terminate**: close the terminal tab (ends only that session), or double
    `Ctrl+C` inside the TUI; the command
-   `dsh-tui: Terminate session / 终止会话` sends Ctrl+C to the most recent
+   `dsh-tui: Terminate session` sends Ctrl+C to the most recent
    terminal.
 
 While sessions are running, a **status-bar** item (`dsh-tui`, bottom-left)
@@ -100,14 +100,14 @@ appears; clicking it starts a new session (`dsh-tui-vscode.open`).
 
 | Command ID | Title | Action |
 | --- | --- | --- |
-| `dsh-tui-vscode.open` | Open panel / 打开会话面板 | Start a new session (same as the editor-title button) |
-| `dsh-tui-vscode.start` | Start new session / 启动新会话 | Start a new session |
-| `dsh-tui-vscode.resume` | Resume last session / 恢复上次会话 | Resume via `--resume` |
-| `dsh-tui-vscode.focus` | Focus session panel / 聚焦会话面板 | Focus the most recent terminal, else start one |
-| `dsh-tui-vscode.kill` | Terminate session / 终止会话 | Send Ctrl+C to the most recent terminal |
-| `dsh-tui-vscode.refreshSessions` | Refresh sessions / 刷新会话列表 | Manually refresh the sidebar |
-| `dsh-tui-vscode.resumeSession` | Resume session / 恢复会话 | Resume a specific session (sidebar click) |
-| `dsh-tui-vscode.insertAtMention` | Insert @-mention / 插入 @文件引用 | With editor focus press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) or the editor context menu: inserts the current file / selection as `@absolute/path Lstart-end` into the dsh-tui input box (the absolute path is independent of the dsh-tui session cwd; whole file when nothing is selected; falls back to the clipboard with no running session) |
+| `dsh-tui-vscode.open` | Open panel | Start a new session (same as the editor-title button) |
+| `dsh-tui-vscode.start` | Start new session | Start a new session |
+| `dsh-tui-vscode.resume` | Resume last session | Resume via `--resume` |
+| `dsh-tui-vscode.focus` | Focus session panel | Focus the most recent terminal, else start one |
+| `dsh-tui-vscode.kill` | Terminate session | Send Ctrl+C to the most recent terminal |
+| `dsh-tui-vscode.refreshSessions` | Refresh sessions | Manually refresh the sidebar |
+| `dsh-tui-vscode.resumeSession` | Resume session | Resume a specific session (sidebar click) |
+| `dsh-tui-vscode.insertAtMention` | Insert @-mention | With editor focus press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) or the editor context menu: inserts the current file / selection as `@absolute/path Lstart-end` into the dsh-tui input box (the absolute path is independent of the dsh-tui session cwd; whole file when nothing is selected; falls back to the clipboard with no running session) |
 
 ### Architecture
 
@@ -163,7 +163,7 @@ effect as the extension's env channel.
   the web session list's titles), and the TUI's last-used map
   (`~/.dsh-tui/last-used.json`);
 - Title precedence: log `session/title` event → storage-ledger title → first
-  user message → "未命名会话"; the full cwd path and session id go into the
+  user message → "Untitled session"; the full cwd path and session id go into the
   item tooltip;
 - Grouped by project (cwd short name), most recently active project first;
   within a group, most recently used first;

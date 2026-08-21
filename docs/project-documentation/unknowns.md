@@ -1,99 +1,122 @@
-# 未解决冲突与未验证事项
+# Unresolved conflicts and unverified items
 
-本文汇总全部文档在审计中发现且未消除的冲突与未验证事项，作为整套文档的
-收尾索引。所有行号均以审计基线 b2f4087 为准。证据等级约定：explicit
-evidence（代码/配置/提交可直接核验）、strong indication（注释/提交消息
-转述，静态自洽但缺运行时或上游证据）、unverified（无从核验）。
+This document collects every conflict and unverified item found across the
+documentation set during the audit that was not resolved, serving as a
+closing index for the whole set. All line numbers are relative to the audit
+baseline b2f4087. Evidence-tier convention: explicit evidence (directly
+verifiable from code/config/commits), strong indication (paraphrased from
+comments/commit messages, statically self-consistent but lacking runtime or
+upstream evidence), unverified (no way to confirm).
 
-## 未解决冲突总表
+## Table of unresolved conflicts
 
-| 主题 | 冲突 | 两侧 | 证据等级 |
+| Topic | Conflict | Both sides | Evidence tier |
 | --- | --- | --- | --- |
-| 会话持久化 | JSONL vs SQLite 后端 | 配置侧（cordis.patch.yml:143-149、cordis.yml:158-164）全为 JSONL，patch 无 SQLite 行、无"禁用 JSONL"行；文档侧（docs/configuration.md:139/154-162、docs/architecture.md:77/85-86、docs/getting-started.md:71）称 profile 模式用 SQLite（~/.dsh-cc/sessions.sqlite）；getting-started.md:108-109 又自称 JSONL——旧文档内部亦自相矛盾。**以配置为准，SQLite 声称标「文档冲突/待确认」** | 配置侧 explicit；文档侧 explicit（内容过时） |
-| 更新系统 | DSH_CC_UPDATED_FROM 取值时点 | src/plugin.ts:47-48 注释设计意图是"更新前版本"；src/update.ts:232 在 runProcess(update --latest) **完成后**才取 installedTuiVersion——标记=新版，成功更新后 isVersionNewer 必假，告警每次成功更新都触发 | strong indication（静态顺序明确，运行后果需实跑） |
-| 更新系统 | update-unavailable 兜底提示缺 --latest | src/i18n.ts:173 提示 plain `update` 命令；src/update.ts:199-210 注释明确 plain update 被 caret 范围困住、跨 minor 必须 --latest | explicit |
-| 更新系统 | 文档遗漏小写拼写 | docs/interaction.md:152 只写 NPM_CONFIG_REGISTRY；src/update.ts:84 与 scripts/verify-update.mjs:112-117 同时支持小写 npm_config_registry | explicit |
-| 注入上下文 | 展示口径 | docs/architecture.md:107 与根 README.md:186 称"注入到 system prompt 的插件上下文不会在 UI 中单独列出"；src/components/LoadedContextPanel.tsx:82-88 实际渲染 context.contexts 为独立"运行时上下文"组 | explicit（精确事实：面板空转录时展示该组，转录内注入消息仍不显示） |
-| /doctor | 存储路径不符 | src/channel.ts:2118-2119 检查 ~/.dsh-cc/sessions；实际 JSONL 根为 dshHomePath('sessions')（~/.dsh/sessions，cordis.patch.yml:149） | explicit |
-| 主题 | docs 称 colors 必需 | docs/themes.md:67 标记必需；src/customTheme.ts:175-178 colors 缺省合法（空覆盖） | explicit |
-| 主题 | StatusMetrics 硬编码色值 | src/screens/StatusMetrics.ts:223-228 硬编码 success/warning/error 并注释"cc-tui dark theme values (theme.ts)"；与 src/theme.ts:132-134 dark 主题三组数值全部不符，且不随主题切换 | explicit |
-| 主题 | ThemePicker 排序注释 | src/components/ThemePicker.tsx:46-49 称 "sorted by file name"；代码按主题 name localeCompare（src/customTheme.ts:246） | explicit |
-| 主题 | 语言链注释 | src/plugin.ts:40-43 与 src/index.ts:54-55 注释均漏 OS locale 步骤（src/index.ts 还漏 config.lang）；代码实际一致走完整 5 级链（src/i18n.ts:5-11） | explicit |
-| 主题 | 主题描述路径按显示名拼 | src/i18n.ts:243 按 {{name}} 拼路径，ThemePicker 传入 spec.name；声明 name 与文件名不同时显示路径不存在（仅外观） | explicit |
-| 模型路由 | ModelPicker 注释过时 | src/components/ModelPicker.tsx:12-13 称模型创建时固定、选择需重启生效；实际 Enter 立即 switchModel 实时 fork 切换 | explicit |
-| 模型路由 | /config 文案过时 | src/i18n.ts:153 doctor-route-hint 称 /model 仅重启生效且路由由 llm-deepseek 段决定；实际即时 fork 切换并持久化，provider 钉在 cc-tui 段（cordis.yml:15） | explicit |
-| 模型路由 | /doctor 新旧来源混合 | src/channel.ts:2106 模型取可变 state.model、provider 取启动配置——/model 切换后展示错配对；src/channel.ts:261 接口注释 "Resolved model id (from the plugin config)" 亦过时 | explicit |
-| 输入 | 监听者顺序注释存疑 | src/components/PromptInput.tsx:47-52 注释称 Chat 监听者先执行；实际注册在 useEffect（子先父后），与注释矛盾；运行无法验证，且 interruptSeq token 使双投递无害 | strong indication（两说皆可自洽） |
-| 输入 | README 图片粘贴口径 | README.md:88 宣称 Ctrl+V 粘贴图片；clipboard.ts 只对 FileDropList 产出路径，剪贴板位图 Get-Clipboard -Raw 返回空 → 提示"剪贴板为空" | explicit |
-| 输入 | 历史文档口径 | docs/interaction.md:15 称 ↑/↓ "浏览历史"；实际 ↑/↓ 仅会话内 50 条，磁盘 200 条历史只有 Ctrl+R 能检索 | explicit |
-| 输入 | /rewind 文档缺失 | /rewind 已注册并出现在 / 菜单与 ? 帮助；README.md / docs/interaction.md 只记载双击 Esc | explicit |
-| 输入 | steering 过滤空操作 | src/screens/Chat.tsx:727-728 注释称排除 steering 侧问（row.label === undefined），但 src/ 无任何代码给 user 行设置 label——过滤条件恒真 | explicit |
-| 输入 | v0.4.1 标签歧义 | 基线 HEAD b2f4087（package.json 0.4.1）含 pr-55；git tag v0.4.1 指向 eeca418（不含）；publish.yml 按 tag==version 发布，npm 0.4.1 很可能不含 pr-55/pr-61（注册表未离线核验） | explicit（tag 位置）；unverified（npm 内容） |
-| 渲染 | CI 挂载缺口 | 根 README.md:200-211 的开发段仅简述 CI（Node 24/pnpm 11），未列出 verify-* 脚本的 CI 步骤；ci.yml 实测挂载（仅列本文档涉及的项）：verify-teardown-exit（:41）、verify-update（:45）、verify-child-stderr（:63）、verify-model-route（:67）、verify-cjk-truncate（:71）；verify-themes/verify-shrink/verify-scroll/verify-resticky/verify-tps 均未挂 CI | explicit |
-| 渲染 | renderToScreen 死代码 | src/ink/render-to-screen.ts:47-67 导出 renderToScreen，使用双调 flushSync 急刷；src/ 无生产调用者（Grep 仅命中定义），verify 脚本是否使用未确证 | explicit（无调用者） |
-| 渲染 | "4 处描述"口径 | `.github/workflows/ci.yml:68-70` 注释称有 4 处描述按终端显示宽度处理；源码可枚举的 `truncateToWidth` 调用点为 3 处（src/components/FileSuggestions.tsx:48、src/components/CommandSuggestions.tsx:57、src/components/MessageList.tsx:570） | explicit |
-| 渲染 | textWrap 'end'/'middle' no-op | src/ink/wrap-text.ts:46-79 只实现 'wrap'、'wrap-trim' 与 startsWith('truncate')；'end'/'middle' 落到原样返回；src/ink/styles.ts:68-69 仍声明这两个值——功能未实现还是样式残留未确证 | strong indication |
-| 渲染 | 收缩帧修复演进 | a56b8e8→cb1a28b→18680e5→287a811→6a89566 五连提交修复"收缩帧后残影"，主循环未逐帧复跑动画 | 提交 explicit；行为 unverified |
-| MCP | MCP SDK 默认值来源 | StdioClientTransport stderr 默认 'inherit' 仅见于源码注释与提交消息；node_modules 未安装，无法对照上游 @modelcontextprotocol/sdk 确证 | strong indication |
-| MCP | cross-spawn 行为 | "调用期从 CJS exports 读 spawn"只在注释声明；验证脚本复刻该访问模式但未实际加载 cross-spawn | strong indication |
-| MCP | 首个 spawn 时机 | 真实 profile 启动时 dsh-mcp-client 首次 spawn 是否必然晚于 cc-tui 守卫安装，取决于外部 bundle 加载顺序 | unverified |
-| MCP | issue #17 原始内容 | 截图/复现步骤仅由提交消息与注释转述，仓库内无 issue 正文 | unverified |
-| 生命周期 | 组合层语义 | patch 是整行覆盖还是叠加、dsh-base 层最终组合内容（node_modules 未安装不可读）——覆盖后是否双重挂载取决于 dsh Loader 规则 | unverified |
-| 生命周期 | cordis.yml 装配约束 | 裸组合文档声称装配约束（cc-tui 段 provider/model 半钉等）；Schema 无 route 默认值（issue #30） | explicit（Schema）；unverified（装配效果） |
-| 生命周期 | bootstrap 目录 | src/bootstrap 为遥测空桩（state.ts，见 [lifecycle.md](lifecycle.md#bootstrap-目录)），不参与启动流程；目录名源自 Claude Code 原版遥测模块 | explicit |
-| 会话 | 注入上下文展示口径 / /doctor 路径 / index.ts 注释 / resume API | 见上表与 [session-context.md](session-context.md#冲突) | — |
+| Session persistence | JSONL vs SQLite backend | The config side (cordis.patch.yml:143-149, cordis.yml:158-164) is entirely JSONL, with no SQLite row and no "disable JSONL" row in the patch; the doc side (docs/configuration.md:139/154-162, docs/architecture.md:77/85-86, docs/getting-started.md:71) claims the profile mode uses SQLite (~/.dsh-cc/sessions.sqlite); getting-started.md:108-109 then claims JSONL itself — the older docs are even internally self-contradictory. **The config is treated as authoritative; the SQLite claim is marked "documentation conflict / unconfirmed"** | Config side explicit; doc side explicit (content is stale) |
+| Update system | Timing of when DSH_CC_UPDATED_FROM is read | src/plugin.ts:47-48's comment states the design intent is "the version before the update"; src/update.ts:232 only reads installedTuiVersion **after** runProcess(update --latest) completes — labeling it as the new version, so isVersionNewer is false after every successful update, and the warning fires on every successful update | strong indication (the static ordering is clear; the runtime consequence needs an actual run) |
+| Update system | The update-unavailable fallback hint is missing --latest | src/i18n.ts:173's hint gives the plain `update` command; src/update.ts:199-210's comment explicitly states a plain update gets stuck inside the caret range and a cross-minor update requires --latest | explicit |
+| Update system | Docs miss the lowercase spelling | docs/interaction.md:152 only mentions NPM_CONFIG_REGISTRY; src/update.ts:84 and scripts/verify-update.mjs:112-117 both also support the lowercase npm_config_registry | explicit |
+| Injected context | Display accounting | docs/architecture.md:107 and the root README.md:186 claim "plugin context injected into the system prompt is not listed separately in the UI"; src/components/LoadedContextPanel.tsx:82-88 actually renders context.contexts as a separate "runtime context" group | explicit (a precise fact: the panel shows this group on an empty transcript, while injected messages within the transcript still aren't shown) |
+| /doctor | Storage-path mismatch | src/channel.ts:2118-2119 checks ~/.dsh-cc/sessions; the actual JSONL root is dshHomePath('sessions') (~/.dsh/sessions, cordis.patch.yml:149) | explicit |
+| Theme | Docs claim colors is required | docs/themes.md:67 marks it required; src/customTheme.ts:175-178 makes an absent colors valid (an empty override) | explicit |
+| Theme | StatusMetrics hardcodes color values | src/screens/StatusMetrics.ts:223-228 hardcodes success/warning/error with the comment "cc-tui dark theme values (theme.ts)"; none of the three values match src/theme.ts:132-134's dark-theme set, and they don't follow theme switching | explicit |
+| Theme | ThemePicker sort comment | src/components/ThemePicker.tsx:46-49 claims "sorted by file name"; the code actually sorts by theme name via localeCompare (src/customTheme.ts:246) | explicit |
+| Theme | Language-chain comment | Both src/plugin.ts:40-43 and src/index.ts:54-55's comments omit the OS-locale step (src/index.ts also omits config.lang); the code actually walks the full 5-tier chain consistently (src/i18n.ts:5-11) | explicit |
+| Theme | Theme description path built from the display name | src/i18n.ts:243 builds the path from {{name}}, and ThemePicker passes spec.name; when the declared name differs from the file name, the displayed path doesn't exist (cosmetic only) | explicit |
+| Model routing | ModelPicker comment is stale | src/components/ModelPicker.tsx:12-13 claims the model is fixed at creation and a selection needs a restart to take effect; it actually does an immediate switchModel live fork switch on Enter | explicit |
+| Model routing | /config copy is stale | src/i18n.ts:153's doctor-route-hint claims /model only takes effect after a restart and that the route is decided by the llm-deepseek section; it actually does an immediate fork switch that persists, with the provider pinned in the cc-tui section (cordis.yml:15) | explicit |
+| Model routing | /doctor mixes old and new sources | src/channel.ts:2106 reads the model from the mutable state.model but the provider from the startup config — after a /model switch, the display shows a mismatched pair; src/channel.ts:261's interface comment "Resolved model id (from the plugin config)" is likewise stale | explicit |
+| Input | Listener-order comment is questionable | src/components/PromptInput.tsx:47-52's comment claims the Chat listener runs first; it's actually registered inside useEffect (children before parents), contradicting the comment; this can't be verified without running it, and the interruptSeq token makes a double delivery harmless anyway | strong indication (either account is self-consistent) |
+| Input | README's image-paste claim | README.md:88 claims Ctrl+V pastes images; clipboard.ts only produces a path for FileDropList — a clipboard bitmap makes Get-Clipboard -Raw return empty, giving the "clipboard is empty" hint instead | explicit |
+| Input | History-doc claim | docs/interaction.md:15 claims ↑/↓ "browse history"; ↑/↓ actually only covers the 50 entries within the session — only Ctrl+R can search the 200-entry on-disk history | explicit |
+| Input | /rewind undocumented | /rewind is registered and appears in the / menu and the ? help; README.md / docs/interaction.md only document double-tap Esc | explicit |
+| Input | steering filters a no-op condition | src/screens/Chat.tsx:727-728's comment claims it excludes steering-side questions (row.label === undefined), but nothing in src/ ever sets label on a user row — the filter condition is always true | explicit |
+| Input | v0.4.1 tag ambiguity | The baseline HEAD b2f4087 (package.json 0.4.1) includes pr-55; the git tag v0.4.1 points at eeca418 (which doesn't); publish.yml publishes by tag==version, so the npm 0.4.1 package likely doesn't include pr-55/pr-61 (not verified offline against the registry) | explicit (tag position); unverified (npm contents) |
+| Rendering | CI-mounting gap | The dev section of the root README.md:200-211 only briefly describes CI (Node 24/pnpm 11) without listing the CI steps for the verify-* scripts; ci.yml actually mounts (listing only the items relevant to this document): verify-teardown-exit (:41), verify-update (:45), verify-child-stderr (:63), verify-model-route (:67), verify-cjk-truncate (:71); verify-themes/verify-shrink/verify-scroll/verify-resticky/verify-tps are all not mounted in CI | explicit |
+| Rendering | renderToScreen is dead code | src/ink/render-to-screen.ts:47-67 exports renderToScreen with a double-call flushSync for eager flushing; nothing in src/ calls it in production (a grep only hits the definition); whether the verify scripts use it is unconfirmed | explicit (no caller) |
+| Rendering | The "4 sites" claim | `.github/workflows/ci.yml:68-70`'s comment claims 4 description sites handle terminal display width; the enumerable `truncateToWidth` call sites in the source are actually 3 (src/components/FileSuggestions.tsx:48, src/components/CommandSuggestions.tsx:57, src/components/MessageList.tsx:570) | explicit |
+| Rendering | textWrap 'end'/'middle' are no-ops | src/ink/wrap-text.ts:46-79 only implements 'wrap', 'wrap-trim', and startsWith('truncate'); 'end'/'middle' fall through to a pass-through return; src/ink/styles.ts:68-69 still declares both values — whether this is an unimplemented feature or leftover styling is unconfirmed | strong indication |
+| Rendering | Shrink-frame fix evolution | The five-commit chain a56b8e8→cb1a28b→18680e5→287a811→6a89566 fixes "ghosting after a shrink frame"; the main loop doesn't replay the animation frame by frame | Commits explicit; behavior unverified |
+| MCP | Origin of the MCP SDK default | The StdioClientTransport stderr default of 'inherit' is only found in source comments and commit messages; node_modules isn't installed, so it can't be checked against the upstream @modelcontextprotocol/sdk | strong indication |
+| MCP | cross-spawn behavior | "reads spawn from the CJS exports at call time" is only stated in a comment; the verify script replicates that access pattern but never actually loads cross-spawn | strong indication |
+| MCP | Timing of the first spawn | Whether the dsh-mcp-client's first spawn in a real profile launch is guaranteed to happen after the cc-tui guard is installed depends on the external bundle's load order | unverified |
+| MCP | Original content of issue #17 | Screenshots/repro steps are only paraphrased from commit messages and comments; the repo contains no issue body | unverified |
+| Lifecycle | Composition-layer semantics | Whether a patch is a whole-row override or an overlay, and the dsh-base layer's final composed content (unreadable since node_modules isn't installed) — whether an override causes double-mounting depends on the dsh Loader's rules | unverified |
+| Lifecycle | cordis.yml assembly constraints | The bare-composition docs claim assembly constraints (the cc-tui section's provider/model being half-pinned, etc.); the schema has no route default (issue #30) | explicit (schema); unverified (assembly effect) |
+| Lifecycle | The bootstrap directory | src/bootstrap is a telemetry no-op stub (state.ts, see [lifecycle.md](lifecycle.md#the-bootstrap-directory)) and takes no part in the startup flow; the directory name comes from the original Claude Code telemetry module | explicit |
+| Session | Injected-context display accounting / /doctor path / index.ts comment / resume API | See the table above and [session-context.md](session-context.md#conflicts) | — |
 
-## 未验证事项（无冲突、无证据确证）
+## Unverified items (no conflict, no confirming evidence)
 
-### 外部/上游行为（不在本仓库内）
+### External/upstream behavior (outside this repo)
 
-- dsh-base 层最终组合中是否存在 SQLite 行；dsh Loader 对 patch 整行覆盖的
-  规则；"禁用 base JSONL"的组合效果。
-- dsh-session-persistence-jsonl 物理编码（zstd、packed chunk runs 等，仅能
-  从 migrate 脚本注释间接得知）。
-- recordedModelRoute 依赖的 request/header 事件结构
-  data.header.config.{provider,model} 的真实写入者（dsh-agent loop）。
-- /model 切换后新会话产生的 request/header 是否携带新 provider/model。
-- LoadedContextPanel tools 组是否包含 MCP 工具（取决于上游 dsh-agent /
-  dsh-system-prompt 组装）。
-- teardown 时 MCP 子进程与其他服务的回收方式。
-- ~/.pi/agent/working-activity.json 实际格式（activityPrefs.ts 注释称
-  mirroring 其 frames key，pi 扩展不在本仓库）。
-- dsh launcher 对重启进程 process.argv.slice(1) 重放参数的重新解析方式。
-- 引擎层是否消费同一 i18n 语言机制（/lang 是否影响其他插件文案）。
-- MCP SDK / cross-spawn 上游实现细节（见冲突表）。
+- Whether an SQLite row exists in the dsh-base layer's final composition; the
+  dsh Loader's rules for a patch's whole-row override; the composed effect of
+  "disabling base JSONL".
+- The physical encoding of dsh-session-persistence-jsonl (zstd, packed chunk
+  runs, etc. — only inferable indirectly from the migrate script's
+  comments).
+- The real writer of the request/header event structure's
+  data.header.config.{provider,model}, which recordedModelRoute depends on
+  (the dsh-agent loop).
+- Whether the request/header for a new session created after a /model switch
+  carries the new provider/model.
+- Whether the LoadedContextPanel's tools group includes MCP tools (depends on
+  upstream dsh-agent / dsh-system-prompt assembly).
+- How the MCP subprocess and other services are reclaimed at teardown.
+- The actual format of ~/.pi/agent/working-activity.json (activityPrefs.ts's
+  comment claims it mirrors its frames key; the pi extension isn't in this
+  repo).
+- How the dsh launcher re-parses process.argv.slice(1) when replaying
+  arguments to a restarted process.
+- Whether the engine layer consumes the same i18n language mechanism (does
+  /lang affect other plugins' copy).
+- Upstream implementation details of the MCP SDK / cross-spawn (see the
+  conflict table).
 
-### 本仓库内、静态无法确证
+### Inside this repo, but statically unconfirmable
 
-- Chat 与 PromptInput 两个 useInput 监听者的实际执行顺序（注释与 React
-  effect 语义相抵触）。
-- IME 组合期间照常发键的终端（部分 Linux IME 配置）行为。
-- Ctrl+Enter 在不支持 kitty/modifyOtherKeys 的旧终端上能否识别。
-- Ctrl+V 在无 PowerShell 环境（WSL 直启/SSH Linux）下是否工作
-  （clipboard.ts 硬编码 powershell，无平台分支）。
-- compact 之后能否回退到压缩点之前（推断为不能，无文档或测试声明）。
-- update 重启后会话恢复细节；installedTuiVersion 在 tsx 源码布局下的真实
-  运行时行为。
-- 8 个 *_FOR_SUBAGENTS_ONLY 键及 rainbow_*/briefLabel* 等无消费点键是否有
-  外部消费者；dark-ansi "verbatim from the leak" 的确切上游文件。
-- design-system/ThemeProvider theme prop 路径（生产传 null）是否有任何调用者。
-- attach-existing 分支（plugin.ts:368-370）下状态栏是否跟随会话记录。
-- renderToScreen 死代码是否被 verify 脚本使用；textWrap 'end'/'middle' 是
-  功能未实现还是样式残留。
-- waitUntilExit 结算的精确 microtask 时序。
-- 实际 profile 安装的会话库后端（node_modules 未安装，无法实跑核验）。
-- npm registry 上 0.4.1 tarball 的实际内容（v0.4.1 tag 指向 eeca418，
-  不含 pr-55/pr-61，发布物未离线核验）。
+- The actual execution order of the Chat and PromptInput useInput listeners
+  (the comment and React's effect semantics contradict each other).
+- Terminal behavior when keystrokes keep firing during IME composition (some
+  Linux IME configs).
+- Whether Ctrl+Enter is recognized on older terminals that don't support
+  kitty/modifyOtherKeys.
+- Whether Ctrl+V works in an environment without PowerShell (a direct WSL
+  launch/SSH Linux) (clipboard.ts hardcodes powershell, with no platform
+  branch).
+- Whether it's possible to roll back to before the compaction point after a
+  compact (inferred to be impossible; no doc or test states this).
+- Session-restore details after an update restart; the true runtime behavior
+  of installedTuiVersion under a tsx source layout.
+- Whether the 8 *_FOR_SUBAGENTS_ONLY keys and keys with no consumer such as
+  rainbow_*/briefLabel* have any external consumer; the exact upstream file
+  behind dark-ansi's "verbatim from the leak".
+- Whether the design-system/ThemeProvider theme prop path (production passes
+  null) has any caller at all.
+- Whether the status bar follows the session record under the
+  attach-existing branch (plugin.ts:368-370).
+- Whether the renderToScreen dead code is used by the verify scripts; whether
+  textWrap 'end'/'middle' are an unimplemented feature or leftover styling.
+- The exact microtask timing of the waitUntilExit settlement.
+- The session-store backend of an actual profile install (can't be verified
+  by an actual run since node_modules isn't installed).
+- The actual contents of the 0.4.1 tarball on the npm registry (the v0.4.1
+  tag points at eeca418, which doesn't include pr-55/pr-61; the published
+  artifact wasn't verified offline).
 
-## 证据等级分布
+## Evidence-tier distribution
 
-整套文档的结论全部可回溯：explicit evidence 均给出文件:行号（基线
-b2f4087）；strong indication 均说明转述来源（注释/提交消息）与静态自洽性；
-无证据项一律标 unverified，未作"无法确证"以外的提升。统计数字（282 条目
-归属、69 主题键、215 i18n 键、24 cordis id、29+4 patch 行、6 exports、
-39 本地命令）均经程序化脚本重算（见 [origin.md](origin.md) 口径与
-[README.md](README.md) 审计信息表）。
+Every conclusion across the whole document set is traceable: explicit
+evidence always gives a file:line-number (baseline b2f4087); strong
+indication always states its paraphrase source (comment/commit message) and
+its static self-consistency; items with no evidence are always marked
+unverified, with no elevation beyond "unable to confirm". The summary
+figures (282 entries classified, 69 topic keys, 215 i18n keys, 24 cordis
+ids, 29+4 patch rows, 6 exports, 39 local commands) were all recomputed by
+a programmatic script (see [origin.md](origin.md) for methodology and the
+[README.md](README.md) audit-info table).
 
-相关文档：[README.md](README.md)（索引与审计信息）、
-[origin.md](origin.md)（归属与口径）、[session-context.md](session-context.md)
-（JSONL/SQLite 冲突详情）。
+Related documents: [README.md](README.md) (index and audit info),
+[origin.md](origin.md) (provenance and methodology),
+[session-context.md](session-context.md) (JSONL/SQLite conflict details).

@@ -483,7 +483,7 @@ ctx.inject(['tuiSettingsSections'], (settingsCtx) => {
   const unregister = settingsCtx.tuiSettingsSections.register({
     ns: 'my-plugin',            // same namespace as ctx.settings.register
     title: 'My plugin',         // English title (also the fallback copy)
-    descriptions: { zh: '我的插件' },
+    descriptions: { zh: 'Localized title (optional)' },
     fields: [
       { path: ['enabled'], label: 'Enabled', kind: 'boolean' },
       { path: ['limit'], label: 'Retry limit', kind: 'number', hint: 'Attempts before giving up' },

@@ -1,231 +1,281 @@
-# 会话持久化与上下文
+# Session persistence and context
 
-本文覆盖三块：resume 契约与多会话管理（resume.txt、/resume 选择器、MRU）、
-会话持久化后端（JSONL/SQLite 文档冲突）、已加载上下文与 teardown 分流
-（issue #12）。行号均以审计基线 b2f4087 为准。
+This document covers three areas: the resume contract and multi-session
+management (resume.txt, the /resume picker, MRU), the session-persistence
+backend (the JSONL/SQLite documentation conflict), and loaded context and
+the teardown split (issue #12). All line numbers are relative to the audit
+baseline b2f4087.
 
-## resume 契约
+## The resume contract
 
-契约总述（`src/sessionHistory.ts:1-9`）：TUI 把选中的会话 id 写入
-`~/.dsh-cc/resume.txt`，launcher 以 `DSH_CC_RESUME_SESSION` 环境变量回喂；
-**会话记录本体在 DSH 持久化后端（dsh-session-persistence-jsonl），resume.txt
-只跨进程携带 id**。
+Contract summary (`src/sessionHistory.ts:1-9`): the TUI writes the selected
+session id to `~/.dsh-cc/resume.txt`, and the launcher feeds it back via
+the `DSH_CC_RESUME_SESSION` environment variable; **the session record
+itself lives in the DSH persistence backend
+(dsh-session-persistence-jsonl) — resume.txt only carries the id across
+processes**.
 
 ```text
-退出（onUserExit，src/plugin.ts:199）与 /resume 选择（src/channel.ts:1449）时
-  writeResumeTarget(sessionId) 写 ~/.dsh-cc/resume.txt（src/sessionHistory.ts:36-39，
-  原样写入无换行）
-  /new 时 clearResumeTarget() 写空串清空 marker（src/channel.ts:1568；
-  src/sessionHistory.ts:42-48）
-  -> Windows：dsh-cc.cmd --resume 读 %USERPROFILE%\.dsh-cc\resume.txt，
-     set /p 注入 DSH_CC_RESUME_SESSION（dsh-cc.cmd:29-32），其余参数透传
-     @dsh --profile cc-tui（:40）
-  -> cordis.yml:27 与 cordis.patch.yml:203：cc-tui 行
+On exit (onUserExit, src/plugin.ts:199) and on a /resume selection (src/channel.ts:1449):
+  writeResumeTarget(sessionId) writes ~/.dsh-cc/resume.txt (src/sessionHistory.ts:36-39,
+  written as-is with no trailing newline)
+  On /new, clearResumeTarget() writes an empty string to clear the marker (src/channel.ts:1568;
+  src/sessionHistory.ts:42-48)
+  -> Windows: dsh-cc.cmd --resume reads %USERPROFILE%\.dsh-cc\resume.txt,
+     injects it into DSH_CC_RESUME_SESSION via set /p (dsh-cc.cmd:29-32), forwarding
+     the rest of the args to @dsh --profile cc-tui (:40)
+  -> cordis.yml:27 and cordis.patch.yml:203: the cc-tui row's
      sessionId: !!js process.env.DSH_CC_RESUME_SESSION ?? undefined
-  -> src/plugin.ts:131-138：apply 把 config.sessionId 传给 resolveAgent
-  -> src/plugin.ts:365-398：ctx.agents.resume（preset 取目标日志、路由只允许完整
-     钉覆盖，见 [model-route.md](model-route.md)）；artifact 缺失或后端未挂载
-     降级为新建会话
+  -> src/plugin.ts:131-138: apply passes config.sessionId to resolveAgent
+  -> src/plugin.ts:365-398: ctx.agents.resume (the preset takes the target log, and routing
+     only allows a fully pinned override, see [model-route.md](model-route.md)); a missing
+     artifact or an unmounted backend degrades to creating a new session
 ```
 
-退出提示的 resume 命令（src/plugin.ts:477-489）：win32 为 `dsh-cc --resume <id>`，
-其他平台为 `DSH_CC_RESUME_SESSION=<id> dsh --profile <p>`；包本身不提供
-dsh-cc bin。
+The resume command shown at exit (src/plugin.ts:477-489): `dsh-cc --resume
+<id>` on win32, `DSH_CC_RESUME_SESSION=<id> dsh --profile <p>` on other
+platforms; the package itself doesn't ship a dsh-cc bin.
 
-## /resume 选择器与 MRU
+## The /resume picker and MRU
 
 ```text
-/resume -> channel.listSessions()（src/channel.ts:1854-1918）：
-  sessionPersistence.list() 取全部头
-  -> 按 cwd 精确隔离（"Claude Code 的项目维度"：只列本会话目录启动的会话）
-  -> readLastUsed() 取 last-used.json 做 MRU 排序（updatedAt 回退 createdAt；
-     "DSH session headers carry only createdAt"，故需自维护）
-  -> 前 20 条 load 全文取首个 user/message 作标题；无 user/message 的
-     launch artifact 从选择器剔除
-  -> 排除当前会话（agents.resume 拒绝 live session）；空则通知
-     resume-none-in-cwd
-  -> 回车 -> channel.resumeTo(session.id)（src/screens/Chat.tsx:954-965，成功 notify
-     'Session resumed'）
-  -> resumeTo（src/channel.ts:1349-1455）：拒绝 working 中 -> composePreset
-     (resolvePersistedPreset) 按目标日志组合 -> agents.resume ->
-     coalesceReplayEvents 重放 -> writeResumeTarget(sessionId)（刷新
-     resume.txt）-> touchSession(sessionId)（更新 MRU）
+/resume -> channel.listSessions() (src/channel.ts:1854-1918):
+  sessionPersistence.list() takes every header
+  -> isolated exactly by cwd ("Claude Code's project dimension": only sessions
+     launched from this session's directory are listed)
+  -> readLastUsed() takes last-used.json for MRU ordering (falling back from
+     updatedAt to createdAt; "DSH session headers carry only createdAt",
+     hence the need to self-maintain it)
+  -> the first 20 entries are loaded in full to take the first user/message as the title; a launch
+     artifact with no user/message is dropped from the picker
+  -> excludes the current session (agents.resume rejects a live session); notifies
+     resume-none-in-cwd when empty
+  -> Enter -> channel.resumeTo(session.id) (src/screens/Chat.tsx:954-965, notifies
+     'Session resumed' on success)
+  -> resumeTo (src/channel.ts:1349-1455): rejected while working -> composePreset
+     (resolvePersistedPreset) composes against the target log -> agents.resume ->
+     coalesceReplayEvents replays -> writeResumeTarget(sessionId) (refreshes
+     resume.txt) -> touchSession(sessionId) (updates MRU)
 ```
 
-touchSession 触发点（全部改变活跃会话的路径，channel.ts 注释 "The current
-session is being used — move it to the MRU front (/resume sorts by
-last-used)"）：submit(1151)、steer(1160)、interruptAndDeliver 重排队(1206)、
-rewindTo fork(1344)、resumeTo(1451)、newSession(1570)、switchModel fork(1674)。
-实现（src/sessionHistory.ts:91-99）：readLastUsed() 合并后写回
-`{…lastUsed, [sessionId]: Date.now()}` 到 ~/.dsh-cc/last-used.json，
-best-effort 永不抛。
+touchSession's trigger points (every path that changes the active session;
+channel.ts's comment: "The current session is being used — move it to the
+MRU front (/resume sorts by last-used)"): submit(1151), steer(1160), a
+requeue on interruptAndDeliver(1206), rewindTo's fork(1344),
+resumeTo(1451), newSession(1570), switchModel's fork(1674).
+Implementation (src/sessionHistory.ts:91-99): readLastUsed() merges and
+writes back `{…lastUsed, [sessionId]: Date.now()}` to
+~/.dsh-cc/last-used.json, best-effort and never throws.
 
-## 会话持久化后端与 JSONL/SQLite 文档冲突
+## Session persistence backend and the JSONL/SQLite documentation conflict
 
-### 配置侧（当前代码实况，均 explicit evidence）
+### The config side (the code's current reality, all explicit evidence)
 
-- `cordis.patch.yml:143-149`：profile 组合只有一条 session-persistence-jsonl
-  覆盖行——"Sessions live in the shared JSONL store (~/.dsh/sessions) — the
-  same backend dsh web writes — so /resume here and the web session list see
-  each other (#24)"；root 默认 `dshHomePath('sessions')`，注释称该行来自
-  dsh-base 层、本 override 只在设 DSH_CC_SESSION_ROOT 时改 root（测试隔离）。
-  **整份 patch 无 SQLite 行、无"禁用 JSONL"行**。
-- `cordis.yml:158-164`：裸组合同样挂 `@deepseek-ai/dsh-session-persistence-jsonl`，
-  root 默认 `(USERPROFILE ?? HOME)/.dsh-cc/sessions`（:164）。
-- `scripts/migrate-sessions-to-jsonl.mts:1-16`：一次性迁移（#24），把
-  "retired cc-tui SQLite store"（~/.dsh-cc/sessions.sqlite）复制进共享 JSONL
-  库（默认 $DSH_HOME/sessions ?? ~/.dsh/sessions），源文件不动、幂等可重跑。
-- 提交 43f271f（#37/#24）：patch 层此前自插 sqlite 并禁用 base JSONL，本次
-  "删掉禁用行和 sqlite 插入行，让 base 层的 session-persistence-jsonl 生效"；
-  9017204 确认 bundle 层从 dsh-base 继承该行。
-- `package.json:92-93`：jsonl 与 sqlite 两个后端依赖都在 devDependencies
-  （sqlite 仅为迁移脚本服务）。
-- `scripts/run.ts:196` 注释残留 "inserts cc-tui front door + SQLite"（与
-  patch 实际内容不符的陈旧注释）。
+- `cordis.patch.yml:143-149`: the profile composition has exactly one
+  session-persistence-jsonl override row — "Sessions live in the shared
+  JSONL store (~/.dsh/sessions) — the same backend dsh web writes — so
+  /resume here and the web session list see each other (#24)"; the root
+  defaults to `dshHomePath('sessions')`, and the comment states this row
+  comes from the dsh-base layer, with this override only changing the root
+  when DSH_CC_SESSION_ROOT is set (test isolation). **The whole patch has
+  no SQLite row and no "disable JSONL" row.**
+- `cordis.yml:158-164`: the bare composition also mounts
+  `@deepseek-ai/dsh-session-persistence-jsonl`, with root defaulting to
+  `(USERPROFILE ?? HOME)/.dsh-cc/sessions` (:164).
+- `scripts/migrate-sessions-to-jsonl.mts:1-16`: a one-time migration
+  (#24) that copies the "retired cc-tui SQLite store"
+  (~/.dsh-cc/sessions.sqlite) into the shared JSONL store (defaulting to
+  $DSH_HOME/sessions ?? ~/.dsh/sessions); the source file is left
+  untouched and the migration is idempotent and rerunnable.
+- Commit 43f271f (#37/#24): the patch layer previously inserted sqlite
+  itself and disabled the base JSONL; this commit "removes the disable
+  row and the sqlite-insert row, letting the base layer's
+  session-persistence-jsonl take effect"; 9017204 confirms the bundle
+  layer inherits that row from dsh-base.
+- `package.json:92-93`: both the jsonl and sqlite backend dependencies
+  are in devDependencies (sqlite serves only the migration script).
+- `scripts/run.ts:196`'s comment still says "inserts cc-tui front door +
+  SQLite" (a stale comment that doesn't match the patch's actual
+  contents).
 
-### 文档侧（旧表述）
+### The doc side (the older account)
 
-| 文档 | 声称 |
+| Document | Claim |
 | --- | --- |
-| `docs/configuration.md:154-162` | Profile 使用本包的 SQLite `sessions` 行，并禁用 base 的 JSONL 持久化（避免双写入所有者）；默认文件为 ~/.dsh-cc/sessions.sqlite；裸 cordis.yml 用 JSONL 默认 ~/.dsh-cc/sessions/；两种启动方式不要混用同一数据目录 |
-| `docs/configuration.md:139` | DSH_CC_SESSION_ROOT 在 profile 安装时是 SQLite 数据库路径，裸 cordis.yml 时是 JSONL 根目录 |
-| `docs/architecture.md:77,85-86` | 持久化表列 ~/.dsh-cc/sessions.sqlite 为 profile patch 默认；DSH_CC_SESSION_ROOT 改写 SQLite 路径 |
-| `docs/getting-started.md:71` | patch 覆盖或插入"SQLite 会话持久化" |
+| `docs/configuration.md:154-162` | The profile uses this package's SQLite `sessions` row, and disables base's JSONL persistence (avoiding a dual-write owner); the default file is ~/.dsh-cc/sessions.sqlite; a bare cordis.yml uses JSONL, defaulting to ~/.dsh-cc/sessions/; the two launch methods shouldn't share the same data directory |
+| `docs/configuration.md:139` | DSH_CC_SESSION_ROOT is the SQLite database path under a profile install, and the JSONL root directory under a bare cordis.yml |
+| `docs/architecture.md:77,85-86` | The persistence table lists ~/.dsh-cc/sessions.sqlite as the profile patch's default; DSH_CC_SESSION_ROOT rewrites the SQLite path |
+| `docs/getting-started.md:71` | The patch overrides or inserts "SQLite session persistence" |
 
-### 判定与未决点
+### Verdict and open questions
 
-以当前配置为准：**两处组合（cordis.yml 与 cordis.patch.yml）都是 JSONL，
-SQLite 声称标为「文档冲突/待确认」**。文档描述的是 43f271f（#37）之前的
-状态。无法仅凭本仓库确证的点：
+The current config is treated as authoritative: **both compositions
+(cordis.yml and cordis.patch.yml) are JSONL, and the SQLite claim is
+marked "documentation conflict / unconfirmed"**. The docs describe the
+state before 43f271f (#37). Points that can't be confirmed from this repo
+alone:
 
-- dsh-base 层最终组合中是否存在 SQLite 行（base 层内容在 node_modules，
-  未安装不可读；patch 语义是整行覆盖，覆盖后是否双重挂载取决于 dsh Loader
-  的规则）。
-- DSH_CC_SESSION_ROOT 的文档语义（SQLite 路径）与两处实现（JSONL root 覆盖）
-  直接冲突——实现侧一致性明确。
+- Whether an SQLite row exists in the dsh-base layer's final composition
+  (the base layer's content is in node_modules, which isn't installed and
+  can't be read; a patch's semantics is a whole-row override, and whether
+  an override causes double-mounting depends on the dsh Loader's rules).
+- The documented semantics of DSH_CC_SESSION_ROOT (an SQLite path)
+  directly conflicts with both implementations (a JSONL root override) —
+  the implementation side is unambiguously consistent.
 
-## 输入命令历史
+## Input-command history
 
-`src/history.ts` 管理的是**输入命令历史**（与会话历史无关）：
-`~/.dsh-cc/history.jsonl`，每行一个 {text, ts} JSON（:6-14）；appendHistory
-追加、去重相邻重复项（CC 行为：重复提交只推进时间戳）、slice(-200) 截断
-（HISTORY_LIMIT=200，:45-68）；loadHistory 返回倒序（最新在前，:70-85）供
-Ctrl+R 搜索框（见 [input-commands.md](input-commands.md#ctrlr-历史搜索)）；
-historyEntryId 用 sha1(text) 前 12 位做 React key。写入点全部在 PromptInput
-五条发送路径（submit/steer/queue/interrupt/slash，:238/263/281/327/351）。
+`src/history.ts` manages **input-command history** (unrelated to session
+history): `~/.dsh-cc/history.jsonl`, one {text, ts} JSON object per line
+(:6-14); appendHistory appends, deduplicates adjacent repeats (CC's
+behavior: resubmitting the same thing just advances the timestamp), and
+truncates via slice(-200) (HISTORY_LIMIT=200, :45-68); loadHistory returns
+it in reverse order (newest first, :70-85) for the Ctrl+R search box (see
+[input-commands.md](input-commands.md#ctrlr-history-search)); historyEntryId
+uses the first 12 characters of sha1(text) as the React key. All write
+points are in PromptInput's five send paths (submit/steer/queue/interrupt/
+slash, :238/263/281/327/351).
 
-## 已加载上下文
+## Loaded context
 
-### 快照组装
+### Snapshot assembly
 
-LoadedContext 快照含五组（src/channel.ts:226-244 注释 "Snapshot of everything a
-fresh conversation for the current agent will load"）：有序系统提示词分段
-sections、动态上下文 contexts、工作区指令文件 files（AGENTS.md 家族）、技能
-skills、工具 tools。`Channel.loadedContext` "computed at boot and on every
-agent swap"（src/channel.ts:320-327），快照未组装好时为 undefined，面板保持隐藏。
+The LoadedContext snapshot has five groups (src/channel.ts:226-244's
+comment: "Snapshot of everything a fresh conversation for the current
+agent will load"): ordered system-prompt sections, dynamic context
+contexts, workspace instruction files files (the AGENTS.md family), skills
+skills, and tools tools. `Channel.loadedContext` is "computed at boot and
+on every agent swap" (src/channel.ts:320-327); it's undefined while the
+snapshot hasn't been assembled yet, and the panel stays hidden.
 
 ```text
-refreshLoadedContext（src/channel.ts:2165-2218）：
-  systemPrompt.assemble(assembleContextFor(target)) 产出 sections/contexts/tools
-    （src/channel.ts:2175）；每个 section 经 renderPrompt 严格插值渲染并 "keeping non-empty
-    results"（src/channel.ts:2180-2192）
-  -> 动态上下文来自 renderContextSections(assembly)（src/channel.ts:2189-2192，上游
-     dsh-system-prompt 组装产物，非 TUI 直接查工具注册表）
-  -> files 来自 @deepseek-ai/dsh-agent-instructions 的
-     discoverBaselineInstructionFiles({cwd})，只取 displayPath（src/channel.ts:2194-2196）
-  -> skills 经 serviceForAgent(ctx, target, 'skills') 按 agent 作用域链读取
-     （preset 层注册的技能也能解析，src/channel.ts:2201-2210）
-  -> 竞态防护：每个异步来源完成后检查 if (target !== agent) return，为旧
-     agent 计算的快照被丢弃（src/channel.ts:2176,2195,2206,2212-2215）；总失败仅
-     logger.warn，面板不显示坏快照
+refreshLoadedContext (src/channel.ts:2165-2218):
+  systemPrompt.assemble(assembleContextFor(target)) produces sections/contexts/tools
+    (src/channel.ts:2175); each section is rendered through renderPrompt's strict
+    interpolation, "keeping non-empty results" (src/channel.ts:2180-2192)
+  -> dynamic context comes from renderContextSections(assembly) (src/channel.ts:2189-2192,
+     an upstream dsh-system-prompt assembly artifact, not the TUI directly
+     querying the tool registry)
+  -> files comes from @deepseek-ai/dsh-agent-instructions's
+     discoverBaselineInstructionFiles({cwd}), taking only displayPath (src/channel.ts:2194-2196)
+  -> skills is read via serviceForAgent(ctx, target, 'skills') following the agent's scope chain
+     (skills registered at the preset layer resolve too, src/channel.ts:2201-2210)
+  -> race protection: after each async source finishes, it checks if (target !== agent) return, so
+     a snapshot computed for a stale agent is discarded (src/channel.ts:2176,2195,2206,2212-2215); a total
+     failure only logger.warns, and the panel never shows a broken snapshot
 ```
 
-触发点：createChannel 末尾（src/channel.ts:2244）+ rewindTo(1342) / resumeTo(1447) /
-newSession(1567) / switchModel(1672) 四个 agent 交换路径。
+Trigger points: the end of createChannel (src/channel.ts:2244) + the four
+agent-swap paths rewindTo(1342) / resumeTo(1447) / newSession(1567) /
+switchModel(1672).
 
-### 启动面板与 `/context`
+### The startup panel and `/context`
 
-- 启动面板仅在 `channel.rows.length === 0 && channel.loadedContext !==
-  undefined` 时显示；默认折叠为一行摘要，Ctrl+P 展开/收起分组明细，
-  首条转录行接管后整个面板消失。
-- `/context` 每次执行都通过 `channel.pushLocal` 向当前转录输出一次本地报告；它不切换
-  常驻状态，也不进入模型上下文或会话事件。Ctrl+T 始终只打开会话轨迹，Ctrl+P 只在
-  启动面板在屏时生效。
-- 单条文本上限 800 字符（src/utils/loaded-context.ts:5，CONTEXT_ENTRY_MAX_CHARS）；
-  truncateContextText 只保留头部并追加截断标记，注释明确 "model-visible
-  text is the source of truth"，本地报告只约束自身渲染，模型实际收到的内容不受影响；
-  工具描述单独按 160 字符截断。
-- summarizeLoadedContext 只把非空组拼接为一行摘要，全部为空时返回 '' 使
-  面板整体隐藏（src/utils/loaded-context.ts:26-34）。
+- The startup panel only shows when `channel.rows.length === 0 &&
+  channel.loadedContext !== undefined`; it's collapsed to a one-line
+  summary by default, Ctrl+P expands/collapses the grouped detail, and the
+  whole panel disappears once the transcript's first row lands.
+- `/context` outputs a local report to the current transcript once via
+  `channel.pushLocal` on every invocation; it doesn't toggle any persistent
+  state, and never enters the model context or the session's event log.
+  Ctrl+T always only opens the session trajectory, and Ctrl+P only takes
+  effect while the startup panel is on screen.
+- A single text entry is capped at 800 characters
+  (src/utils/loaded-context.ts:5, CONTEXT_ENTRY_MAX_CHARS);
+  truncateContextText keeps only the head and appends a truncation marker;
+  the comment states explicitly "model-visible text is the source of
+  truth" — the local report only constrains its own rendering, and doesn't
+  affect what the model actually receives; tool descriptions are truncated
+  separately at 160 characters.
+- summarizeLoadedContext concatenates only the non-empty groups into a
+  one-line summary, returning '' when everything is empty, which hides the
+  whole panel (src/utils/loaded-context.ts:26-34).
 
-### 上下文传给 agent 的路径
+### The path context takes to reach the agent
 
-deliverUserText（src/channel.ts:927-961）：sendChain FIFO → expandMentions 展开
-@ 引用为附件块 → createUserMessage({content: blocks, source: {kind:'user'}})
-（typed text 恒为第一块）→ agent.followup(message)（followup）或
-agent.steer(message)（steer）。TUI 与 dsh-mcp-client 之间没有直接消息通道
-（src/channel.ts:1988-2018：MCP 工具以 `mcp__<server>__<tool>` 公开名出现在工具运行时，
-/mcp 状态按 server 分组列出）——上下文经 agent 组装，面板只是只读快照。
+deliverUserText (src/channel.ts:927-961): the sendChain FIFO →
+expandMentions expands @ references into attachment blocks →
+createUserMessage({content: blocks, source: {kind:'user'}}) (typed text is
+always the first block) → agent.followup(message) (followup) or
+agent.steer(message) (steer). There's no direct message channel between the
+TUI and dsh-mcp-client (src/channel.ts:1988-2018: MCP tools appear in the
+tool runtime under the public name `mcp__<server>__<tool>`, and /mcp status
+lists them grouped by server) — context is assembled by the agent, and the
+panel is only a read-only snapshot.
 
-### 上下文低量警告
+### The low-context warning
 
-每会话一次（contextWarned 闩），剩余 < 20_000 tokens 时通知 "Context low
-(X% remaining) · Run /clear or start a new session"（src/channel.ts:788-789,
-884-899，CONTEXT_WARNING_BUFFER_TOKENS = 20_000）。
+Fires once per session (gated by contextWarned), when remaining tokens
+drop below 20_000: "Context low (X% remaining) · Run /clear or start a new
+session" (src/channel.ts:788-789, 884-899,
+CONTEXT_WARNING_BUFFER_TOKENS = 20_000).
 
-## teardown 与退出分流（issue #12）
+## Teardown vs. the exit split (issue #12)
 
-根因（提交 3f0aa69）：DSH launcher 启动后必有一次整树 recompose，插件上下文
-的 ctx.effect 清理触发 instance.unmount() → waitUntilExit() 结算 →
-handleExit → disposeRootAndExit(ctx, 0)，进程 exit 0——"闪退回 bash"。
+Root cause (commit 3f0aa69): after the DSH launcher starts, it always does
+one whole-tree recompose; the plugin context's ctx.effect cleanup was
+triggering instance.unmount() → waitUntilExit() settling →
+handleExit → disposeRootAndExit(ctx, 0), exiting the process with code 0
+— "flashing back to bash".
 
-| 路径 | 行为 | 位置 |
+| Path | Behavior | Location |
 | --- | --- | --- |
-| cordis 上下文 teardown（launcher recompose） | `ctx.effect(() => () => { funnel.markTeardown(); instance?.unmount() })`——只卸载 UI 不退出进程，recompose 后 loader 重跑 apply/render 重挂 TUI；不写 resume marker、不 disposeRootAndExit | src/plugin.ts:320-323 |
-| 用户退出（/exit、双击 Ctrl+C/Ctrl+D） | onUserExit（src/plugin.ts:193-263）：writeResumeTarget(channel.agentId) 写 resume.txt → instance?.unmount()（恢复终端光标/raw 模式/鼠标追踪 + 换行避免提示符重叠）→ 出错 disposeRootAndExit(ctx,1) + stderr "cc-tui crashed"；正常打印 resume 提示后 disposeRootAndExit(ctx,0) | src/plugin.ts:172-180 注释 "Teardown only unmounts the UI; user exit runs the full leave sequence"、"the two must not share a fate (issue #12)" |
+| A cordis-context teardown (launcher recompose) | `ctx.effect(() => () => { funnel.markTeardown(); instance?.unmount() })` — only unmounts the UI without exiting the process; after the recompose, the loader reruns apply/render to remount the TUI; doesn't write the resume marker and doesn't call disposeRootAndExit | src/plugin.ts:320-323 |
+| A user exit (/exit, a double Ctrl+C/Ctrl+D) | onUserExit (src/plugin.ts:193-263): writeResumeTarget(channel.agentId) writes resume.txt → instance?.unmount() (restores the terminal cursor/raw mode/mouse tracking + a newline to avoid overlapping the prompt) → on error, disposeRootAndExit(ctx,1) + stderr "cc-tui crashed"; on success, prints the resume hint then disposeRootAndExit(ctx,0) | src/plugin.ts:172-180's comment: "Teardown only unmounts the UI; user exit runs the full leave sequence", "the two must not share a fate (issue #12)" |
 
-createExitFunnel 实现（src/plugin.ts:450-467）：teardown 标志使 handleExit 早退，
-exited 闩保证 onUserExit 只跑一次；"Exported for scripts/verify-teardown-exit.tsx"。
-disposeRootAndThen（src/plugin.ts:497-510）：ctx.root.fiber.dispose() 整树回收，5 秒兜底
-定时器（unref）保证退出码不卡死。
+createExitFunnel's implementation (src/plugin.ts:450-467): the teardown
+flag makes handleExit return early, and the exited latch guarantees
+onUserExit runs only once; "Exported for
+scripts/verify-teardown-exit.tsx". disposeRootAndThen (src/plugin.ts:497-510):
+ctx.root.fiber.dispose() reclaims the whole tree, with a 5-second fallback
+timer (unref'd) guaranteeing the exit code doesn't hang.
 
-Ctrl+C/Ctrl+D 语义（src/screens/Chat.tsx:1178-1192）：工作中→channel.cancel()；空闲且
-有文本→仅清空输入并撤销退出臂；空输入→requestExit()（双按 3 秒窗口，
-:221-245 "first press arms an exit, second press exits"）；Ctrl+D 不论输入
-直接走双按退出。Ink 以 exitOnCtrlC: false 启动（src/plugin.ts:303）——Ctrl+C
-完全由 TUI 自处理（Windows ConPTY 下 Ctrl+C 以 stdin 数据到达，无 SIGINT）。
-/exit 本地命令直接调 onExit()（src/screens/Chat.tsx:519-521）。
+Ctrl+C/Ctrl+D semantics (src/screens/Chat.tsx:1178-1192): while
+working→channel.cancel(); while idle with text present→just clears the
+input and disarms the exit; with empty input→requestExit() (a double-press
+within a 3-second window, :221-245 "first press arms an exit, second press
+exits"); Ctrl+D goes straight to the double-press exit regardless of input.
+Ink is started with exitOnCtrlC: false (src/plugin.ts:303) — Ctrl+C is
+handled entirely by the TUI itself (under Windows ConPTY, Ctrl+C arrives as
+stdin data, with no SIGINT). The /exit local command calls onExit()
+directly (src/screens/Chat.tsx:519-521).
 
-回归：scripts/verify-teardown-exit.tsx 4 条断言（teardown 不触发 onUserExit、
-teardown 吞错误路径、普通 handleExit 恰好一次、handleExit(error) 转发错误），
-挂 CI（.github/workflows/ci.yml:40-41）。
+Regression: scripts/verify-teardown-exit.tsx has 4 assertions (teardown
+doesn't trigger onUserExit, teardown swallows the error path, a normal
+handleExit runs exactly once, handleExit(error) forwards the error),
+mounted in CI (.github/workflows/ci.yml:40-41).
 
-## 冲突
+## Conflicts
 
-| 项 | 两侧 |
+| Item | Both sides |
 | --- | --- |
-| JSONL vs SQLite 会话后端 | 见上文「会话持久化后端与 JSONL/SQLite 文档冲突」——配置侧全为 JSONL，文档侧全为 SQLite 声称，以配置为准标为「文档冲突/待确认」 |
-| 注入上下文展示口径 | docs/architecture.md:107 与 README.md:186 称"注入到 system prompt 的插件上下文不会在 UI 中单独列出"；src/components/LoadedContextPanel.tsx:82-88 实际渲染 context.contexts 为独立 Group（"运行时上下文"）——精确事实：面板有空转录时展示运行时上下文组，但转录内注入消息仍不显示 |
-| /doctor 存储路径不符 | src/channel.ts:2118-2119 检查 ~/.dsh-cc/sessions；实际 JSONL 根为 dshHomePath('sessions')（~/.dsh/sessions，cordis.patch.yml:149） |
-| index.ts 注释过时 | src/index.ts:2-3,84 注释声称实现位于 ./plugin.tsx；仓库无此文件，实现实际在 src/plugin.ts（React.createElement，纯 TS） |
-| resume 读写 API 未形成内部回路 | Channel.setResumeTarget（src/channel.ts:421-423,1919-1921）与 readResumeTarget（src/sessionHistory.ts:54-61）在仓库内无生产调用者——回路由 dsh-cc.cmd 直接读文件完成 |
+| JSONL vs SQLite session backend | See "Session persistence backend and the JSONL/SQLite documentation conflict" above — the config side is entirely JSONL, the doc side entirely claims SQLite; the config is treated as authoritative and it's marked "documentation conflict / unconfirmed" |
+| Injected-context display accounting | docs/architecture.md:107 and README.md:186 claim "plugin context injected into the system prompt is not listed separately in the UI"; src/components/LoadedContextPanel.tsx:82-88 actually renders context.contexts as a separate Group ("runtime context") — the precise fact: the panel shows a runtime-context group on an empty transcript, but injected messages within the transcript still aren't shown |
+| /doctor storage-path mismatch | src/channel.ts:2118-2119 checks ~/.dsh-cc/sessions; the actual JSONL root is dshHomePath('sessions') (~/.dsh/sessions, cordis.patch.yml:149) |
+| index.ts's comment is stale | src/index.ts:2-3,84's comment claims the implementation lives in ./plugin.tsx; the repo has no such file — the implementation is actually in src/plugin.ts (React.createElement, pure TS) |
+| The resume read/write API never formed an internal loop | Channel.setResumeTarget (src/channel.ts:421-423,1919-1921) and readResumeTarget (src/sessionHistory.ts:54-61) have no production caller anywhere in the repo — the actual loop is closed by dsh-cc.cmd reading the file directly |
 
-## 未验证事项
+## Unverified items
 
-- profile 最终组合中是否存在 SQLite 行（dsh-base 层在 node_modules，无法读取
-  核验）；"禁用 base 的 JSONL 持久化"的最终组合效果取决于 dsh Loader 覆盖
-  规则。
-- dsh-session-persistence-jsonl 的物理编码细节（zstd、packed chunk runs 等，
-  仅能从 migrate 脚本注释间接得知）。
-- LoadedContextPanel 的 tools 组是否包含 MCP 工具（mcp__server__tool）——取
-  决于上游 dsh-agent/dsh-system-prompt 组装。
-- teardown 时 MCP 子进程/其他服务的回收方式（teardown 路径只 markTeardown+
-  unmount，子进程生命周期归上游服务）。
-- waitUntilExit 结算的精确 microtask 时序。
-- ~/.pi/agent/working-activity.json 的实际格式与 pi 扩展行为（activityPrefs.ts
-  注释称 mirroring 其 frames key，pi 扩展不在本仓库）。
+- Whether an SQLite row exists in the profile's final composition (the
+  dsh-base layer is in node_modules, unreadable and unverifiable); the
+  final composed effect of "disabling base's JSONL persistence" depends on
+  the dsh Loader's override rules.
+- Physical encoding details of dsh-session-persistence-jsonl (zstd, packed
+  chunk runs, etc. — only inferable indirectly from the migrate script's
+  comments).
+- Whether the LoadedContextPanel's tools group includes MCP tools
+  (mcp__server__tool) — depends on upstream dsh-agent/dsh-system-prompt
+  assembly.
+- How the MCP subprocess/other services are reclaimed at teardown (the
+  teardown path only does markTeardown+unmount; subprocess lifecycle
+  belongs to the upstream service).
+- The exact microtask timing of the waitUntilExit settlement.
+- The actual format of ~/.pi/agent/working-activity.json and the pi
+  extension's behavior (activityPrefs.ts's comment claims it mirrors its
+  frames key; the pi extension isn't in this repo).
 
-相关文档：[lifecycle.md](lifecycle.md)（退出漏斗）、
-[model-route.md](model-route.md)（resume 路由跟随）、
-[input-commands.md](input-commands.md)（/resume、/new 命令）、
-[unknowns.md](unknowns.md)（未验证清单）。
+Related documents: [lifecycle.md](lifecycle.md) (the exit funnel),
+[model-route.md](model-route.md) (resume route tracking),
+[input-commands.md](input-commands.md) (the /resume, /new commands),
+[unknowns.md](unknowns.md) (the unverified-items list).

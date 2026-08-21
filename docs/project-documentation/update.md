@@ -1,136 +1,171 @@
-# 更新系统
+# The update system
 
-本文覆盖版本检查（启动时一次性后台检查）、/update 手动更新链路、重启与会话
-恢复，以及已确认缺陷（DSH_CC_UPDATED_FROM 取值时点）。更新系统由提交
-dde5c86（PR #66）引入。行号均以审计基线 b2f4087 为准。
+This document covers version checking (a one-shot background check at
+startup), the /update manual-update pipeline, restart and session resume,
+and a confirmed defect (the timing of when DSH_CC_UPDATED_FROM is read). The
+update system was introduced in commit dde5c86 (PR #66). All line numbers
+are relative to the audit baseline b2f4087.
 
-## 启动时版本检查（一次性，无周期轮询）
+## Startup version check (one-shot, no periodic polling)
 
 ```text
-src/plugin.ts:308  void checkForTuiUpdate().then(...) 首帧渲染后后台执行
-  （:305 注释 "Check in the background so registry latency never delays the
-  first frame. A failed/offline check is intentionally silent"）
+src/plugin.ts:308  void checkForTuiUpdate().then(...) runs in the background
+  after the first frame renders
+  (:305's comment: "Check in the background so registry latency never delays
+  the first frame. A failed/offline check is intentionally silent")
   -> src/update.ts:150-153 checkForTuiUpdate -> resolveTuiUpdateTarget
-  -> 自身版本：installedTuiVersion()（src/update.ts:36-53）读 ../../package.json
-     或 ../package.json（编译布局/源码布局双路径），要求 name 匹配
-     dsh-cc-tui 且 semver 合法（外来 manifest 拒绝）
-  -> 最新版：fetchLatestVersion（src/update.ts:108-127）
-     fetch(`${registry}/dsh-cc-tui/latest`，accept: application/json，
-     AbortController 4s 超时 UPDATE_CHECK_TIMEOUT_MS）；任何失败返回
-     undefined——离线/网络错误静默
-  -> 目标分类三态（src/update.ts:134-143）：
-     update（latest > current）/ latest（已最新）/ unknown（离线或自身版本
-     不可读）
-  -> 命中 update：channel.notify(update-available，含 current/latest，
-     timeoutMs 12000，12 秒自动消失) 提示输入 /update（src/plugin.ts:310-314）
+  -> Own version: installedTuiVersion() (src/update.ts:36-53) reads either
+     ../../package.json or ../package.json (dual paths for the compiled
+     layout / source layout), requiring name to match dsh-cc-tui and a
+     valid semver (a foreign manifest is rejected)
+  -> Latest version: fetchLatestVersion (src/update.ts:108-127)
+     fetch(`${registry}/dsh-cc-tui/latest`, accept: application/json,
+     with an AbortController 4s timeout UPDATE_CHECK_TIMEOUT_MS); any
+     failure returns undefined — silent when offline/on a network error
+  -> Three-way target classification (src/update.ts:134-143):
+     update (latest > current) / latest (already current) / unknown
+     (offline, or its own version couldn't be read)
+  -> On a hit for update: channel.notify(update-available, including
+     current/latest, timeoutMs 12000, auto-dismisses after 12 seconds)
+     prompting the user to type /update (src/plugin.ts:310-314)
 ```
 
-registry 解析优先级（src/update.ts:83-94）：`NPM_CONFIG_REGISTRY`（两种拼写，
-含小写 npm_config_registry）> 用户 ~/.npmrc 的 `registry=` 行 > npmjs.org
-默认值——"mirror users see the same `latest` their package manager would
-install"。
+registry-resolution priority (src/update.ts:83-94): `NPM_CONFIG_REGISTRY`
+(both spellings, including lowercase npm_config_registry) > the `registry=`
+line in the user's ~/.npmrc > the npmjs.org default — "mirror users see the
+same `latest` their package manager would install".
 
-## /update 手动更新链路
+## The /update manual-update pipeline
 
-前置条件：/update **仅在 `dsh --profile <name>` 启动模式下可用**——profile
-从 argv 解析（src/update.ts:63-76 resolveDshProfileName，首个 --profile token；
-dsh 不设 profile 环境变量）；源码运行/--config 直启时 onUpdate 为 undefined
-（src/plugin.ts:184-187,271-274）。
+Prerequisite: /update **is only available when launched via
+`dsh --profile <name>`** — the profile is parsed from argv
+(src/update.ts:63-76 resolveDshProfileName, the first --profile token; dsh
+doesn't set a profile environment variable); when run from source or a
+direct --config launch, onUpdate is undefined
+(src/plugin.ts:184-187,271-274).
 
 ```text
-/update（src/screens/Chat.tsx:647-657）：
+/update (src/screens/Chat.tsx:647-657):
   onUpdate === undefined -> notify update-unavailable
-  channel.working -> notify update-working（当前回合需等待完成）
-  否则 notify update-starting -> onUpdate()
-  -> src/plugin.ts:274-292 onUpdate 预检 resolveTuiUpdateTarget：
-     latest -> notify update-already-latest，不重启
-     unknown -> notify update-check-failed 后仍继续
-     updateRequested = true；instance?.unmount()（更新前必须先卸载 TUI，
-     防止 pnpm 输出破坏已渲染的终端帧）
-  -> waitUntilExit().then(handleExit)（src/plugin.ts:330）-> onUserExit
-     （src/plugin.ts:194-264）：writeResumeTarget(channel.agentId) 写 resume.txt
-  -> 打印 'Updating dsh-cc-tui and restarting…' -> disposeRootAndThen
-     （cordis ctx.root.fiber.dispose() 整树回收，5 秒兜底定时器保证退出码，
-     src/plugin.ts:497-510）
-  -> updateTuiAndRestart(channel.agentId, profile)（src/update.ts:216-236）：
+  channel.working -> notify update-working (the current turn needs to finish first)
+  otherwise notify update-starting -> onUpdate()
+  -> src/plugin.ts:274-292 onUpdate's preflight resolveTuiUpdateTarget:
+     latest -> notify update-already-latest, no restart
+     unknown -> notify update-check-failed but continue anyway
+     updateRequested = true; instance?.unmount() (the TUI must unmount
+     before updating, so pnpm's output doesn't corrupt an already-rendered
+     terminal frame)
+  -> waitUntilExit().then(handleExit) (src/plugin.ts:330) -> onUserExit
+     (src/plugin.ts:194-264): writeResumeTarget(channel.agentId) writes
+     resume.txt
+  -> prints 'Updating dsh-cc-tui and restarting…' -> disposeRootAndThen
+     (cordis ctx.root.fiber.dispose() reclaims the whole tree, with a 5-second
+     fallback timer guaranteeing an exit code, src/plugin.ts:497-510)
+  -> updateTuiAndRestart(channel.agentId, profile) (src/update.ts:216-236):
      runProcess('dsh.cmd'/'dsh', ['plugin', '--profile', profile, 'update',
-       '--latest', 'dsh-cc-tui'], { shell: true })（win32 下 shellQuote 引号
-       处理；stdio inherit 直连用户终端）
-       --latest 是跨 minor 升级的关键（src/update.ts:199-210 注释）：
+       '--latest', 'dsh-cc-tui'], { shell: true }) (shellQuote handles
+       quoting on win32; stdio inherit connects directly to the user's
+       terminal)
+       --latest is the key to crossing a minor version
+       (src/update.ts:199-210's comment):
        "`--latest` is required: `pnpm add` writes a caret range into the
        profile manifest, and a plain `pnpm update` stays inside that range"
-       ——本仓库 minor-per-release 节奏下 plain update 会重启却未变化
-     -> 成功后重启：spawn(process.execPath, [...process.execArgv,
-        ...process.argv.slice(1)]) 直接起 node——**不经 cmd.exe**，标准安装
-       路径 C:\Program Files\nodejs\node.exe 含空格，经 cmd.exe 会被拆开
-       导致替代进程起不来（src/update.ts:228-234）；env 携带
-       DSH_CC_RESUME_SESSION（会话 id）与 DSH_CC_UPDATED_FROM
-  -> 重启进程 cordis.patch.yml:203 sessionId =
-     process.env.DSH_CC_RESUME_SESSION -> 恢复会话
-  -> 新进程启动核验（src/plugin.ts:52-71）：delete process.env.DSH_CC_UPDATED_FROM
-     （避免赋值 undefined 变字符串泄漏给子进程）；现版本未严格新于标记值时
-     logger.warn + stderr 中文提示（"可能是镜像 registry 未同步，请稍后重试
-     或检查 registry 配置"）
-  -> 0.8.3 Launcher 对齐桥接（同一核验区块）：/update 只替换 profile 内
-     的包，全局 dsh-tui Launcher 是独立安装。Launcher（bin/dsh-tui.js，
-     >=0.8.3）spawn dsh 前设置 DSH_TUI_LAUNCHER_VERSION；更新成功后若该
-     marker 缺失（旧 Launcher <=0.8.2 不设置），给一次性"如果你使用全局
-     dsh-tui，请同步更新"提示；若 marker 明确比新 Profile 旧，给精确的
-     `npm install -g @deepseek-harness-tui/dsh-tui@<profile版本>` 命令。
-     marker 非一次性，后续 /update 重启需继承，才能知道外层 Launcher
-     是否落后。
+       — under this repo's minor-per-release cadence, a plain update would
+       restart without actually changing anything
+     -> On success, restart: spawn(process.execPath, [...process.execArgv,
+        ...process.argv.slice(1)]) launches node directly — **bypassing
+       cmd.exe** — because the standard install path
+       C:\Program Files\nodejs\node.exe contains a space that cmd.exe would
+       split apart, preventing the replacement process from starting
+       (src/update.ts:228-234); the env carries DSH_CC_RESUME_SESSION (the
+       session id) and DSH_CC_UPDATED_FROM
+  -> The restarted process's cordis.patch.yml:203 sessionId =
+     process.env.DSH_CC_RESUME_SESSION -> resumes the session
+  -> New-process startup verification (src/plugin.ts:52-71):
+     delete process.env.DSH_CC_UPDATED_FROM (avoids assigning undefined,
+     which would turn into the string "undefined" and leak to child
+     processes); when the current version isn't strictly newer than the
+     marker value, logger.warn + a stderr hint in Chinese ("this may be
+     because the mirror registry hasn't synced yet — please retry shortly
+     or check your registry configuration")
+  -> The 0.8.3 launcher-alignment bridge (same verification block):
+     /update only replaces the package inside the profile — the global
+     dsh-tui launcher is a separate install. The launcher (bin/dsh-tui.js,
+     >=0.8.3) sets DSH_TUI_LAUNCHER_VERSION before spawning dsh; if that
+     marker is missing after a successful update (an older launcher
+     <=0.8.2 doesn't set it), it gives a one-time "if you use the global
+     dsh-tui, please update it too" hint; if the marker is explicitly older
+     than the new profile, it gives the exact
+     `npm install -g @deepseek-harness-tui/dsh-tui@<profile-version>`
+     command. The marker isn't one-time — it must be inherited across
+     subsequent /update restarts, so the outer launcher's staleness can
+     still be detected later.
 ```
 
-失败路径（src/plugin.ts:236-244）：updateCode 非 0 时不重启，打印 'cc-tui update
-failed (exit N). Your session is preserved — resume with:' + resumeCommand
-（Windows: `dsh-cc --resume <id>`；POSIX: `DSH_CC_RESUME_SESSION=<id> dsh
---profile <name>`，src/plugin.ts:484-489），再以 restartCode 退出进程。
+Failure path (src/plugin.ts:236-244): when updateCode is non-zero, there's
+no restart — it prints 'cc-tui update failed (exit N). Your session is
+preserved — resume with:' + resumeCommand (Windows: `dsh-cc --resume <id>`;
+POSIX: `DSH_CC_RESUME_SESSION=<id> dsh --profile <name>`,
+src/plugin.ts:484-489), then exits the process with restartCode.
 
-teardown 与更新的衔接（src/plugin.ts:316-323,450-467）：cordis 上下文 teardown
-（如 launcher 启动期 recompose）只 markTeardown + unmount，绝不进入用户退出/
-更新序列；/update 走的是用户退出漏斗（exit funnel）路径。
+How teardown and updating connect (src/plugin.ts:316-323,450-467): a cordis
+context teardown (e.g. a recompose during launcher startup) only does
+markTeardown + unmount and never enters the user-exit/update sequence;
+/update goes through the user-exit funnel path instead.
 
-## 已确认缺陷
+## Confirmed defects
 
-**DSH_CC_UPDATED_FROM 取值时点错误**（src/update.ts:232）：
+**DSH_CC_UPDATED_FROM is read at the wrong point in time**
+(src/update.ts:232):
 
-- 设计意图（src/plugin.ts:47-48 注释）：标记是 "the version it was leaving
-  behind"（更新前版本），仅当 "the freshly loaded one is not newer" 时告警。
-- 实际代码：`installedTuiVersion()` 在 `await runProcess(dsh, ...update
-  --latest...)` **完成后**才求值——此时磁盘已是新版，标记 = 新版。
-- 后果：成功更新后重启核验 `isVersionNewer(now, updatedFrom)` 必为假，
-  "版本未变化"告警在**每次成功更新后同样触发**；该告警只在镜像滞后/失败
-  场景才符合设计意图。
+- Design intent (src/plugin.ts:47-48's comment): the marker is meant to be
+  "the version it was leaving behind" (the pre-update version), warning
+  only when "the freshly loaded one is not newer".
+- Actual code: `installedTuiVersion()` is evaluated only **after**
+  `await runProcess(dsh, ...update --latest...)` completes — by then the
+  disk already has the new version, so the marker = the new version.
+- Consequence: after a successful update, the restart-time check of
+  `isVersionNewer(now, updatedFrom)` is necessarily false, so the "version
+  unchanged" warning **fires the same way after every successful update**;
+  that warning is only supposed to fire in a stale-mirror/failure scenario.
 
-静态顺序证据明确；运行后果需实跑确认（dsh plugin update 的内部 pnpm 行为属
-dsh CLI 外部实现，只读审计无法验证），证据等级 strong indication。
+The static ordering evidence is clear; the runtime consequence needs an
+actual run to confirm (the internal pnpm behavior of dsh plugin update is
+an external implementation detail of the dsh CLI, which a read-only audit
+can't verify), so the evidence tier is strong indication.
 
-## 回归验证
+## Regression verification
 
-`scripts/verify-update.mjs`：25 项 check，对编译产物 lib/types/update.js 做
-纯函数断言（真实编译 lib、无网络、无子进程；:27-29），任一失败非零退出
-（:206-210），挂 CI（.github/workflows/ci.yml:43-45）。覆盖：installedTuiVersion 双布局+外来
-manifest 拒绝（4）、registry 解析 env 两种拼写/npmrc/默认（4）、semver 严格
-大于（5）、resolveDshProfileName 五种形态（5）、shellQuote 三种（3）、源码
-文本断言（4：pnpm --latest 存在、P1 dsh.cmd spawn 请求 shell、P1 node 重启
-spawn 无 shell——空间安全执行路径）。
+`scripts/verify-update.mjs`: 25 checks, making pure-function assertions
+against the compiled output lib/types/update.js (a real compiled lib, no
+network, no subprocess; :27-29), exiting non-zero on any failure
+(:206-210), mounted in CI (.github/workflows/ci.yml:43-45). Covers:
+installedTuiVersion's dual layout + rejecting a foreign manifest (4),
+registry resolution across both env spellings/npmrc/default (4), strict
+semver greater-than (5), resolveDshProfileName's five forms (5), shellQuote's
+three cases (3), source-text assertions (4: pnpm --latest is present, the
+P1 dsh.cmd spawn requests a shell, the P1 node-restart spawn requests no
+shell — the space-safe execution path).
 
-## 冲突
+## Conflicts
 
-| 项 | 两侧 |
+| Item | Both sides |
 | --- | --- |
-| update-unavailable 兜底提示缺 --latest | `src/i18n.ts:173` 提示 'dsh plugin --profile <name> update dsh-cc-tui'（无 --latest）；src/update.ts:204-207 注释明确 plain update 会被 caret 范围困住、跨 minor 必须 --latest——该提示等于把用户引向会空转的命令；getting-started.md:100 的手动命令用 `add dsh-cc-tui@latest` 才与 --latest 意图一致 |
-| 文档遗漏小写拼写 | docs/interaction.md:152 只写 'NPM_CONFIG_REGISTRY 或 ~/.npmrc'；代码（src/update.ts:84）与 verify-update.mjs:112-117 同时支持小写 npm_config_registry |
+| The update-unavailable fallback hint is missing --latest | `src/i18n.ts:173`'s hint gives 'dsh plugin --profile <name> update dsh-cc-tui' (no --latest); src/update.ts:204-207's comment explicitly states a plain update gets stuck inside the caret range and a cross-minor update requires --latest — that hint effectively points the user at a command that will spin without effect; getting-started.md:100's manual command uses `add dsh-cc-tui@latest`, which is the one that actually matches the --latest intent |
+| Docs miss the lowercase spelling | docs/interaction.md:152 only mentions 'NPM_CONFIG_REGISTRY or ~/.npmrc'; the code (src/update.ts:84) and verify-update.mjs:112-117 both also support the lowercase npm_config_registry |
 
-## 未验证事项
+## Unverified items
 
-- 重启后恢复会话的具体细节：重启进程用 process.argv.slice(1) 原样重放
-  launcher 参数，dsh launcher 如何重新解析 --profile 并 recompose cordis 树
-  属外部实现。
-- installedTuiVersion 在 source-checkout 布局下（scripts/run.ts 经 tsx 启动）
-  的真实运行时行为（verify-update.mjs 用拷贝到 scratch 的编译模块模拟该
-  布局，真实 tsx 运行时未直接验证）。
+- The exact details of session resume after a restart: the restarted
+  process replays the launcher arguments as-is via process.argv.slice(1);
+  how the dsh launcher re-parses --profile and recomposes the cordis tree
+  is an external implementation detail.
+- installedTuiVersion's true runtime behavior under a source-checkout
+  layout (launched via scripts/run.ts through tsx) (verify-update.mjs
+  simulates that layout using a compiled module copied into scratch space;
+  the real tsx runtime was not directly verified).
 
-相关文档：[lifecycle.md](lifecycle.md)（退出漏斗与 teardown）、
-[session-context.md](session-context.md)（resume 契约）、
-[model-route.md](model-route.md)（重启后路由解析）、[unknowns.md](unknowns.md)。
+Related documents: [lifecycle.md](lifecycle.md) (the exit funnel and
+teardown), [session-context.md](session-context.md) (the resume contract),
+[model-route.md](model-route.md) (route resolution after a restart),
+[unknowns.md](unknowns.md).

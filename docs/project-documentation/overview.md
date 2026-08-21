@@ -1,104 +1,119 @@
-# 总览
+# Overview
 
-## 项目定位
+## Project positioning
 
-dsh-cc-tui 是一个 Cordis 插件，为 DeepSeek Harness 的 agent 提供 Claude Code
-风格的终端 TUI 前门。插件自身的自述（`src/plugin.ts:26-27`）：
+dsh-cc-tui is a Cordis plugin that gives DeepSeek Harness agents a Claude
+Code-style terminal TUI front door. The plugin's own self-description
+(`src/plugin.ts:26-27`):
 
 > Claude Code style interactive TUI front door for DeepSeek Harness agents.
 
-它不拥有 Agent、会话、模型、工具、持久化与策略域——这些由 DeepSeek Harness
-（DSH）提供，TUI 只消费它们（`docs/contributing.md:18-21` 同口径）。插件
-"attaches to (or creates) one agent, renders a chat transcript from the agent's
-session log and live `session/event` records, and submits user turns through
-`Agent.followup`"（`src/plugin.ts:29-33`），与 `dsh-jsonrpc` 属于同一类
-client-driver 前门。
+It doesn't own the Agent, session, model, tool, persistence, or policy
+domains — those are provided by DeepSeek Harness (DSH), and the TUI only
+consumes them (`docs/contributing.md:18-21` says the same). The plugin
+"attaches to (or creates) one agent, renders a chat transcript from the
+agent's session log and live `session/event` records, and submits user
+turns through `Agent.followup`" (`src/plugin.ts:29-33`), putting it in the
+same client-driver front-door category as `dsh-jsonrpc`.
 
-插件自带 TUI、本地命令面、打包技能以及移植的 Ink/Yoga 渲染器；渲染内核
-`src/ink/` 是 Claude Code 内部 ink fork 的移植（归属证据见
-[origin.md](origin.md)，结构地图见 [ink-core.md](ink-core.md)）。
+The plugin ships its own TUI, a local command surface, bundled skills, and a
+ported Ink/Yoga renderer; the render kernel `src/ink/` is a port of Claude
+Code's internal ink fork (provenance evidence in [origin.md](origin.md),
+structure map in [ink-core.md](ink-core.md)).
 
-## 运行链路
+## Runtime wiring
 
-从配置到终端的主链路（各环节文件为源码根目录相对路径）：
+The main chain from config to terminal (file paths below are relative to
+the source root):
 
 ```text
-cordis.yml / cordis.patch.yml（组合层）
-  -> src/index.ts（插件契约与 Schema，入口保持轻量）
-  -> src/plugin.ts（TTY 检查、语言解析、服务装配、Agent 创建/恢复、React 挂载、退出清理）
-  -> DSH agent / session / tool services（@deepseek-ai/dsh-* 官方包）
-  -> src/channel.ts（session/event 投影为 transcript；submit/steer/resume/rewind/model 动作面）
-  -> src/screens/Chat.tsx（键盘与模式编排、slash 命令分发）
-  -> src/components/*（视图与 design-system）
-  -> src/ui.ts（主题化 renderer facade）
-  -> src/ink/* + src/native-ts/yoga-layout（布局、终端协议、差分输出）
-  -> ANSI 终端
+cordis.yml / cordis.patch.yml (composition layer)
+  -> src/index.ts (plugin contract and schema; the entry point stays lightweight)
+  -> src/plugin.ts (TTY check, language resolution, service assembly, agent create/resume, React mount, exit cleanup)
+  -> DSH agent / session / tool services (official @deepseek-ai/dsh-* packages)
+  -> src/channel.ts (projects session/event into the transcript; the submit/steer/resume/rewind/model action surface)
+  -> src/screens/Chat.tsx (keyboard and mode orchestration, slash-command dispatch)
+  -> src/components/* (views and the design system)
+  -> src/ui.ts (themed renderer facade)
+  -> src/ink/* + src/native-ts/yoga-layout (layout, terminal protocol, diffed output)
+  -> ANSI terminal
 ```
 
-该链路与 `docs/architecture.md:5-18` 的旧描述一致，且已在基线代码中重新验证：
-入口 `src/index.ts` 导出插件契约并动态委托 `src/plugin.ts` 的 `apply`
-（[lifecycle.md](lifecycle.md)）。
+This chain matches the older description in `docs/architecture.md:5-18` and
+has been re-verified against the baseline code: the entry point
+`src/index.ts` exports the plugin contract and dynamically delegates to
+`src/plugin.ts`'s `apply` (see [lifecycle.md](lifecycle.md)).
 
-## 分层与模块边界
+## Layering and module boundaries
 
-| 模块 | 所有权 |
+| Module | Ownership |
 | --- | --- |
-| `src/index.ts` | Cordis 插件名称（cc-tui）、注入声明、Config 接口与 Schema；保持入口轻量并延迟加载 runtime |
-| `src/plugin.ts` | TTY 校验、语言解析、userQuestions/技能/stderr 守卫装配、Agent 创建/恢复、React 挂载、统一退出清理 |
-| `src/channel.ts` | 将 DSH 持久化事件投影为 transcript；提供 submit、steer、resume、rewind、model/preset 等动作；不把 React 本地数组当作对话真相 |
-| `src/screens/Chat.tsx` | 模态优先级、全局按键、滚动/搜索/选择状态、slash 命令分发 |
-| `src/components/` | 功能组件与 design-system（`components/design-system/` 主题感知原语、`components/messages/` transcript 行、`components/questions/` 问卷 UI）；不直接拥有 Agent 或 session 真相 |
-| `src/screens/StatusLine.tsx` 与 `src/screens/StatusMetrics.ts` | 底部状态栏呈现与指标推导 |
-| `src/ui.ts` | 主题化 `Box`/`Text`、render、选择、滚动等公共 facade |
-| `src/ink/` | 移植的 Ink renderer、终端协议、事件、选择与 Yoga 桥接；敏感底层设施 |
-| `src/native-ts/yoga-layout/` | 纯 TypeScript yoga 移植（`src/native-ts/yoga-layout/index.ts:2`） |
-| `src/cc/` | 为 Claude Code 风格 UI 适配的终端格式化与呈现辅助 |
-| `src/*Prefs.ts`、`src/customTheme.ts`、`src/sessionHistory.ts` | 持久化用户偏好与 `~/.dsh-cc` 下的本地元数据 |
-| `src/commands.ts` | 本地 slash 命令声明（39 条内置）与解析辅助 |
-| `skills/*/SKILL.md` | 随 npm 包分发的打包技能，由 `src/packaged-skills.ts` 注册 |
-| `cordis.patch.yml` | profile bundle 覆盖层（29 个顶层覆盖 + 4 行 insert）；行的顺序、行 ID、insert/override 语义都很关键 |
-| `cordis.yml` | 直接 `dsh --config` 启动的裸组合示例（24 个服务行） |
-| `scripts/` | 无头回归、复现环境、探针与诊断（repro 10 个 / verify 18 个，glob 前缀计数） |
-| `lib/types/` | `tsc` 入库产物（构建产物，本审计不阅读内容） |
+| `src/index.ts` | The Cordis plugin name (cc-tui), inject declarations, the Config interface and schema; keeps the entry point lightweight and lazy-loads the runtime |
+| `src/plugin.ts` | TTY validation, language resolution, assembling userQuestions/skills/the stderr guard, agent create/resume, React mount, unified exit cleanup |
+| `src/channel.ts` | Projects DSH's persisted events into the transcript; provides the submit, steer, resume, rewind, model/preset, etc. actions; never treats a local React array as the conversation's source of truth |
+| `src/screens/Chat.tsx` | Modal priority, global keys, scroll/search/selection state, slash-command dispatch |
+| `src/components/` | Feature components and the design system (`components/design-system/` theme-aware primitives, `components/messages/` transcript rows, `components/questions/` question-panel UI); never directly owns the agent or session's source of truth |
+| `src/screens/StatusLine.tsx` and `src/screens/StatusMetrics.ts` | Bottom status-bar presentation and metric derivation |
+| `src/ui.ts` | The themed `Box`/`Text`, render, selection, scrolling, etc. public facade |
+| `src/ink/` | The ported Ink renderer, terminal protocol, events, selection, and Yoga bridge; sensitive low-level plumbing |
+| `src/native-ts/yoga-layout/` | A pure-TypeScript yoga port (`src/native-ts/yoga-layout/index.ts:2`) |
+| `src/cc/` | Terminal formatting and presentation helpers adapted for the Claude Code-style UI |
+| `src/*Prefs.ts`, `src/customTheme.ts`, `src/sessionHistory.ts` | Persisted user preferences and local metadata under `~/.dsh-cc` |
+| `src/commands.ts` | Local slash-command declarations (39 built in) and parsing helpers |
+| `skills/*/SKILL.md` | Bundled skills shipped with the npm package, registered by `src/packaged-skills.ts` |
+| `cordis.patch.yml` | The profile-bundle override layer (29 top-level overrides + 4 insert rows); row order, row IDs, and insert/override semantics all matter |
+| `cordis.yml` | A bare-composition example for launching directly via `dsh --config` (24 service rows) |
+| `scripts/` | Headless regressions, repro environments, probes, and diagnostics (10 repro / 18 verify, counted by glob prefix) |
+| `lib/types/` | `tsc`'s committed build output (a build artifact; this audit did not read its contents) |
 
-## 数据流：Session 是真源
+## Data flow: the session is the source of truth
 
-`channel.ts` 不把 React 本地数组当作对话真相，transcript 行全部从持久化的
-DSH 会话事件日志派生（`src/channel.ts:110-114`）：
+`channel.ts` never treats a local React array as the conversation's source
+of truth — every transcript row is derived from the persisted DSH session
+event log (`src/channel.ts:110-114`):
 
 > The DSH session log is the source of truth: rows are derived from
 > `session/event` records (and the initial `agent.session.events` replay),
 > never from optimistic local state.
 
-会话事件日志承担：初始历史回放与增量流式事件、assistant/reasoning/tool 行
-的关联与 sequence anchor、rewind 的 turn 边界、resume/export/compact/fork
-后的重建。Channel 只保留适合 TUI 的投影：长会话超过窗口后旧行折叠为短预览，
-完整内容仍在 session log 中；工具结果按 `callId` 关联，不按数组位置猜测
-（`src/channel.ts:34-58` ToolRow 结构）。
+The session event log carries: the initial history replay and incremental
+streaming events, the association and sequence anchor between
+assistant/reasoning/tool rows, rewind's turn boundaries, and reconstruction
+after resume/export/compact/fork. The channel keeps only the projection
+suited to the TUI: once a long session exceeds the window, older rows
+collapse into short previews while the full content stays in the session
+log; tool results are associated by `callId`, never guessed by array
+position (`src/channel.ts:34-58`'s ToolRow structure).
 
-## 源码分布
+## Source distribution
 
-`src/` 共 209 个文件（程序化计数，Glob 按目录分组）：`src/ink/` 103（移植
-内核，见 [ink-core.md](ink-core.md)）、`src/components/` 53、
-`src/utils/` 14、`src/cc/` 8、`src/screens/` 3、`src/native-ts/` 2
-（yoga-layout）、`src/bootstrap/` 1、`src/hooks/` 1（useBlink.ts）、
-`src/types/` 1（cc.d.ts 类型 shim）、src 根 23。`scripts/` 计数同上：
-repro-* 10 个、verify-* 18 个（glob 前缀匹配）。npm 包 exports 6 项
-（`.`、`./working-activity`、`./invariant`、`./cordis.patch.yml`、
-`./package.json`、`./src/*`，package.json:9-25）。
+`src/` has 209 files in total (counted programmatically, grouped by
+directory via glob): `src/ink/` 103 (the ported kernel, see
+[ink-core.md](ink-core.md)), `src/components/` 53, `src/utils/` 14,
+`src/cc/` 8, `src/screens/` 3, `src/native-ts/` 2 (yoga-layout),
+`src/bootstrap/` 1, `src/hooks/` 1 (useBlink.ts), `src/types/` 1 (the
+cc.d.ts type shim), and 23 at the src root. `scripts/` counted the same
+way: 10 repro-* and 18 verify-* (matched by glob prefix). The npm package
+has 6 exports (`.`, `./working-activity`, `./invariant`,
+`./cordis.patch.yml`, `./package.json`, `./src/*`, package.json:9-25).
 
-`src/bootstrap/` 仅含遥测空桩（state.ts），不参与启动流程（见
-[lifecycle.md](lifecycle.md#bootstrap-目录)）。
+`src/bootstrap/` contains only a telemetry no-op stub (state.ts) and takes
+no part in the startup flow (see
+[lifecycle.md](lifecycle.md#the-bootstrap-directory)).
 
-## 版本与基线关系
+## Version and baseline relationship
 
-- 当前 HEAD 为 `b2f4087`（git describe：v0.4.1-48-gb2f4087），即 v0.4.1 tag
-  （eeca418）之后 48 个提交。
-- v0.4.1 tag 不包含 pr-55（/rewind 命令 + /new 一次生效）与 pr-61（MCP
-  stderr 接管）——两者均在其后、当前基线已包含。
-- v0.3.5（tag 9e563af）是直接祖先，与基线差异 184 个文件、无删除（旧版本文档
-  仅在 [unknowns.md](unknowns.md) 作为参考线索使用，行号与存在性均已重新验证）。
+- The current HEAD is `b2f4087` (git describe: v0.4.1-48-gb2f4087), i.e. 48
+  commits after the v0.4.1 tag (eeca418).
+- The v0.4.1 tag does not include pr-55 (the /rewind command + /new taking
+  effect in one go) or pr-61 (MCP stderr takeover) — both landed after it,
+  and the current baseline includes them.
+- v0.3.5 (tag 9e563af) is a direct ancestor, differing from the baseline by
+  184 files with no deletions (the older-version docs are used only as a
+  reference lead in [unknowns.md](unknowns.md); their line numbers and
+  continued existence were both re-verified).
 
-相关文档：[lifecycle.md](lifecycle.md)（装配与启动序）、
-[ink-core.md](ink-core.md)（渲染内核）、[origin.md](origin.md)（来源归属）、
-[unknowns.md](unknowns.md)（未验证清单）。
+Related documents: [lifecycle.md](lifecycle.md) (assembly and startup
+order), [ink-core.md](ink-core.md) (the render kernel),
+[origin.md](origin.md) (provenance), [unknowns.md](unknowns.md) (the
+unverified-items list).

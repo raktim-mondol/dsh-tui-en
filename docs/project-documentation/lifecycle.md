@@ -1,239 +1,283 @@
-# 插件生命周期与装配
+# Plugin lifecycle and assembly
 
-本文描述 dsh-cc-tui 作为 Cordis 插件从配置组合到进程退出的完整装配过程：
-组合层构成、apply 启动序、命令分发、退出漏斗与 teardown 的区分。行号均以
-审计基线 b2f4087 为准。
+This document describes dsh-cc-tui's full assembly process as a Cordis
+plugin, from config composition to process exit: the composition layer's
+makeup, apply's startup order, command dispatch, and the split between the
+exit funnel and teardown. All line numbers are relative to the audit
+baseline b2f4087.
 
-## 插件契约与入口
+## The plugin contract and entry point
 
-`src/index.ts` 是标准 Cordis 插件表面（name / inject / Config / apply）：
+`src/index.ts` is a standard Cordis plugin surface (name / inject / Config
+/ apply):
 
-| 导出 | 位置 | 内容 |
+| Export | Location | Content |
 | --- | --- | --- |
-| `name = 'cc-tui'` | `src/index.ts:12-13` | 插件名；`inject = ['agents']`，agents 是唯一硬性注入依赖 |
-| `Config` 接口 | `src/index.ts:19-62` | sessionId / provider / model / cwd / effort / activity / activityFrames / contextBar / fullscreen / lang / preset |
-| `Config` Schema | `src/index.ts:64-80` | `Schema.object({...})`，**schema 上无 route 默认值**——注释明确 "No schema defaults on the route... The defaults live at the end of the fallback chain in modelRoute.ts"（issue #30） |
-| `apply` | `src/index.ts:89-92` | 通过动态 `await import('./plugin.js')` 委托 `plugin.ts`，使入口扫描工具与 Loader 解析到纯 .ts 模块 |
+| `name = 'cc-tui'` | `src/index.ts:12-13` | The plugin name; `inject = ['agents']`, with agents as the only hard-inject dependency |
+| The `Config` interface | `src/index.ts:19-62` | sessionId / provider / model / cwd / effort / activity / activityFrames / contextBar / fullscreen / lang / preset |
+| The `Config` schema | `src/index.ts:64-80` | `Schema.object({...})`, **with no route default in the schema** — the comment states explicitly: "No schema defaults on the route... The defaults live at the end of the fallback chain in modelRoute.ts" (issue #30) |
+| `apply` | `src/index.ts:89-92` | Delegates to `plugin.ts` via a dynamic `await import('./plugin.js')`, so entry-point scanning tools and the Loader resolve to a plain .ts module |
 
-Loader 解析 `dsh-cc-tui` 行的入口是 `package.json:7-8` 的 `main: lib/types/index.js`
-与 `types: lib/types/index.d.ts`（tsc 产物，见 [overview.md](overview.md) 源码分布）。
+The Loader resolves the `dsh-cc-tui` row's entry point from
+`package.json:7-8`'s `main: lib/types/index.js` and
+`types: lib/types/index.d.ts` (tsc's output — see
+[overview.md](overview.md)'s source distribution).
 
-## 配置组合层
+## The config composition layer
 
-profile 装配链（npm 包 → profile 组合 → 启动入口）：
+The profile assembly chain (npm package → profile composition → the
+launch entry point):
 
 ```text
-dsh plugin --profile cc-tui add dsh-cc-tui   （install.sh:22，初始化 profile、装 dsh-base 首层、pnpm 装包）
-  -> CLI 读取 package.json 的 dsh.bundle.patch 元数据（package.json:103-107）
-  -> 把 cordis.patch.yml 追加为 bundle 组合层（docs/getting-started.md:62）
-  -> 组合层顺序：dsh-base -> 其他 bundle -> dsh-cc-tui patch -> 用户 profile patch -> home patch
-     （docs/getting-started.md:64-67；scripts/run.ts:208-215 同序）
-  -> dsh --profile cc-tui 启动（install.sh:24），Loader 解析 cc-tui 行 -> lib/types/index.js
+dsh plugin --profile cc-tui add dsh-cc-tui   (install.sh:22, initializes the profile, installs the dsh-base first layer, pnpm installs the package)
+  -> the CLI reads package.json's dsh.bundle.patch metadata (package.json:103-107)
+  -> appends cordis.patch.yml as a bundle composition layer (docs/getting-started.md:62)
+  -> composition-layer order: dsh-base -> other bundles -> the dsh-cc-tui patch -> the user's profile patch -> the home patch
+     (docs/getting-started.md:64-67; scripts/run.ts:208-215 uses the same order)
+  -> launches via dsh --profile cc-tui (install.sh:24), and the Loader resolves the cc-tui row -> lib/types/index.js
 ```
 
-`scripts/run.ts:183-215` 是 workspace 开发启动路径：按 base → working-activity →
-外部插件 → cc-tui → 用户 profile → home patch 顺序 loadOverlayPatches 后
-`boot('dsh', rootConfig, allPatches, ...)`（:249），并做 healProfilesModuleFallback、
-installFailLoud、`DSH_HOME` 钉为 ~/.dsh-cc（:17-19）、`NODE_ENV=production`（:27，
-防 react-reconciler dev 构建 OOM）、堆看护 `DSH_CC_HEAP_WATCH`（:56-81）。该脚本
-绕过 profile 目录系统（:5-9），仅用于源码开发。
+`scripts/run.ts:183-215` is the workspace dev-launch path: it runs
+loadOverlayPatches in the order base → working-activity → external plugins
+→ cc-tui → the user's profile → the home patch, then calls
+`boot('dsh', rootConfig, allPatches, ...)` (:249), and also does
+healProfilesModuleFallback, installFailLoud, pins `DSH_HOME` to ~/.dsh-cc
+(:17-19), sets `NODE_ENV=production` (:27, to avoid an OOM in the
+react-reconciler dev build), and a heap watchdog gated by
+`DSH_CC_HEAP_WATCH` (:56-81). This script bypasses the profile-directory
+system (:5-9) and is used only for source-level development.
 
-### cordis.yml（裸组合示例，24 个服务行）
+### cordis.yml (a bare-composition example, 24 service rows)
 
-程序化计数（`grep -c '^\- id:'`）= 24：user-questions(9)、cc-tui(12)、
-llm-deepseek(33)、subprocess(42)、bash(45)、fs(53)、fs-policy(60)、tool-fs(63)、
-tool-todo(69)、subagent(77)、subagent-spawn(80)、subagent-fork(85)、
-tool-subagent(90)、tool-subagent-fork(98)、agent-spine(106)、commands(126)、
-plan-mode(132)、command-goal(141)、working-activity(153)、sessions(161)、
-session-query(167)、session-checkpoints(170)、token-meter(174)、compact(177)。
+Counted programmatically (`grep -c '^\- id:'`) = 24: user-questions(9),
+cc-tui(12), llm-deepseek(33), subprocess(42), bash(45), fs(53),
+fs-policy(60), tool-fs(63), tool-todo(69), subagent(77),
+subagent-spawn(80), subagent-fork(85), tool-subagent(90),
+tool-subagent-fork(98), agent-spine(106), commands(126), plan-mode(132),
+command-goal(141), working-activity(153), sessions(161),
+session-query(167), session-checkpoints(170), token-meter(174),
+compact(177).
 
-行间无显式 deps 字段，依赖是服务级。关键装配约束（均来自行内注释）：
+There's no explicit deps field between rows — the dependency is
+service-level. Key assembly constraints (all from inline comments):
 
-| 约束 | 位置 |
+| Constraint | Location |
 | --- | --- |
-| user-questions 必须位于根，agent loop 的工具执行才能触达 | `cordis.yml:5-8` |
-| 核心 `dsh-subagent` 服务必须在任何 provider 之前挂载 | `cordis.yml:74-77` |
-| commands 注册表必须挂在命令之前 | `cordis.yml:123-127` |
-| tool-todo 的 allowParallelInProgress 必填（schema 无默认） | `cordis.yml:66-68` |
-| plan-mode 段必填且非空，裸挂载会校验失败并回滚整树 | `cordis.yml:131-137` |
-| rc.6 schema 键是 `apiKeyEnv` 而非 `apiKey`（旧 snapshot 键被 loader 丢弃） | `cordis.yml:30-32` |
+| user-questions must sit at the root for the agent loop's tool execution to reach it | `cordis.yml:5-8` |
+| The core `dsh-subagent` service must be mounted before any provider | `cordis.yml:74-77` |
+| The commands registry must be mounted before the commands | `cordis.yml:123-127` |
+| tool-todo's allowParallelInProgress is required (no schema default) | `cordis.yml:66-68` |
+| The plan-mode section is required and must be non-empty; a bare mount fails validation and rolls back the whole tree | `cordis.yml:131-137` |
+| The rc.6 schema key is `apiKeyEnv`, not `apiKey` (the old snapshot key is dropped by the loader) | `cordis.yml:30-32` |
 
-cc-tui 行（`cordis.yml:12-27`）：`provider: deepseek-official` 仅半钉（不构成完整
-路由，issue #67，见 [model-route.md](model-route.md)）、`fullscreen: true`（:19，
-Alt-screen 全屏）、`effort: max`（:24）、`sessionId: !!js process.env.DSH_CC_RESUME_SESSION ?? undefined`（:27）。
+The cc-tui row (`cordis.yml:12-27`): `provider: deepseek-official` is only
+half-pinned (doesn't form a complete route, issue #67, see
+[model-route.md](model-route.md)), `fullscreen: true` (:19, alt-screen
+fullscreen), `effort: max` (:24),
+`sessionId: !!js process.env.DSH_CC_RESUME_SESSION ?? undefined` (:27).
 
-### cordis.patch.yml（profile 覆盖层）
+### cordis.patch.yml (the profile override layer)
 
-`cordis.patch.yml:6-8` 文件头注释定义补丁语义：**"A patch replaces the targeted
-row's whole config"**——补丁整行替换 config，覆盖行必须复述全部键。
+`cordis.patch.yml:6-8`'s file-header comment defines the patch semantics:
+**"A patch replaces the targeted row's whole config"** — a patch replaces
+the config as a whole row, and an override row must restate every key.
 
-- 29 个顶层覆盖：23 个 `disabled: true` + 6 个 config 行（system-prompt:16、
-  llm-deepseek:26、agent-loop:36、sandbox-policy:132、approval:139、
-  session-persistence-jsonl:147）。
-- 1 个 insert 块（:161-217）插入 4 行：agent-presets(170)、cordis-host-runner(178)、
-  cc-tui(185)、working-activity(214)。cc-tui 行 `fullscreen: false`（:193，注释
-  "默认关闭——inline 模式下由终端原生选择/复制/scrollback 接管"，与裸组合相反，
-  见 [unknowns.md](unknowns.md) 的设计性差异）。working-activity 行
-  `publishIntervalMs: 500`（:217，默认 2000ms 调至 500 让状态栏计时平滑）。
-- agent-loop 行 `agents: []`（:36-38，"no declarative agents are started at
-  boot"——TUI 在运行时通过工厂创建/resume agent）。
-- `dsh.bundle.patch: "./cordis.patch.yml"`（package.json:103-107）是 CLI 识别
-  补丁层的元数据。
+- 29 top-level overrides: 23 `disabled: true` rows + 6 config rows
+  (system-prompt:16, llm-deepseek:26, agent-loop:36, sandbox-policy:132,
+  approval:139, session-persistence-jsonl:147).
+- 1 insert block (:161-217) inserting 4 rows: agent-presets(170),
+  cordis-host-runner(178), cc-tui(185), working-activity(214). The cc-tui
+  row has `fullscreen: false` (:193, commented "off by default — inline
+  mode lets the terminal's native selection/copy/scrollback take over",
+  the opposite of the bare composition — see the intentional difference
+  noted in [unknowns.md](unknowns.md)). The working-activity row has
+  `publishIntervalMs: 500` (:217, tightened from a default of 2000ms to
+  smooth out the status-bar timer).
+- The agent-loop row has `agents: []` (:36-38, "no declarative agents are
+  started at boot" — the TUI creates/resumes agents at runtime through a
+  factory).
+- `dsh.bundle.patch: "./cordis.patch.yml"` (package.json:103-107) is the
+  metadata the CLI uses to recognize the patch layer.
 
-### preset 优先级链
+### The preset priority chain
 
-`config.preset`（cordis.yml/patch 显式值）> `CC_TUI_PRESET` 环境变量
-（`cordis.patch.yml:202` `preset: !!js process.env.CC_TUI_PRESET ?? undefined`）>
-持久化 /preset（readPresetPref）> roster 默认 `'standard'`
-（`cordis.patch.yml:173` `config: { default: standard }`）。src/plugin.ts:160-163
-注释："cordis.yml `preset` over the persisted `/preset` choice; undefined adopts
-the roster default"；新建路径 `composePreset(ctx, configuredPreset ?? readPresetPref())`
-（src/plugin.ts:401）。
+`config.preset` (an explicit value in cordis.yml/the patch) >
+the `CC_TUI_PRESET` environment variable
+(`cordis.patch.yml:202` `preset: !!js process.env.CC_TUI_PRESET ?? undefined`)
+> the persisted /preset (readPresetPref) > the roster default `'standard'`
+(`cordis.patch.yml:173` `config: { default: standard }`).
+src/plugin.ts:160-163's comment: "cordis.yml `preset` over the persisted
+`/preset` choice; undefined adopts the roster default"; the create path is
+`composePreset(ctx, configuredPreset ?? readPresetPref())`
+(src/plugin.ts:401).
 
-preset 装配实现（`src/presets.ts`）：
+Preset assembly implementation (`src/presets.ts`):
 
-- `rosterOf` 经 `ctx.get('agentPresets')` 可选访问（`src/presets.ts:49-51`）；
-- `composePreset` 返回 `{ agentPreset, setup }`，setup 在 agent 工厂
-  `setup(agentCtx)` 钩子内 `presets.mount(agentCtx, resolvedId)`（:74-93），
-  解析失败降级为无 roster 组合（:80-85）；
-- `resolvePersistedPreset` 读 `ctx.get('sessionPersistence').load(id)` 后经
-  `resolveSessionPreset`——"the last agent-preset/selected event wins over the
-  creation header"（:105-126）；
-- 持久化位于 `~/.dsh-cc/agent-preset.json`（`src/presetPrefs.ts:15-63`，读/写
-  best-effort，id 正则 `^[a-z0-9][a-z0-9-]*$`）。
+- `rosterOf` accesses it optionally via `ctx.get('agentPresets')`
+  (`src/presets.ts:49-51`);
+- `composePreset` returns `{ agentPreset, setup }`, with setup calling
+  `presets.mount(agentCtx, resolvedId)` inside the agent factory's
+  `setup(agentCtx)` hook (:74-93), degrading to a roster-less composition
+  on a resolution failure (:80-85);
+- `resolvePersistedPreset` reads `ctx.get('sessionPersistence').load(id)`
+  and then goes through `resolveSessionPreset` — "the last
+  agent-preset/selected event wins over the creation header" (:105-126);
+- Persistence lives at `~/.dsh-cc/agent-preset.json`
+  (`src/presetPrefs.ts:15-63`, best-effort read/write, with the id
+  matched against the regex `^[a-z0-9][a-z0-9-]*$`).
 
-## apply 启动序
+## apply's startup order
 
-`plugin.ts` 的 apply 顺序（`:35-330`）：
+`plugin.ts`'s apply order (`:35-330`):
 
 ```text
-1. TTY 检查             src/plugin.ts:35-38    非交互终端直接抛错
-2. 语言解析             src/plugin.ts:44-45    CC_TUI_LANG > config.lang > resolveStartupLang() > zh
-3. 更新标记校验         src/plugin.ts:52-71    DSH_CC_UPDATED_FROM 校验后删除
-4. 服务装配             src/plugin.ts:82-91    userQuestions 兜底创建 + toolAskUser 挂载
-                                             + registerPackagedSkills + 问卷 provider 注册
-                                             + ctx.effect(rejectAll)（"All three must be in
-                                               place before the agent is resolved"）
-5. stderr 守卫          src/plugin.ts:100-115  child-process spawn 补丁（issue #17）
-6. 模型路由             src/plugin.ts:117-129  resolveModelRoute(configuredRoute, readModelPref())
-7. channel 创建         src/plugin.ts:144-165  挂 stderr 通知并 flush 积压（:166-171）
-8. 退出漏斗             src/plugin.ts:193-264  createExitFunnel
-9. React 渲染           src/plugin.ts:267-303  Chat + AlternateScreen 全屏树
-10. 后台版本检查        src/plugin.ts:308-314  checkForTuiUpdate（4s 超时静默）
-11. teardown effect     src/plugin.ts:320-323  只 markTeardown + unmount
-12. waitUntilExit       src/plugin.ts:330
+1. TTY check                src/plugin.ts:35-38    throws immediately on a non-interactive terminal
+2. Language resolution      src/plugin.ts:44-45    CC_TUI_LANG > config.lang > resolveStartupLang() > zh
+3. Update-marker validation src/plugin.ts:52-71    DSH_CC_UPDATED_FROM is validated then deleted
+4. Service assembly         src/plugin.ts:82-91    userQuestions falls back to creating it + mounting toolAskUser
+                                                    + registerPackagedSkills + registering the question-panel provider
+                                                    + ctx.effect(rejectAll) ("All three must be in
+                                                      place before the agent is resolved")
+5. The stderr guard         src/plugin.ts:100-115  patches child-process spawn (issue #17)
+6. Model routing            src/plugin.ts:117-129  resolveModelRoute(configuredRoute, readModelPref())
+7. Channel creation         src/plugin.ts:144-165  mounts stderr notifications and flushes the backlog (:166-171)
+8. The exit funnel          src/plugin.ts:193-264  createExitFunnel
+9. React render              src/plugin.ts:267-303  the Chat + AlternateScreen fullscreen tree
+10. Background version check src/plugin.ts:308-314  checkForTuiUpdate (silent on a 4s timeout)
+11. The teardown effect      src/plugin.ts:320-323  only markTeardown + unmount
+12. waitUntilExit             src/plugin.ts:330
 ```
 
-agent 解析（`resolveAgent`，`src/plugin.ts:352-429`）：
+Agent resolution (`resolveAgent`, `src/plugin.ts:352-429`):
 
-- resume 优先：有 sessionId 时 `ctx.agents.get(resumeId)`，未运行则
-  `resolvePersistedPreset` + `composePreset` + `ctx.agents.resume`（:375-381），
-  失败落回新建；
-- 新建：`validateModelRoute(llm, startupRoute)`（:410，校验不通过整体回退默认
-  路由）→ `ctx.agents.create`，meta 带 `agentPreset` 作为持久化 header
-  （:416-424）；
-- 失败 "Fail loud with the reason on stderr"（:425-432）。
+- Resume takes priority: with a sessionId present, `ctx.agents.get(resumeId)`;
+  if it's not running, `resolvePersistedPreset` + `composePreset` +
+  `ctx.agents.resume` (:375-381), falling back to creating a new one on
+  failure;
+- Create: `validateModelRoute(llm, startupRoute)` (:410, falling the whole
+  route back to the default when validation fails) → `ctx.agents.create`,
+  with meta carrying `agentPreset` as the persisted header (:416-424);
+- On failure, "Fail loud with the reason on stderr" (:425-432).
 
-### 环境变量入口全集
+### The full set of environment-variable entry points
 
-| 变量 | 读取位置 | 语义 |
+| Variable | Read at | Semantics |
 | --- | --- | --- |
-| CC_TUI_LANG | `src/plugin.ts:44` | 语言覆盖，无默认逐级回落 zh（`src/i18n.ts:1-11/390-392`） |
-| DSH_CC_UPDATED_FROM | `src/update.ts:12`，`src/plugin.ts:53-57` | 更新后重启校验，校验后删除 |
-| DSH_CC_RESUME_SESSION | `cordis.yml:27`、`cordis.patch.yml:203`；`src/plugin.ts:488` 生成 | resume 会话 id；`dsh-cc.cmd:29-32` 从 ~/.dsh-cc/resume.txt 喂入 |
-| DSH_CC_SESSION_ROOT | `cordis.yml:164`、`cordis.patch.yml:149` | JSONL 会话根目录覆盖；裸 cordis.yml 默认 ~/.dsh-cc/sessions，profile patch 默认 dshHomePath('sessions')（通常 ~/.dsh/sessions） |
-| CC_TUI_PRESET / CC_TUI_PERSONA | `cordis.patch.yml:202/17` | preset 覆盖；persona 默认 'You are a coding agent.' |
-| CC_TUI_COMPACT_RATIO / CC_TUI_COMPACT_RETAIN | `cordis.yml:183-184` | 默认 '0.2' / '0.05' |
-| CC_TUI_DISABLE_MOUSE | `src/utils/fullscreen.ts:10` | 禁用鼠标捕获 |
-| CC_TUI_THEME | `src/components/design-system/ThemeProvider.tsx:55` | 主题覆盖 |
-| CC_TUI_DEBUG | `src/utils/debug.ts:8` | 调试开关 |
-| DSH_CC_RENDER_LOG | `src/ink/terminal.ts:215` | 渲染日志 |
-| DSH_CC_WORKSPACE | `dsh-cc.cmd:16-17` | workspace 覆盖 |
-| DSH_CC_HEAP_WATCH | `scripts/run.ts:56` | dev-only 堆看护 |
+| CC_TUI_LANG | `src/plugin.ts:44` | A language override, falling back with no default through to zh (`src/i18n.ts:1-11/390-392`) |
+| DSH_CC_UPDATED_FROM | `src/update.ts:12`, `src/plugin.ts:53-57` | Post-update restart validation, deleted after checking |
+| DSH_CC_RESUME_SESSION | `cordis.yml:27`, `cordis.patch.yml:203`; generated by `src/plugin.ts:488` | The resume session id; fed in by `dsh-cc.cmd:29-32` from ~/.dsh-cc/resume.txt |
+| DSH_CC_SESSION_ROOT | `cordis.yml:164`, `cordis.patch.yml:149` | Overrides the JSONL session root; defaults to ~/.dsh-cc/sessions under a bare cordis.yml, and to dshHomePath('sessions') (usually ~/.dsh/sessions) under the profile patch |
+| CC_TUI_PRESET / CC_TUI_PERSONA | `cordis.patch.yml:202/17` | A preset override; persona defaults to 'You are a coding agent.' |
+| CC_TUI_COMPACT_RATIO / CC_TUI_COMPACT_RETAIN | `cordis.yml:183-184` | Default '0.2' / '0.05' |
+| CC_TUI_DISABLE_MOUSE | `src/utils/fullscreen.ts:10` | Disables mouse capture |
+| CC_TUI_THEME | `src/components/design-system/ThemeProvider.tsx:55` | A theme override |
+| CC_TUI_DEBUG | `src/utils/debug.ts:8` | The debug toggle |
+| DSH_CC_RENDER_LOG | `src/ink/terminal.ts:215` | The render log |
+| DSH_CC_WORKSPACE | `dsh-cc.cmd:16-17` | A workspace override |
+| DSH_CC_HEAP_WATCH | `scripts/run.ts:56` | The dev-only heap watchdog |
 
-无 bin 入口（`src/plugin.ts:479-483` 注释："The package ships no `dsh-cc` bin —
-resuming means feeding the session id through `DSH_CC_RESUME_SESSION`"）；
-`dsh-cc.cmd:1-41` 是仓库提供的 Windows 启动器（`@dsh --profile cc-tui %ARGS%`，
-`--resume` 读 resume.txt）。
+No bin entry point (`src/plugin.ts:479-483`'s comment: "The package ships
+no `dsh-cc` bin — resuming means feeding the session id through
+`DSH_CC_RESUME_SESSION`"); `dsh-cc.cmd:1-41` is the Windows launcher this
+repo ships (`@dsh --profile cc-tui %ARGS%`, with `--resume` reading
+resume.txt).
 
-## 命令分发链
+## The command-dispatch chain
 
 ```text
-src/components/PromptInput.tsx useInput 捕获键入（src/components/PromptInput.tsx:373）
-  -> '/' 触发 filterCommands 建议覆盖层（src/components/PromptInput.tsx:168-175）
-  -> Enter -> tryRunCommand（src/components/PromptInput.tsx:337-354）：
-     以 '/' 开头 -> parseCommandName（src/commands.ts:83-89，正则
-     /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/）-> channel.commandList 判知
-     -> 处理成功才进历史
-  -> src/screens/Chat.tsx runCommand 大 switch（src/screens/Chat.tsx:293-708）
+src/components/PromptInput.tsx's useInput captures keystrokes (src/components/PromptInput.tsx:373)
+  -> '/' triggers the filterCommands suggestion overlay (src/components/PromptInput.tsx:168-175)
+  -> Enter -> tryRunCommand (src/components/PromptInput.tsx:337-354):
+     starting with '/' -> parseCommandName (src/commands.ts:83-89, the regex
+     /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/) -> checked against channel.commandList
+     -> only enters history once handled successfully
+  -> src/screens/Chat.tsx's runCommand, a large switch (src/screens/Chat.tsx:293-708)
 ```
 
-内置命令走本地分支：
+Built-in commands go through a local branch:
 
-| 命令 | 处理 |
+| Command | Handling |
 | --- | --- |
-| /model | 打开 ModelPicker（src/screens/Chat.tsx:463-473） |
-| /rewind | 打开 RewindPicker（src/screens/Chat.tsx:513-518） |
-| /new | channel.newSession（src/screens/Chat.tsx:439-448） |
-| /compact | channel.compact（src/screens/Chat.tsx:457-459） |
-| /resume | 会话选择器（src/screens/Chat.tsx:494-512） |
-| /exit | onExit（src/screens/Chat.tsx:519-521） |
-| 技能命令 | 发送 SKILL_PROMPTS 激活提示（src/screens/Chat.tsx:672-685） |
+| /model | Opens ModelPicker (src/screens/Chat.tsx:463-473) |
+| /rewind | Opens RewindPicker (src/screens/Chat.tsx:513-518) |
+| /new | channel.newSession (src/screens/Chat.tsx:439-448) |
+| /compact | channel.compact (src/screens/Chat.tsx:457-459) |
+| /resume | The session picker (src/screens/Chat.tsx:494-512) |
+| /exit | onExit (src/screens/Chat.tsx:519-521) |
+| Skill commands | Sends the SKILL_PROMPTS activation prompt (src/screens/Chat.tsx:672-685) |
 
-default 分支只对 `command.external` 的注册表命令走
-`channel.runExternalCommand`（src/screens/Chat.tsx:691-704），未知名返回 false 放行给模型。
-外部命令执行（`src/channel.ts:1962-1976`）：`commandService.execute(agent, "/" + name + rawInput, signal)`，
-结果文本落为通知；`commandService` 是可选服务 `ctx.get('commands')`
-（src/channel.ts:879，dsh-commands 注册表）。channel 注释（:874-878）：execute
-"logs the paired command/run + command/done records"（plan-mode 投影依赖）。
+The default branch only goes through `channel.runExternalCommand` for
+registry commands with `command.external`
+(src/screens/Chat.tsx:691-704); an unknown name returns false and lets it
+through to the model. External-command execution (`src/channel.ts:1962-1976`):
+`commandService.execute(agent, "/" + name + rawInput, signal)`, with the
+result text landing as a notification; `commandService` is an optional
+service, `ctx.get('commands')` (src/channel.ts:879, the dsh-commands
+registry). The channel's comment (:874-878): execute "logs the paired
+command/run + command/done records" (which the plan-mode projection
+depends on).
 
-命令列表合并（`src/channel.ts:2226-2243`）：以 `LOCAL_COMMANDS`（39 条，
-`src/commands.ts:25-72`）为基底，注册表条目仅当 `merged.some(...)` 名字冲突时
-continue（本地命令保留），并挂 `ctx.on('commands/change', refreshCommandList)`。
+Command-list merging (`src/channel.ts:2226-2243`): starts from
+`LOCAL_COMMANDS` (39 entries, `src/commands.ts:25-72`) as the base, and a
+registry entry only `continue`s when `merged.some(...)` finds a name
+collision (the local command is kept), plus mounting
+`ctx.on('commands/change', refreshCommandList)`.
 
-**内部矛盾（已记录）**：`src/commands.ts:6-8` 模块注释声称 "with the registry
-handler winning for names both sides declare"，与相邻 JSDoc（:22-24 "locals win
-on name collisions"）及实际行为（src/channel.ts:2229-2230、src/screens/Chat.tsx:293 内置名先
-命中 switch）相反——行为是本地命令胜出。
+**An internal contradiction (on record)**: `src/commands.ts:6-8`'s module
+comment claims "with the registry handler winning for names both sides
+declare", which contradicts the adjacent JSDoc (:22-24 "locals win on name
+collisions") and the actual behavior (src/channel.ts:2229-2230,
+src/screens/Chat.tsx:293 — the built-in name hits the switch first) — the
+actual behavior is that local commands win.
 
-## 退出漏斗与 teardown
+## The exit funnel and teardown
 
-`src/plugin.ts:450-467` 的 `createExitFunnel` 提供 `markTeardown`（标记后
-`handleExit` 直接返回）与完整用户退出两条路径：
+`src/plugin.ts:450-467`'s `createExitFunnel` provides `markTeardown`
+(after which `handleExit` returns immediately) and the full user-exit
+path:
 
-| 路径 | 行为 |
+| Path | Behavior |
 | --- | --- |
-| teardown（recompose 触发，issue #12） | `ctx.effect(() => () => { funnel.markTeardown(); instance?.unmount() })`（src/plugin.ts:320-323）——只卸载 UI 不退出进程。注释："Teardown only unmounts the UI; user exit runs the full leave sequence"。解决 DSH launcher boot-time recompose 闪退回 shell 症状 |
-| 用户退出（/exit、双 Ctrl+C、渲染崩溃） | onUserExit（src/plugin.ts:193-264）：writeResumeTarget 写 ~/.dsh-cc/resume.txt（src/sessionHistory.ts:36-39）→ unmount → update 交接（updateRequested 时 disposeRootAndThen → updateTuiAndRestart）或打印 resumeCommand 提示 → disposeRootAndExit(ctx, 0)（:259-262） |
+| Teardown (triggered by a recompose, issue #12) | `ctx.effect(() => () => { funnel.markTeardown(); instance?.unmount() })` (src/plugin.ts:320-323) — only unmounts the UI without exiting the process. Comment: "Teardown only unmounts the UI; user exit runs the full leave sequence". Fixes the symptom of the DSH launcher's boot-time recompose flashing back to the shell |
+| User exit (/exit, a double Ctrl+C, a render crash) | onUserExit (src/plugin.ts:193-264): writeResumeTarget writes ~/.dsh-cc/resume.txt (src/sessionHistory.ts:36-39) → unmount → update handoff (disposeRootAndThen → updateTuiAndRestart when updateRequested) or prints the resumeCommand hint → disposeRootAndExit(ctx, 0) (:259-262) |
 
-退出后提示的 resume 命令（`src/plugin.ts:484-489`）：Windows 为
-`dsh-cc --resume <id>`，其他平台为 `DSH_CC_RESUME_SESSION=<id> dsh --profile <name>`。
+The resume command shown at exit (`src/plugin.ts:484-489`): `dsh-cc
+--resume <id>` on Windows, `DSH_CC_RESUME_SESSION=<id> dsh --profile
+<name>` on other platforms.
 
-## bootstrap 目录
+## The bootstrap directory
 
-`src/bootstrap/state.ts:1-14` 模块注释："Interaction-time telemetry stubs
-consumed by the ported Ink core"——三个函数全部空操作
-（`flushInteractionTime`/`updateLastInteractionTime`/`markScrollActivity`），仅被
-`src/ink/ink.tsx:9`、`src/ink/components/App.tsx:2`、`src/ink/components/ScrollBox.tsx:3`
-导入。"bootstrap" 目录名源自 Claude Code 原版遥测模块，**不是启动引导代码**。
+`src/bootstrap/state.ts:1-14`'s module comment: "Interaction-time telemetry
+stubs consumed by the ported Ink core" — all three functions are complete
+no-ops (`flushInteractionTime`/`updateLastInteractionTime`/
+`markScrollActivity`), imported only by `src/ink/ink.tsx:9`,
+`src/ink/components/App.tsx:2`, `src/ink/components/ScrollBox.tsx:3`. The
+"bootstrap" directory name comes from Claude Code's original telemetry
+module — **it is not startup/bootstrapping code**.
 
-## 未验证事项
+## Unverified items
 
-- dsh CLI Loader 如何读取 dsh.bundle.patch 并把 shipped `config/agent-presets/`
-  根叠加到 agent-presets 行、`dshHomePath()` 的实现——dsh CLI 与 dsh-app-boot
-  源码不在本仓库（`cordis.patch.yml:44-51` 与 `docs/getting-started.md:56-62`
-  仅注释/文档描述该机制）。
-- dsh-agent-presets 的 roster 内部行为：includeUserRoot（~/.dsh/.agent-presets
-  追加）、mount/recompose/serviceFor 的作用域链细节（`src/presets.ts:35-43`
-  仅声明最小接口 AgentPresetsLike）。
-- dsh-commands 注册表的 execute/list 语义（`src/channel.ts:879,1962-1976` 只
-  消费 CommandRuntime 接口）。
-- packaged-skills 实际注册结果：skills/ 目录实含 audit/bug/practice/
-  pr-comments/release-notes/review/vuln-check 7 个，但各 SKILL.md 的 frontmatter
-  字段未逐一核验。
+- How the dsh CLI Loader reads dsh.bundle.patch and layers the shipped
+  `config/agent-presets/` root onto the agent-presets row, and the
+  implementation of `dshHomePath()` — the dsh CLI and dsh-app-boot source
+  isn't in this repo (`cordis.patch.yml:44-51` and
+  `docs/getting-started.md:56-62` only describe the mechanism in comments/
+  docs).
+- dsh-agent-presets's internal roster behavior: includeUserRoot (appending
+  ~/.dsh/.agent-presets), and the scope-chain details of
+  mount/recompose/serviceFor (`src/presets.ts:35-43` only declares the
+  minimal AgentPresetsLike interface).
+- The dsh-commands registry's execute/list semantics
+  (`src/channel.ts:879,1962-1976` only consumes the CommandRuntime
+  interface).
+- The actual registration result of the packaged skills: the skills/
+  directory actually has 7 — audit/bug/practice/pr-comments/
+  release-notes/review/vuln-check — but each SKILL.md's frontmatter fields
+  weren't individually verified.
 
-相关文档：[overview.md](overview.md)（总览与模块边界）、
-[input-commands.md](input-commands.md)（命令与输入模型）、
-[model-route.md](model-route.md)（模型路由）、
-[session-context.md](session-context.md)（resume 与 teardown）、
-[update.md](update.md)（更新链）、[unknowns.md](unknowns.md)（未验证清单）。
+Related documents: [overview.md](overview.md) (overview and module
+boundaries), [input-commands.md](input-commands.md) (the command and input
+model), [model-route.md](model-route.md) (model routing),
+[session-context.md](session-context.md) (resume and teardown),
+[update.md](update.md) (the update pipeline), [unknowns.md](unknowns.md)
+(the unverified-items list).
