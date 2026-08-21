@@ -1,11 +1,11 @@
 /**
- * External editor regression (issue #123): Ctrl+X's $VISUAL/$EDITOR
+ * External editor regression (issue #123): Ctrl+G's $VISUAL/$EDITOR
  * resolution and the temp-file round trip. Covers:
  *
  * - splitEditorCommand: whitespace splitting + single/double quotes
  *   (`code --wait`, a path with spaces)
  * - resolveEditorCommand: VISUAL takes priority over EDITOR, a blank value
- *   is skipped, POSIX falls back to vi, Windows with no editor → undefined
+ *   is skipped, neither VISUAL nor EDITOR set → undefined (no vi fallback)
  * - resolveWindowsShim: PATH/PATHEXT resolution (code → code.cmd goes
  *   through cmd.exe, code.exe spawns directly), an explicit extension
  *   passes through unchanged
@@ -67,10 +67,7 @@ check('split: empty quotes → empty-string argument', eq(splitEditorCommand('""
 check('resolve: VISUAL takes priority', eq(resolveEditorCommand({ VISUAL: 'vim', EDITOR: 'nano' }), ['vim']))
 check('resolve: a blank VISUAL is skipped in favor of EDITOR', eq(resolveEditorCommand({ VISUAL: '  ', EDITOR: 'nano' }), ['nano']))
 check('resolve: a whole string with arguments is parsed', eq(resolveEditorCommand({ EDITOR: 'code --wait' }), ['code', '--wait']))
-check('resolve: Windows with no editor → undefined', resolveEditorCommand({}, 'win32') === undefined)
-if (process.platform !== 'win32') {
-  check('resolve: POSIX falls back to vi', eq(resolveEditorCommand({}), ['vi']))
-}
+check('resolve: neither VISUAL nor EDITOR set → undefined (no vi fallback)', resolveEditorCommand({}) === undefined)
 
 // ── cross-spawn quoting protocol (pure functions) ───────────────────────
 check(

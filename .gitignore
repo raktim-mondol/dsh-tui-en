@@ -5,5 +5,7 @@ package-lock.json
 .DS_Store
 *.tsbuildinfo
 *.tgz
+.tmp/
 AGENTS.md
 lib/
+.dsh-prompt-debug.json

@@ -112,6 +112,12 @@ export function getScrollDrainNode(): DOMElement | null {
 // scrolls, eventually clipping at the top). The frontFrame screen buffer
 // still holds the old content at that point — captureScrolledRows reads
 // from it before the front/back swap to preserve the text for copy.
+// Wheel drains report here too (issue #438): the pendingScrollDelta drain
+// below records its SIGNED per-frame delta (negative = content moved
+// down, wheel-up) so the selection follows wheel scrolls as well. One
+// event per ScrollBox per frame; when several boxes scroll in the same
+// frame, ink.tsx attributes the selection to the innermost viewport
+// containing it (see pickFollowForSelection).
 /**
  * At-bottom follow scroll recorded this frame: the scroll delta and
  * viewport bounds, consumed by ink.tsx to translate the active text
@@ -122,15 +128,18 @@ export type FollowScroll = {
   viewportTop: number
   viewportBottom: number
 }
-let followScroll: FollowScroll | null = null
+let followScrolls: FollowScroll[] = []
 
 /**
- * Read and clear the follow-scroll event recorded this frame.
- * @returns the follow-scroll delta and viewport bounds, or null.
+ * Read and clear the follow-scroll events recorded this frame. At most one
+ * per ScrollBox (a box that follows AND drains reports only the follow —
+ * the follow branch clears pendingScrollDelta before the drain runs);
+ * several boxes may each report when they scroll in the same frame.
+ * @returns this frame's follow-scroll events; empty when none.
  */
-export function consumeFollowScroll(): FollowScroll | null {
-  const f = followScroll
-  followScroll = null
+export function consumeFollowScroll(): FollowScroll[] {
+  const f = followScrolls
+  followScrolls = []
   return f
 }
 
@@ -855,11 +864,11 @@ function renderNodeToOutput(
         const followDelta = (node.scrollTop ?? 0) - scrollTopBeforeFollow
         if (followDelta > 0) {
           const vpTop = node.scrollViewportTop ?? 0
-          followScroll = {
+          followScrolls.push({
             delta: followDelta,
             viewportTop: vpTop,
             viewportBottom: vpTop + innerHeight - 1,
-          }
+          })
         }
         // Drain pendingScrollDelta. Native terminals (proportional burst
         // events) use proportional drain; xterm.js (VS Code, sparse events +
@@ -872,7 +881,9 @@ function renderNodeToOutput(
         const pending = node.pendingScrollDelta
         const cMin = node.scrollClampMin
         const cMax = node.scrollClampMax
-        const haveClamp = cMin !== undefined && cMax !== undefined
+        // Single-sided clamps are valid: sticky virtualization sets only the
+        // min (scroll-up protection during the sticky->manual transition)
+        // and leaves the max open for bottom-follow.
         if (pending !== undefined && pending !== 0) {
           // Drain continues even past the clamp — the render-clamp below
           // holds the VISUAL at the mounted edge regardless. Hard-stopping
@@ -887,8 +898,8 @@ function renderNodeToOutput(
           // frame, roughly matching React's slide rate so the gap stays
           // bounded and catch-up is quick once input stops.
           const pastClamp =
-            haveClamp &&
-            ((pending < 0 && cur < cMin) || (pending > 0 && cur > cMax))
+            (pending < 0 && cMin !== undefined && cur < cMin) ||
+            (pending > 0 && cMax !== undefined && cur > cMax)
           const eff = pastClamp ? Math.min(4, innerHeight >> 3) : innerHeight
           cur += isXtermJsHost()
             ? drainAdaptive(node, pending, eff)
@@ -910,14 +921,38 @@ function renderNodeToOutput(
         // the right range. Not scheduling scrollDrainNode here keeps the
         // clamp passive — React's commit → resetAfterCommit → onRender will
         // paint again with fresh bounds.
-        const clamped = haveClamp
-          ? Math.max(cMin, Math.min(scrollTop, cMax))
-          : scrollTop
+        const clamped = Math.max(
+          cMin ?? -Infinity,
+          Math.min(scrollTop, cMax ?? Infinity),
+        )
         node.scrollTop = scrollTop
         // Clamp hitting top/bottom consumes any remainder. Set drainPending
         // only after clamp so a wasted no-op frame isn't scheduled.
         if (scrollTop !== cur) node.pendingScrollDelta = undefined
         if (node.pendingScrollDelta !== undefined) scrollDrainNode = node
+        // Wheel-drain selection translate (#438): the drain moved content
+        // by (scrollTop - scrollTopBeforeFollow) rows this frame, minus
+        // what at-bottom follow already reported above (followDelta is 0
+        // unless the follow branch fired — and when it did, it cleared
+        // pendingScrollDelta, so the drain contributed nothing). Record
+        // the remainder as a follow-scroll event with a SIGNED delta so
+        // ink.tsx re-anchors any active selection to the text. Without
+        // this, wheel scrolling leaves the highlight pinned to screen
+        // rows and copy-on-select grabs whatever scrolled under it.
+        // scrollTo/scrollToElement jumps never contribute: they write
+        // scrollTop before scrollTopBeforeFollow is captured. Multi-frame
+        // drains record per-frame portions; the selection's virtual-row
+        // tracking accumulates the clamp overshoot across frames. Multiple
+        // boxes may each record; ink.tsx attributes by viewport containment.
+        const wheelDelta = scrollTop - scrollTopBeforeFollow - followDelta
+        if (wheelDelta !== 0) {
+          const wheelVpTop = node.scrollViewportTop ?? 0
+          followScrolls.push({
+            delta: wheelDelta,
+            viewportTop: wheelVpTop,
+            viewportBottom: wheelVpTop + innerHeight - 1
+          })
+        }
         // A manual scroll that lands exactly on the bottom re-pins sticky
         // IMMEDIATELY on this frame — the follow-block restore above only
         // fires when a later frame happens, but an idle stream (turn done,
@@ -992,6 +1027,14 @@ function renderNodeToOutput(
           const scrollHeight = contentYoga.getComputedHeight()
           const prevHeight = contentCached?.height ?? scrollHeight
           const heightDelta = scrollHeight - prevHeight
+          // NOTE: scroll-up + streaming growth (delta < 0, heightDelta > 0)
+          // deliberately stays OUT of the fast path. Virtualization moves the
+          // topPad spacer on the same frame (every mounted row's yogaTop
+          // shifts), so the appended-content screen mapping is not derivable
+          // from prevHeight - a widened edge region misses rows and leaves
+          // blitted stale copies next to the new ones (content duplication).
+          // Upstream observed the same class of bug ("content bleeding
+          // through during scroll-up + streaming") and chose the full path.
           const safeForFastPath =
             !hint ||
             heightDelta === 0 ||

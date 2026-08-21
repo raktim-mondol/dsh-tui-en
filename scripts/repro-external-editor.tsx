@@ -154,8 +154,8 @@ stdinObj.write('what is cordis')
 await sleep(300)
 check('setup: draft is in the input box', screenHas('what is cordis'))
 
-// Ctrl+X → fake editor (writes to disk and exits after 600ms)
-stdinObj.write('\x18')
+// Ctrl+G → fake editor (writes to disk and exits after 600ms)
+stdinObj.write('\x07')
 await sleep(250)
 // Leftover bytes during the handoff session: without drain/suppression, a
 // double-Esc after resume = clear input, then Esc on empty input = open the rewind picker.

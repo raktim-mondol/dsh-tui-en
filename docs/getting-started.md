@@ -182,9 +182,37 @@ pnpm build
 pnpm smoke
 ```
 
-`pnpm build` runs `tsc -p tsconfig.json` and emits `src/` into `lib/types/`.
-Those generated files are committed and published, so source changes must be
-followed by a rebuild.
+`pnpm build` cleans the ignored `lib/` directory, compiles `src/` into
+`lib/types/`, and runs the build gates. **Git URL installs are not supported**
+(workspace deps / submodule / pnpm ≥11 prepare allowlist); the publish workflow
+performs an explicit clean compilation and package-surface check before packing.
+
+For an integration test of the current source, run this once after initial
+setup or whenever the normal model/key configuration changes:
+
+```sh
+pnpm dev:copy-config
+```
+
+After each source change, build, pack, install in isolation, and launch with:
+
+```sh
+pnpm dev
+```
+
+`pnpm dev:copy-config` copies only `~/.dsh/settings.yaml` and
+`~/.dsh/.credentials.yaml`. Files are set to mode `0600` on Unix; Windows uses
+the OS-managed file ACL. `pnpm dev` uses isolated `HOME`, `DSH_HOME`, and session
+directories, leaving the normal `~/.dsh/profiles/dsh-tui`, `~/.dsh-tui`, and
+sessions untouched. The test root defaults to
+`$XDG_CACHE_HOME/dsh-tui-dev` on Unix (`~/.cache/dsh-tui-dev` when unset) and
+`%LOCALAPPDATA%\dsh-tui-dev` on Windows. Override it with `DSH_TUI_DEV_ROOT`.
+
+To verify only the build, pack, and install path without launching the TUI, run:
+
+```sh
+pnpm dev:test
+```
 
 CI also runs three rendering regressions:
 
@@ -194,10 +222,11 @@ node --import tsx/esm scripts/verify-askpanel-layout.tsx
 node --import tsx/esm scripts/repro-toolcards.tsx
 ```
 
-The `pnpm tui` script invokes `scripts/run.ts`, which assumes the package lives
-inside a DeepSeek Harness monorepo with a `packages/*` layout. It is not a
-portable launcher for this standalone repository. For a real integration
-check, install the package into a profile and run it in a TTY.
+The `pnpm tui` script invokes `scripts/run.ts`, which directly composes DeepSeek
+Harness source patches and assumes a Harness monorepo `packages/*` layout by
+default. A standalone checkout must set `DSH_TUI_DEV_WORKSPACE` to the Harness
+root. To test only this repository's current source, prefer `pnpm dev`; it uses
+the same profile installation path as an end-user install.
 
 
 ## Troubleshooting

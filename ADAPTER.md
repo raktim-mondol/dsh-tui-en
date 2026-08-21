@@ -13,9 +13,16 @@ out-of-bounds import fails; wired into `build`).
 
 ## Upstream Contract
 
-- Validated version line: `0.1.0-rc.6` (`src/dsh-adapter/contract.ts`)
-- Blessed package list (harness packages validated by rc number, framework
-  packages cordis/schemastery validated by major version)
+- Validated version line: primary `0.1.1-rc.2`, compatible with `0.1.1-rc.1`
+  / `0.1.0-rc.8` / `0.1.0-rc.7` / `0.1.0-rc.6`
+  (`UPSTREAM_VALIDATED_VERSIONS` in `src/dsh-adapter/contract.ts`; feature
+  gating uses `installedMeetsVersion(pkg, 'x.y.z-rc.n')` for cross-family
+  comparison, degrading gracefully on older installs)
+- Peer range: `^0.1.0-rc.6 || ^0.1.1-rc.1` (allows installs from rc.6 onward
+  and the 0.1.1 line; a version outside the contract logs a drift warning
+  at startup)
+- Blessed package list (harness packages validated by full version number,
+  framework packages cordis/schemastery validated by major version)
 - At startup: drift logs a warning; on CI, `pnpm run verify:contract` fails outright
 
 ## Patch Surface
@@ -29,14 +36,20 @@ out-of-bounds import fails; wired into `build`).
   additionally disables one more row, `hmr` (which the TUI doesn't need)
 - **config overrides**: 6 rows (system-prompt / llm-deepseek / agent-loop /
   sandbox-policy / approval / session-persistence-jsonl), all surface-level release config
-- **inserts**: 8 rows (dsh-tui, working-activity, storage, storage-json,
-  storage-domain, workspace, agent-presets, cordis-host-runner; the last 6
-  are shared with official web-app)
+- **inserts**: 14 rows (dsh-tui, working-activity, six plugin-interop rows,
+  plus dsh-tui-storage, dsh-tui-storage-json, dsh-tui-storage-domain,
+  dsh-tui-workspace, dsh-tui-agent-presets, dsh-tui-cordis-host-runner).
+  The last 6 correspond to official web-app's host-plane services but use
+  dsh-tui-scoped ids, and self-disable when they detect an official row
+  with the same id/name already present, so they coexist safely
+  (`dsh web` no longer hits a `duplicate loader entry id`)
 
 If the patch surface changes after an upstream release, `pnpm run
 verify:patch-surface` fails first in CI; after confirming the diff is
 intentional, run `node --import tsx/esm scripts/verify-patch-surface.ts
---snapshot` to regenerate the snapshot.
+--snapshot` to regenerate the snapshot. `pnpm run verify:web-coexistence`
+composes the dsh-tui patch together with the official web-app patch under
+include semantics, directly catching any loader-entry-id reuse.
 
 ## Upgrade Process
 

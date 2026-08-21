@@ -1,13 +1,15 @@
 import React from 'react'
 import { t } from '../i18n.js'
 import { Box, Text, useTerminalSize, type ScrollBoxHandle } from '../ui.js'
-import type { ChatRow, ToolRow, ToolCallView, ToolResultView } from '../dsh-adapter/channel.js'
+import type { ChatRow, ToolRow, ToolCallView, ToolResultView, SubagentRow } from '../dsh-adapter/channel.js'
 import type { DOMElement } from '../ink/dom.js'
 import { Divider } from './design-system/Divider.js'
 import { UserPromptMessage } from './messages/UserPromptMessage.js'
 import { AssistantTextMessage } from './messages/AssistantTextMessage.js'
 import { AssistantThinkingMessage } from './messages/AssistantThinkingMessage.js'
 import { AssistantToolUseMessage } from './messages/AssistantToolUseMessage.js'
+import { SubagentMessage } from './Chat/SubagentMessage.js'
+import { isMinimalMode } from '../minimalMode.js'
 import { InterruptedByUser } from './InterruptedByUser.js'
 import { LogoV2 } from './LogoV2.js'
 import { StreamingMarkdown } from './StreamingMarkdown.js'
@@ -15,11 +17,12 @@ import { MessageMetadata } from './messages/MessageMetadata.js'
 import { stripNarration } from '../utils/narration.js'
 import { stringWidth } from '../ink/stringWidth.js'
 import { truncateToWidth } from '../ink/truncateToWidth.js'
+import type { ToolBackground } from '../tuiDisplayPrefs.js'
 
 /**
  * Transcript rows rendered in the Claude Code visual language: user prompts
  * on a grey bubble with a `❯` pointer, assistant text with a `●` bullet and
- * markdown, thinking folded to `∴ Thinking (ctrl+o to expand)`, tool calls as
+ * markdown, thinking folded to `⚓ Thinking (ctrl+o to expand)`, tool calls as
  * status-dot cards. `expanded` (Ctrl+O) shows full reasoning + full tool
  * args/results; `expandedRows` (message-selection mode, Enter) expands single
  * rows; `selectedId` highlights the selected row.
@@ -48,6 +51,10 @@ export function MessageList({
   selectedId,
   onToggleRow,
   model,
+  diffLayout = 'auto',
+  thinkingFold = 'preview',
+  toolBackground = 'none',
+  activityFrames,
   showAll,
   onToggleAll,
   onLoadOlder,
@@ -66,6 +73,15 @@ export function MessageList({
   selectedId: number | null
   onToggleRow: (rowId: number) => void
   model: string
+  /** Edit/Write diff presentation preference (forwarded to tool cards). */
+  diffLayout?: 'auto' | 'split' | 'unified'
+  /** Thinking-block display mode from channel (`preview`/`full`). */
+  thinkingFold?: 'preview' | 'full'
+  /** Tool-card background treatment from the live channel settings. */
+  toolBackground?: ToolBackground
+  /** Working-activity preset name from the channel; drives the subagent
+   *  card's running glyph so both indicators follow one setting. */
+  activityFrames?: string
   showAll: boolean
   onToggleAll: () => void
   /** Restore folded-away older rows from the session log (CC-style "load
@@ -98,6 +114,7 @@ export function MessageList({
     ? rows
     : rows.slice(hiddenCount)
   ).filter(row => thinkingVisible || row.kind !== 'reasoning')
+
   // CC addMargin: every rendered block gets a 1-row top margin except the
   // first. Pre-pass over the FULL list so a windowed row keeps the exact
   // spacing it would have in a fully-mounted list.
@@ -109,17 +126,16 @@ export function MessageList({
       prev = row.kind
     }
   }
-  // CC's expanded rows keep a persistent hover-grey background (VirtualItem:
-  // `expanded ? userMessageBackgroundHover : undefined`).
+  // Selection keeps its highlight; expanded rows render with no fill (the
+  // diff line tints inside cards are the only backgrounds in the transcript).
   const rowBackground = (rowId: number) => {
     const isSelected = selectedId === rowId
     if (isSelected) return 'messageActionsBackground'
-    if (expandedRows.has(rowId)) return 'userMessageBackgroundHover'
     return undefined
   }
 
   // --- layout virtualization ---------------------------------------------
-  const { columns } = useTerminalSize()
+  const { columns, rows: termRows } = useTerminalSize()
   // Measured row heights, remembered after a row unmounts so virtualization
   // can compute total content height. Bounded: row ids grow monotonically
   // and rows are never removed from the transcript (foldRows keeps the
@@ -129,6 +145,30 @@ export function MessageList({
   const HEIGHTS_CACHE_MAX = 5000
   const heightsRef = React.useRef(new Map<number, number>())
   const localRefs = React.useRef(new Map<number, DOMElement>())
+  /** Row ids that have been mounted (and therefore painted into the
+   *  terminal) at least once. The sticky window may skip a row ONLY after
+   *  this: an unpainted row above the window has no scrollback copy, so
+   *  skipping it would erase it from the user's history entirely — preset
+   *  history at boot (session resume) landed exactly there. Cleared when
+   *  the list head changes identity (rewind / new session / loadOlder
+   *  prepends restored rows that must paint again). */
+  const paintedOnceRef = React.useRef<Set<number>>(new Set())
+  const paintedBaseRef = React.useRef<number | undefined>(undefined)
+  /** Window-expansion hold: after the window WIDENS (new rows mounted),
+   *  refuse to tighten for a short hold so the mounted rows actually reach
+   *  the terminal. React commits within one ink frame coalesce — a render
+   *  that mounts rows followed by the measure-tick re-render that drops
+   *  them paints only the DROPPED layout, and never-mounted rows have no
+   *  scrollback copy (preset history at boot vanished — CI
+   *  repro-inline-scrollback). After the hold, tightening is visually
+   *  free: those rows sit in scrollback and the diff skips them. */
+  const lastStartRef = React.useRef<number>(-1)
+  const holdUntilRef = React.useRef<number>(0)
+  const listHeadId = visibleRows[0]?.id
+  if (listHeadId !== undefined && paintedBaseRef.current !== undefined && listHeadId !== paintedBaseRef.current) {
+    paintedOnceRef.current = new Set()
+  }
+  if (listHeadId !== undefined) paintedBaseRef.current = listHeadId
   /** Content-space offset of visibleRows[0] (header + dividers), measured. */
   const baseRef = React.useRef<number | null>(null)
   const measureQueuedRef = React.useRef(false)
@@ -184,7 +224,60 @@ export function MessageList({
   // back to the real bottom: a self-sustaining ping-pong that blanks the
   // transcript mid-stream.
   if (sticky && visibleRows.length > 0) {
+    // Sticky (follow-bottom): the viewport shows the TAIL of the content —
+    // mount exactly the tail window the floor walk covers, not everything
+    // from the scrollTop scan. Main-screen ScrollBox reports its viewport
+    // as the CONTENT height (the terminal itself is the scroller), so both
+    // the scan and an unclamped floor walk mount EVERY row in long
+    // sessions — and React's commit traverses every fiber of every mounted
+    // row per frame (measured as the dominant long-session stall). The
+    // user only ever sees terminal rows: clamp the walk-back coverage to
+    // the TERMINAL viewport plus overscan.
     start = Math.min(start, visibleRows.length - 1)
+    // Blank-band guard: sticky scrollTop tracks the renderer's FRESH Yoga
+    // scrollHeight, while these offsets use per-row heights measured one to
+    // two commits late. During fast streaming the accurate scrollTop scans
+    // deeper through the underestimated offsets than the real viewport does,
+    // unmounting rows that are still on screen (visible spacer band). Walk
+    // backwards from the tail with the known heights and mount at least one
+    // terminal viewport plus overscan of content above it, so the window
+    // can never open a gap inside what the user is looking at.
+    let covered = Math.min(viewport, termRows) + OVERSCAN_LINES
+    let floor = visibleRows.length - 1
+    while (floor > 0 && covered > 0) {
+      covered -= heightOf(visibleRows[floor])
+      floor--
+    }
+    // The walk exhausted the whole list: every row is within coverage —
+    // floor+1 here would drop row 0 (its content then has no terminal copy
+    // anywhere; preset history lost its head — CI repro-inline-scrollback).
+    start = floor === 0 && covered > 0 ? 0 : floor + 1
+    // Paint-at-least-once: extend the window over any row that has never
+    // been mounted. A row the window skips keeps only its terminal/scrollback
+    // copy — a row that was never painted has NO copy anywhere, so preset
+    // history (session resume, repro-inline-scrollback's #39 family) would
+    // vanish from the user's scrollback. Extending mounts everything above
+    // on the first frame (topPad 0, full paint), then the set fills and the
+    // window tightens to the tail.
+    const paintedOnce = paintedOnceRef.current
+    for (let i = 0; i < start; i++) {
+      if (!paintedOnce.has(visibleRows[i]!.id)) {
+        start = i
+        break
+      }
+    }
+    // Expansion hold — AFTER the extension so it tracks the FINAL window:
+    // never tighten within the hold window after a widen. React commits
+    // inside one ink frame coalesce; a mount followed by the measure-tick
+    // re-render that drops the row paints only the DROPPED layout, and the
+    // row's painted-once mark (set at the first commit) is a lie.
+    if (lastStartRef.current >= 0 && start > lastStartRef.current && performance.now() < holdUntilRef.current) {
+      start = lastStartRef.current
+    }
+    if (lastStartRef.current < 0 || start < lastStartRef.current) {
+      holdUntilRef.current = performance.now() + 120
+    }
+    lastStartRef.current = start
   }
   if (forceMountRowId !== undefined && forceMountRowId !== null) {
     const idx = visibleRows.findIndex(row => row.id === forceMountRowId)
@@ -192,6 +285,14 @@ export function MessageList({
       start = Math.min(start, idx)
       end = Math.max(end, idx + 1)
     }
+  }
+  // The newest failed tool call carries the trajectory footnote
+  // (failureHint). Virtualization must not unmount it: before the window
+  // clamp the row was always mounted, now keep mounting it explicitly while
+  // the hint is live (verify-trace-scene's footnote check).
+  if (failureHintRowId !== undefined && failureHintRowId !== null) {
+    const idx = visibleRows.findIndex(row => row.id === failureHintRowId)
+    if (idx !== -1) start = Math.min(start, idx)
   }
   const topPad = offsets[start] ?? 0
   const mountedBottom = end < visibleRows.length ? offsets[end] : total
@@ -214,8 +315,12 @@ export function MessageList({
       }
     }
   }
+  const lastUnseenReportRef = React.useRef(-1)
   React.useEffect(() => {
-    onUnseenCount?.(unseenCount)
+    if (unseenCount !== lastUnseenReportRef.current) {
+      lastUnseenReportRef.current = unseenCount
+      onUnseenCount?.(unseenCount)
+    }
   })
 
   // Post-commit: measure mounted rows, derive the content-space base from
@@ -223,6 +328,11 @@ export function MessageList({
   // mounted coverage so burst scrolls never show blank spacer.
   React.useLayoutEffect(() => {
     let changed = false
+    // Mounted ⇒ painted: record rows eligible for window skipping.
+    const paintedOnce = paintedOnceRef.current
+    for (const id of localRefs.current.keys()) {
+      if (!paintedOnce.has(id)) paintedOnce.add(id)
+    }
     for (const [id, el] of localRefs.current) {
       const h = el.yogaNode?.getComputedHeight()
       if (h !== undefined && h > 0 && heightsRef.current.get(id) !== h) {
@@ -247,7 +357,16 @@ export function MessageList({
     }
     if (scrollHandle) {
       if (sticky || (start === 0 && end >= visibleRows.length)) {
-        scrollHandle.setClampBounds(undefined, undefined)
+        // Sticky still needs the MIN clamp: the first wheel-up breaks sticky
+        // on the DOM (ScrollBox.scrollBy) several frames before React
+        // commits a new mount window, and the drain frames in between paint
+        // unmounted spacer rows as a blank band. Clamping to the currently
+        // mounted top shows the edge content until React catches up - same
+        // behavior as the steady-state scroll path. The MAX clamp stays
+        // disabled: sticky follow pushes scrollTop to each frame's new
+        // maxScroll, which a stale mounted max would clamp away.
+        const min = start > 0 ? Math.max(0, base + topPad - viewport) : undefined
+        scrollHandle.setClampBounds(min, undefined)
       } else {
         const min = Math.max(0, base + topPad - viewport)
         scrollHandle.setClampBounds(min, Math.max(min, base + mountedBottom - viewport))
@@ -297,6 +416,7 @@ export function MessageList({
         // spacing; only the very first row of the whole list has none.
           const addMargin = margins.get(row.id) === true
           const tool = row.tool
+          const subagent = row.kind === 'subagent' ? row.subagent : undefined
           return (
             <MemoRow
               key={row.id}
@@ -312,6 +432,10 @@ export function MessageList({
               isExpanded={expandedRows.has(row.id)}
               expanded={expanded}
               model={model}
+              diffLayout={diffLayout}
+              thinkingFold={thinkingFold}
+              toolBackground={toolBackground}
+              activityFrames={activityFrames}
               background={rowBackground(row.id)}
               toolCallId={tool?.callId}
               toolName={tool?.name}
@@ -327,6 +451,7 @@ export function MessageList({
               toolStartedAt={tool?.startedAt}
               toolDurationMs={tool?.durationMs}
               nowSec={tool?.status === 'running' ? nowSec : undefined}
+              subagent={subagent}
               onToggleRow={onToggleRow}
               setRowRef={setRowRef}
             />
@@ -359,7 +484,13 @@ type MemoRowProps = {
   isExpanded: boolean
   expanded: boolean
   model: string
-  background: 'messageActionsBackground' | 'userMessageBackgroundHover' | undefined
+  /** Edit/Write diff presentation preference (forwarded to tool cards). */
+  diffLayout: 'auto' | 'split' | 'unified'
+  thinkingFold: 'preview' | 'full'
+  toolBackground: ToolBackground
+  /** Working-activity preset name; drives the subagent card's running glyph. */
+  activityFrames: string | undefined
+  background: 'messageActionsBackground' | undefined
   // ToolRow, flattened: the channel writes status/result fields in place,
   // so passing the object itself would make mutations invisible to memo.
   toolCallId: string | undefined
@@ -381,6 +512,9 @@ type MemoRowProps = {
   /** Second-resolution clock, forwarded only while the tool runs so the
    *  live elapsed label ticks; settled rows never receive a changing prop. */
   nowSec: number | undefined
+  // SubagentRow, stable ref (subagent lifecycle events update the store, not
+  // the row ref itself, so a plain ref compare stays correct).
+  subagent: SubagentRow | undefined
   onToggleRow: (rowId: number) => void
   setRowRef: (rowId: number, el: DOMElement | null) => void
 }
@@ -398,6 +532,10 @@ function TranscriptRow({
   isExpanded,
   expanded,
   model,
+  diffLayout,
+  thinkingFold,
+  toolBackground,
+  activityFrames,
   background,
   toolCallId,
   toolName,
@@ -412,6 +550,7 @@ function TranscriptRow({
   toolResultView,
   toolStartedAt,
   toolDurationMs,
+  subagent,
   onToggleRow,
   setRowRef,
 }: MemoRowProps): React.ReactNode {
@@ -433,7 +572,6 @@ function TranscriptRow({
             text={text}
             addMargin={addMargin}
             isSelected={isSelected}
-            isExpanded={isExpanded}
             onClick={onClick}
           />
         </Box>
@@ -446,6 +584,7 @@ function TranscriptRow({
           marginTop={addMargin ? 1 : 0}
           width="100%"
           backgroundColor={background}
+          ref={ref}
         >
           <Box minWidth={2}>
             <Text color="text">●</Text>
@@ -489,6 +628,13 @@ function TranscriptRow({
           <AssistantThinkingMessage
             thinking={text}
             addMargin={addMargin}
+            streaming={streaming}
+            preview={
+              streaming &&
+              thinkingFold === 'preview' &&
+              !expanded &&
+              !isExpanded
+            }
             // Streaming reasoning shows expanded live, then folds
             // automatically once the turn settles (unless Ctrl+O or a
             // single-row expansion keeps it open).
@@ -534,6 +680,8 @@ function TranscriptRow({
             isSelected={isSelected}
             isExpanded={isExpanded}
             footnote={toolFootnote}
+            diffLayout={diffLayout}
+            toolBackground={toolBackground}
           />
         </Box>
       )
@@ -585,6 +733,19 @@ function TranscriptRow({
           )}
         </Box>
       )
+    case 'subagent':
+      if (!subagent) return null
+      return (
+        <Box flexDirection="column" ref={ref}>
+          <SubagentMessage
+            subagent={subagent}
+            addMargin={addMargin}
+            activityFrames={activityFrames}
+            isExpanded={isExpanded}
+            onClick={() => onToggleRow(rowId)}
+          />
+        </Box>
+      )
   }
 }
 
@@ -608,14 +769,19 @@ export function LogoHeader({
   model,
   effort,
   cwd,
+  whale = true,
 }: {
   model: string
   effort?: string | undefined
   cwd: string
+  whale?: boolean
 }): React.ReactNode {
+  // Minimal mode drops the whole splash (whale art AND wordmark) — only the
+  // transcript and a bare status bar remain.
+  if (isMinimalMode()) return null
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <LogoV2 model={model} effort={effort} cwd={cwd} />
+      <LogoV2 model={model} effort={effort} cwd={cwd} whale={whale} />
     </Box>
   )
 }

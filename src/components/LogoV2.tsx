@@ -1,6 +1,7 @@
 import React from 'react'
-import { t as tr } from '../i18n.js'
-import { modLabel } from '../utils/modifiers.js'
+import { t as tr, tOr } from '../i18n.js'
+import { pickRandomTip, type Tip } from '../tips.js'
+import { upstreamDriftSummary, UPSTREAM_VALIDATED_VERSION, type UpstreamDriftSummary } from '../dsh-adapter/contract.js'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +10,7 @@ import { getTheme } from '../theme.js'
 import { useTheme } from './design-system/ThemeProvider.js'
 import { parseRGB } from './Spinner/spinnerUtils.js'
 import { renderBigText } from './bigfont.js'
+import { stringWidth } from '../ink/stringWidth.js'
 import { BRAND, FLASH, ICE, PALE, sweep } from './shimmer.js'
 import { STANDARD_FRAME_INDEX, WhaleArt } from './Whale.js'
 import { OPENING_SEQUENCE } from './whaleFrames.js'
@@ -38,13 +40,16 @@ const WHALE_MIN_COLUMNS = 64
 const FULL_WHALE_WIDTH = 40
 
 /**
- * Leading spaces that center the welcome line under the drawn whale: the
- * art's bounding box spans sprite columns 3..34 (center 18.5) of the
- * 40-wide box, and the tagline measure 14
- * columns — 18.5 − 7 = 11.5 → 12. Centered on the full 40-column box
- * instead would need 13, which reads one column right of the whale body.
+ * Center of the whale art's bounding box: sprite columns 3..34 (center
+ * 18.5) of the 40-wide box. The welcome tagline is indented so its own
+ * center lands on this column — for the 14-column Chinese tagline that is
+ * 18.5 − 7 = 11.5 → 12 leading spaces. (Centering on the full 40-column
+ * box would need 13, which reads one column right of the whale body.)
+ * The pad is recomputed from the rendered tagline's display width so
+ * longer locales — e.g. the 21-column English tagline → 8 — stay
+ * centered under the art too.
  */
-const WELCOME_PAD = 12
+const WHALE_CENTER = 18.5
 
 /** `max` → `Max` (effort levels arrive lower-case from the adapter). */
 function capitalize(text: string): string {
@@ -70,12 +75,22 @@ export function LogoV2({
   effort,
   cwd,
   skipIntro = false,
+  tip,
+  whale = true,
+  drift,
 }: {
   model: string
   effort?: string | undefined
   cwd: string
   /** Test seam: mount straight into the settled header (probes skip the intro). */
   skipIntro?: boolean
+  /** Test seam: pin the startup tip line (probes need a deterministic tip). */
+  tip?: Tip
+  /** Show the pixel whale art (settings `dsh-tui.whale`); off → text-only header. */
+  whale?: boolean
+  /** Test seam: pin/suppress the upstream-drift notice (`null` forces it off;
+   * `undefined` — the production default — auto-detects the install). */
+  drift?: UpstreamDriftSummary | null
 }): React.ReactNode {
   const [step, setStep] = React.useState(skipIntro ? OPENING_SEQUENCE.length : 0)
   const settled = step >= OPENING_SEQUENCE.length
@@ -104,11 +119,27 @@ export function LogoV2({
   const wordmarkShimmerRGB = parseRGB(theme.claudeShimmer) ?? ICE
   const taglineRGB = parseRGB(theme.claudeBlue_FOR_SYSTEM_SPINNER) ?? ICE
 
-  const showWhale = columns >= WHALE_MIN_COLUMNS
+  const showWhale = whale && columns >= WHALE_MIN_COLUMNS
   const frameIndex = settled ? STANDARD_FRAME_INDEX : OPENING_SEQUENCE[step].frame
   // Frozen clock for the settled header: t=0 parks every sweep highlight
   // off-screen, leaving the static gradient behind.
   const t = settled ? 0 : time
+
+  const tagline = tr('logo-tagline')
+  // One random tip per mount: the settled header must not re-roll on every
+  // repaint (language switch, terminal resize), or the line would flicker.
+  // `tip` is a test seam; production always passes undefined and rolls.
+  const [randomTip] = React.useState<Tip>(() => tip ?? pickRandomTip())
+  // Upstream-drift notice, merged to one line: computed once per mount from
+  // the same memoized contract data the adapter checks (undefined when the
+  // install matches). `drift` is a test seam to pin or suppress it.
+  const [driftLine] = React.useState<UpstreamDriftSummary | null | undefined>(() =>
+    drift === undefined ? upstreamDriftSummary() : drift,
+  )
+  // Indent that centers the tagline under the whale art's bounding box.
+  const welcomePad = showWhale
+    ? Math.max(0, Math.round(WHALE_CENTER - stringWidth(tagline) / 2))
+    : 2
 
   const bigDeepSeek = renderBigText('DEEPSEEK', t, wordmarkRGB, taglineRGB, FLASH, 60)
   const bigHarness = renderBigText('HARNESS', t, taglineRGB, PALE, FLASH, 60)
@@ -141,19 +172,27 @@ export function LogoV2({
           </Text>
           <Text wrap="truncate-end">
             <Text dimColor>{tr('logo-tip-prefix')}</Text>
-            /model
-            <Text dimColor> {tr('logo-tip-model')} · </Text>
-            /help
-            <Text dimColor> {tr('logo-tip-help')} · </Text>
-            {`${modLabel}t`}
-            <Text dimColor> {tr('logo-tip-trace')} · </Text>
-            Tab
-            <Text dimColor> {tr('logo-tip-tab')}</Text>
+            {randomTip.en}
+            <Text dimColor>{' · /tips ' + tr('logo-tip-more')}</Text>
           </Text>
+          {driftLine != null && (
+            <Text color="warning" wrap="wrap">
+              ⚠{' '}
+              {tOr(
+                `logo-drift-${driftLine.kind}`,
+                `The dsh engine (${driftLine.versions.join(' / ')}) does not match the validated ${UPSTREAM_VALIDATED_VERSION}; reinstall via npm i -g @deepseek-ai/dsh@${UPSTREAM_VALIDATED_VERSION}.`,
+                {
+                  installed: driftLine.versions.join(' / '),
+                  validated: UPSTREAM_VALIDATED_VERSION,
+                  primary: UPSTREAM_VALIDATED_VERSION,
+                },
+              )}
+            </Text>
+          )}
         </Box>
       </Box>
-      <Box marginTop={1} paddingLeft={showWhale ? WELCOME_PAD : 2}>
-        <Text>{sweep(tr('logo-tagline'), t, taglineRGB, FLASH, 60)}</Text>
+      <Box marginTop={1} paddingLeft={welcomePad}>
+        <Text>{sweep(tagline, t, taglineRGB, FLASH, 60)}</Text>
       </Box>
     </Box>
   )

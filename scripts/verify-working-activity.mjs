@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Channel-level regression for the in-process working-activity projection. */
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -42,6 +42,35 @@ pluginHandlers.get('session/event')(pluginSession, {
 await new Promise((resolve) => queueMicrotask(resolve))
 assert.equal(appendCalls, 0, 'publish:false produces no activity/status log event')
 for (const dispose of pluginEffects.reverse()) dispose()
+
+// The TUI mount point (./working-activity re-export) must force publish off
+// even when a stale global-launcher patch row passes publish:true — the
+// dsh CLI resolves the patch anchor-first, so a ≤0.6.x launcher copy still
+// carried publish:true on this row over an up-to-date profile (issue #153
+// recurrence). The wrapper swallows the flag; only the bare package mount
+// can publish.
+const tuiMount = await import('../lib/types/working-activity.js')
+const mountHandlers = new Map()
+const mountEffects = []
+let mountAppendCalls = 0
+const mountCtx = {
+  get() { return undefined },
+  inject() {},
+  on(event, handler) {
+    mountHandlers.set(event, handler)
+    return () => mountHandlers.delete(event)
+  },
+  effect(setup) { mountEffects.push(setup()) },
+}
+tuiMount.apply(mountCtx, { publish: true, narrate: false, tickMs: 500 })
+const mountSession = { append() { mountAppendCalls += 1 } }
+mountHandlers.get('agent/status')({ agent: { session: mountSession }, status: 'running' })
+mountHandlers.get('session/event')(mountSession, {
+  type: 'turn/start', seq: 0, time: Date.now(), data: { turn: 'mount-turn' },
+})
+await new Promise((resolve) => queueMicrotask(resolve))
+assert.equal(mountAppendCalls, 0, 'mount point forces publish:false even when the row config says true')
+for (const dispose of mountEffects.reverse()) dispose()
 
 const handlers = new Map()
 const effects = []
@@ -151,6 +180,22 @@ assert.equal(await channel.newSession(), true)
 assert.equal(channel.agentId, 'agent-2')
 assert.equal(channel.workingActivity?.phase, 'idle')
 assert.equal(channel.workingActivity?.line, '')
+
+// The pi-style config file drives the tracker: `mode: minimal` renders plain
+// functional labels instead of the playful pool (issue parity with pi).
+mkdirSync(join(testHome, '.dsh-tui'), { recursive: true })
+writeFileSync(join(testHome, '.dsh-tui', 'working-activity.json'), JSON.stringify({ frames: 'claude', mode: 'minimal' }))
+const minimalChannel = createChannel(ctx, agent, {
+  model: 'test-model', provider: 'test-provider', cwd: testHome, activity: true,
+})
+sessionEvent()(agent.session, {
+  type: 'turn/start', seq: 0, time: Date.now(), data: { turn: 'minimal-turn' },
+})
+sessionEvent()(agent.session, {
+  type: 'assistant/chunk', seq: 1, time: Date.now(),
+  data: { turn: 'minimal-turn', step: 'step-1', chunk: { type: 'text-delta', text: 'hi' } },
+})
+assert.match(minimalChannel.workingActivity.line, /思考中|Thinking/)
 
 for (const dispose of effects.reverse()) dispose()
 rmSync(testHome, { recursive: true, force: true })

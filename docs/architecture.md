@@ -24,6 +24,7 @@ Cordis profile
 | `src/index.ts` | Cordis plugin name, injection declaration, config interface, and Schema; keep the entry small and lazy |
 | `src/plugin.ts` | TTY guard, questionnaire/skill registration, Agent create/resume, React mount, and the single cleanup funnel |
 | `src/channel.ts` | DSH event projection plus submit, steer, resume, rewind, model, and preset actions |
+| `src/workspaces.ts` | Local-path fallback and generic workspace-provider registry; it must contain no provider protocol, copy, or dependency |
 | `src/screens/Chat.tsx` | Modal precedence, global keys, scroll/search/selection state, and slash dispatch |
 | `src/components/` | User views and design-system primitives; no Agent or session source of truth |
 | `src/ui.ts` | Themed `Box`/`Text`, render, selection, scroll, and other public TUI primitives |
@@ -33,6 +34,13 @@ Cordis profile
 
 Do not duplicate DSH Agent, session, or tool services in a component. Connect new
 capability through an existing service, registry, or channel seam.
+
+Workspace extensions follow a one-way dependency: the TUI publishes only a
+structural provider interface, while optional plugins register URIs, display
+metadata, and command executors. Protocol parsing and external connections
+belong entirely to the plugin. Removing a plugin must leave local workspaces
+and session flows free of missing configuration, placeholders, or fallback
+branches.
 
 ## The session log is the source of truth
 
@@ -84,7 +92,8 @@ ConPTY.
 
 | Path | Contents |
 | --- | --- |
-| `~/.dsh-tui/sessions.sqlite` | DSH SQLite session events from the profile patch |
+| `~/.dsh/sessions/` | Shared JSONL session events for profile TUI and Web |
+| `~/.dsh-tui/sessions/` | JSONL session events for direct `cordis.yml` runs |
 | `~/.dsh-tui/resume.txt` | Recent session ID used by the Windows launcher and exit hint |
 | `~/.dsh-tui/last-used.json` | `/resume` recency metadata |
 | `~/.dsh-tui/theme.json` | Current theme selection |
@@ -92,12 +101,11 @@ ConPTY.
 | `~/.dsh-tui/working-activity.json` | Activity animation selection |
 | `~/.dsh-tui/agent-preset.json` | Default Agent preset for new sessions |
 
-`DSH_TUI_SESSION_ROOT` can override the SQLite path in the profile composition;
-when the root `cordis.yml` is launched directly, the same variable overrides
-the JSONL root (default `$DSH_HOME/sessions`, i.e. `~/.dsh/sessions/`).
-Preference files are optional
-state: malformed or missing files fall back silently rather than preventing
-startup.
+`DSH_TUI_SESSION_ROOT` overrides the JSONL root in either composition. The
+profile defaults to `$DSH_HOME/sessions` (normally `~/.dsh/sessions/`);
+direct `cordis.yml` runs default to `~/.dsh-tui/sessions/`. Preference files
+are optional state: malformed or missing files fall back silently rather than
+preventing startup.
 
 The data directory was renamed from `~/.dsh-cc` to `~/.dsh-tui`: on first
 launch, if the old directory exists and the new one does not, it is copied
@@ -134,15 +142,21 @@ visual TUI alone does not describe the effective policy.
   separate UI segment; it is included in the system/context meter.
 - `/model` switches through a session fork rather than an in-place update; the
   old session remains in `/resume`.
-- Windows `Ctrl+V` depends on PowerShell `Get-Clipboard`; another process can
-  lock the clipboard and make the operation appear empty.
+- `Ctrl+V` clipboard reads dispatch per platform: PowerShell `Get-Clipboard` on
+  Windows (a competing process can lock the clipboard and make the read appear
+  empty after retries), `osascript`/`pbpaste` on macOS, and the first usable of
+  `wl-paste`/`xclip`/`xsel` on Linux/Unix (missing tools are skipped, an
+  unreachable session falls through to the next candidate, and paste reports
+  no usable clipboard tool when all fail). Clipboard images are exported to
+  a temp file whose path is inserted (0700 private directory, 0600 file);
+  they are not embedded as image blocks.
 - Exit restores the terminal and ends the process without waiting for the
   Agent's asynchronous flush; the persistence plugin is the fallback.
 - The tool-level approval panel is implemented (approval service + TUI
   answerer); `/permission` preset switching is provided by the dsh-base
   `permission-presets` plugin and works in profile compositions — the bare
   `cordis.yml` mounts only the approval service, not `permission-presets`.
-- `/vim`, `/connect`, `/hooks`, and `/memory` are compatibility placeholders,
+- `/vim`, `/connect`, and `/hooks` are compatibility placeholders,
   not evidence that those DSH capabilities are mounted.
 - There is no automated full-flow suite that requires real model credentials;
   CI uses headless rendering and fake services, while live model integration

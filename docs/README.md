@@ -13,6 +13,7 @@ root project page.
 | Contributing and development rules | [Contributing](contributing.md) |
 | Building plugins and extensions | [Plugin development guide](plugins.md) |
 | Running dsh-TUI inside VS Code | [Using dsh-TUI in VS Code](vscode.md) |
+| Day-to-day usage walkthrough | [User guide](user-guide.md) |
 
 ## Quick links
 

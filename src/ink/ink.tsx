@@ -20,6 +20,7 @@ import { KeyboardEvent } from './events/keyboard-event.js';
 import { FocusManager } from './focus.js';
 import { emptyFrame, type Frame, type FrameEvent } from './frame.js';
 import { dispatchClick, dispatchHover } from './hit-test.js';
+import { logMouseDebug } from '../utils/debug.js';
 import instances from './instances.js';
 import { suppressInputFor } from './input-suppression.js';
 import { LogUpdate } from './log-update.js';
@@ -33,9 +34,9 @@ import { applyPositionedHighlight, type MatchPosition, scanPositions } from './r
 import createRenderer, { type Renderer } from './renderer.js';
 import { CellWidth, CharPool, cellAt, createScreen, HyperlinkPool, isEmptyCellAt, migrateScreenPools, StylePool } from './screen.js';
 import { applySearchHighlight } from './searchHighlight.js';
-import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
-import { SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
-import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ENABLE_WIN32_INPUT_MODE, ERASE_SCREEN, SGR_RESET } from './termio/csi.js';
+import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, pickFollowForSelection, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
+import { isDecstbmSafe, SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
+import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ENABLE_WIN32_INPUT_MODE, ERASE_SCREEN, ERASE_SCROLLBACK, SGR_RESET } from './termio/csi.js';
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, SHOW_CURSOR } from './termio/dec.js';
 import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, setClipboard, supportsTabStatus, wrapForMultiplexer } from './termio/osc.js';
 import { TerminalWriteProvider } from './useTerminalNotification.js';
@@ -77,6 +78,7 @@ export type Options = {
 export default class Ink {
   private readonly log: LogUpdate;
   private readonly terminal: Terminal;
+  private app: App | null = null;
   private scheduleRender: (() => void) & {
     cancel?: () => void;
   };
@@ -101,6 +103,10 @@ export default class Ink {
   private backFrame: Frame;
   private lastPoolResetTime = performance.now();
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
+  // Every scheduled microtask carries the generation that created it. Immediate
+  // renders invalidate older trailing work before it can append an old frame.
+  private renderGeneration = 0;
+  private pendingRenderGeneration: number | null = null;
   private lastYogaCounters: {
     ms: number;
     visited: number;
@@ -152,6 +158,16 @@ export default class Ink {
   // Set alongside altScreenActive so SIGCONT resume knows whether to
   // re-enable mouse tracking (not all <AlternateScreen> uses want it).
   private altScreenMouseTracking = false;
+  // DEC 1049 preserves the physical main screen and cursor. Keep the matching
+  // renderer state while an inline full-screen view is active so its exit can
+  // diff from what the terminal actually restores instead of printing a full
+  // duplicate frame into main-screen scrollback.
+  private mainScreenFrameState: {
+    frontFrame: Frame;
+    displayCursor: { x: number; y: number } | null;
+    columns: number;
+    rows: number;
+  } | null = null;
   // True when the previous frame's screen buffer cannot be trusted for
   // blit — selection overlay mutated it, resetFramesForAltScreen()
   // replaced it with blanks, or forceRedraw() reset it to 0×0. Forces
@@ -178,8 +194,19 @@ export default class Ink {
     x: number;
     y: number;
   } | null = null;
+  private handleStdinError(error: NodeJS.ErrnoException): void {
+    if (this.isUnmounted && error.code === 'EIO') {
+      return;
+    }
+    throw error;
+  }
   constructor(private readonly options: Options) {
     autoBind(this);
+    if (options.stdin.isTTY) {
+      // Keep this listener through teardown: a pending libuv TTY read can
+      // report EIO only after raw mode and React have already been released.
+      options.stdin.on('error', this.handleStdinError);
+    }
     if (this.options.patchConsole) {
       this.restoreConsole = this.patchConsole();
       this.restoreStderr = this.patchStderr();
@@ -209,8 +236,18 @@ export default class Ink {
     // effects have committed, so the native cursor tracks the caret without
     // a one-keystroke lag. Same event-loop tick, so throughput is unchanged.
     // Test env uses onImmediateRender (direct onRender, no throttle) so
-    // existing synchronous lastFrame() tests are unaffected.
-    const deferredRender = (): void => queueMicrotask(this.onRender);
+    // existing synchronous lastFrame() tests are unaffected. Keep a
+    // generation on the microtask: an immediate render may supersede the
+    // leading frame before its deferred callback runs.
+    const deferredRender = (): void => {
+      const generation = ++this.renderGeneration;
+      this.pendingRenderGeneration = generation;
+      queueMicrotask(() => {
+        if (this.pendingRenderGeneration !== generation || this.renderGeneration !== generation) return;
+        this.pendingRenderGeneration = null;
+        this.onRender();
+      });
+    };
     this.scheduleRender = throttle(deferredRender, FRAME_INTERVAL_MS, {
       leading: true,
       trailing: true
@@ -236,7 +273,7 @@ export default class Ink {
     this.rootNode.focusManager = this.focusManager;
     this.renderer = createRenderer(this.rootNode, this.stylePool);
     this.rootNode.onRender = this.scheduleRender;
-    this.rootNode.onImmediateRender = this.onRender;
+    this.rootNode.onImmediateRender = this.renderNow;
     this.rootNode.onComputeLayout = () => {
       // Calculate layout during React's commit phase so useLayoutEffect hooks
       // have access to fresh layout data
@@ -457,6 +494,34 @@ export default class Ink {
     // without the pop we'd accumulate depth on each editor round-trip).
     this.options.stdout.write('\x1b[?1004h' + (supportsWin32InputMode() ? ENABLE_WIN32_INPUT_MODE : supportsExtendedKeys() ? DISABLE_KITTY_KEYBOARD + ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS : ''));
   }
+  /**
+   * One-shot viewport re-anchor for the NEXT main-screen frame: repaint the
+   * visible viewport in place instead of diffing. Exposed for callers that
+   * know a layout flip just rewrote the whole frame (Ctrl+O transcript
+   * toggle): the ordinary scroll-based diff pushes rows into terminal
+   * scrollback on every expand and nothing removes them on collapse — rapid
+   * toggles drift the virtual↔scrollback mapping until writes misland.
+   * In-place repaint adds nothing to scrollback. No-op in alt-screen
+   * (already CSI H-anchored every frame). ONLY sets the flag: the caller's
+   * own state change (setExpanded) drives the render that consumes it —
+   * forcing an extra render here would paint the OLD layout once more and
+   * burn the flag before the real frame lands.
+   */
+  reanchorViewport() {
+    if (this.altScreenActive) return;
+    this.log.requestViewportReanchor();
+  }
+  /** Render synchronously and invalidate older trailing/drain callbacks. */
+  private renderNow(): void {
+    this.renderGeneration++;
+    this.pendingRenderGeneration = null;
+    this.scheduleRender.cancel?.();
+    if (this.drainTimer !== null) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
+    this.onRender();
+  }
   onRender() {
     if (this.isUnmounted || this.isPaused) {
       return;
@@ -488,10 +553,11 @@ export default class Ink {
     });
     const rendererMs = performance.now() - renderStart;
 
-    // Sticky/auto-follow scrolled the ScrollBox this frame. Translate the
-    // selection by the same delta so the highlight stays anchored to the
-    // TEXT (native terminal behavior — the selection walks up the screen
-    // as content scrolls, eventually clipping at the top). frontFrame
+    // Sticky/auto-follow or wheel-drain scrolled one or more ScrollBoxes
+    // this frame. Translate the selection by the same delta so the highlight
+    // stays anchored to the TEXT (native terminal behavior — the
+    // selection walks up the screen as content scrolls, eventually
+    // clipping at the top). frontFrame
     // still holds the PREVIOUS frame's screen (swap is at ~500 below), so
     // captureScrolledRows reads the rows that are about to scroll out
     // before they're overwritten — the text stays copyable until the
@@ -499,20 +565,35 @@ export default class Ink {
     // (screen-local) so only anchor shifts — selection grows toward the
     // mouse as the anchor walks up. After release, both ends are text-
     // anchored and move as a block.
-    const follow = consumeFollowScroll();
-    if (follow && this.selection.anchor &&
-    // Only translate if the selection is ON scrollbox content. Selections
-    // in the footer/prompt/StickyPromptHeader are on static text — the
-    // scroll doesn't move what's under them. Without this guard, a
-    // footer selection would be shifted by -delta then clamped to
-    // viewportBottom, teleporting it into the scrollbox. Mirror the
-    // bounds check the deleted check() in ScrollKeybindingHandler had.
-    this.selection.anchor.row >= follow.viewportTop && this.selection.anchor.row <= follow.viewportBottom) {
+    const follow = pickFollowForSelection(
+      consumeFollowScroll(),
+      this.selection.anchor?.row ?? null,
+    );
+    // pickFollowForSelection already checked anchor-in-viewport (that IS
+    // the "selection is on scrollbox content" guard — footer/prompt
+    // selections on static text match no viewport and follow nothing).
+    // Innermost-viewport wins attributes correctly when several boxes
+    // scrolled this frame (transcript draining while an overlay panel's
+    // box scrolls): panels render on top, so overlap-row selections
+    // belong to the panel, not the covered transcript.
+    if (follow && this.selection.anchor) {
       const {
         delta,
         viewportTop,
         viewportBottom
       } = follow;
+      // Signed delta: >0 = content moved up (at-bottom follow or
+      // wheel-down drain); <0 = content moved down (wheel-up drain, #438).
+      // The capture window is the viewport-edge rows about to scroll out
+      // (top edge when content moves up, bottom edge when it moves down),
+      // and the shift re-anchors the endpoints by the same amount in the
+      // OPPOSITE direction so they track the text, not the screen.
+      const rows = Math.abs(delta);
+      const up = delta > 0;
+      const firstRow = up ? viewportTop : viewportBottom - rows + 1;
+      const lastRow = up ? viewportTop + rows - 1 : viewportBottom;
+      const side: 'above' | 'below' = up ? 'above' : 'below';
+      const shift = up ? -rows : rows;
       // captureScrolledRows and shift* are a pair: capture grabs rows about
       // to scroll off, shift moves the selection endpoint so the same rows
       // won't intersect again next frame. Capturing without shifting leaves
@@ -522,9 +603,9 @@ export default class Ink {
       // each shift branch so the pairing can't be broken by a new guard.
       if (this.selection.isDragging) {
         if (hasSelection(this.selection)) {
-          captureScrolledRows(this.selection, this.frontFrame.screen, viewportTop, viewportTop + delta - 1, 'above');
+          captureScrolledRows(this.selection, this.frontFrame.screen, firstRow, lastRow, side);
         }
-        shiftAnchor(this.selection, -delta, viewportTop, viewportBottom);
+        shiftAnchor(this.selection, shift, viewportTop, viewportBottom);
       } else if (
       // Flag-3 guard: the anchor check above only proves ONE endpoint is
       // on scrollbox content. A drag from row 3 (scrollbox) into the
@@ -540,14 +621,16 @@ export default class Ink {
       // is correct there even when focus is in the footer).
       !this.selection.focus || this.selection.focus.row >= viewportTop && this.selection.focus.row <= viewportBottom) {
         if (hasSelection(this.selection)) {
-          captureScrolledRows(this.selection, this.frontFrame.screen, viewportTop, viewportTop + delta - 1, 'above');
+          captureScrolledRows(this.selection, this.frontFrame.screen, firstRow, lastRow, side);
         }
-        const cleared = shiftSelectionForFollow(this.selection, -delta, viewportTop, viewportBottom);
-        // Auto-clear (both ends overshot minRow) must notify React-land
-        // so useHasSelection re-renders and the footer copy/escape hint
-        // disappears. notifySelectionChange() would recurse into onRender;
-        // fire the listeners directly — they schedule a React update for
-        // LATER, they don't re-enter this frame.
+        const cleared = shiftSelectionForFollow(this.selection, shift, viewportTop, viewportBottom);
+        // Auto-clear (both ends overshot an edge — off the top via
+        // follow/wheel-down, off the bottom via wheel-up) must notify
+        // React-land so useHasSelection re-renders and the footer
+        // copy/escape hint disappears. notifySelectionChange() would
+        // recurse into onRender; fire the listeners directly — they
+        // schedule a React update for LATER, they don't re-enter this
+        // frame.
         if (cleared) for (const cb of this.selectionListeners) cb();
       }
     }
@@ -628,7 +711,9 @@ export default class Ink {
     // renders the scrolled-but-not-yet-repainted intermediate state.
     // tmux is the main case (re-emits DECSTBM with its own timing and
     // doesn't implement DEC 2026, so SYNC_OUTPUT_SUPPORTED is false).
-    SYNC_OUTPUT_SUPPORTED);
+    // JediTerm is separately excluded in isDecstbmSafe(): its DECSTBM
+    // implementation deviates from xterm and garbles scrolling content.
+    isDecstbmSafe());
     const diffMs = performance.now() - tDiff;
     // Swap buffers
     this.backFrame = this.frontFrame;
@@ -699,6 +784,12 @@ export default class Ink {
     // and no move is emitted.
     const decl = this.cursorDeclaration;
     const rect = decl !== null ? nodeCache.get(decl.node) : undefined;
+    // Keep the declared target in the same full-frame coordinate system as
+    // frame.cursor and displayCursor. Main-screen cursor moves are relative:
+    // subtracting the scrollback height from target alone makes the physical
+    // cursor climb that height on every park/preamble cycle, so later streaming
+    // diffs overwrite thinking, tool, and assistant rows. The terminal maps the
+    // full-frame relative move onto its viewport/scrollback position itself.
     const target = decl !== null && rect !== undefined ? {
       x: rect.x + decl.relativeX,
       y: rect.y + decl.relativeY
@@ -792,15 +883,14 @@ export default class Ink {
     // trailing-edge throttle invocation, timerId is undefined, and lodash's
     // debounce sees timeSinceLastCall >= wait (last call was at the start
     // of this window) → leadingEdge fires IMMEDIATELY → double render ~0.1ms
-    // apart → jank. Use a plain timeout. If a wheel event arrives first,
-    // its scheduleRender path fires a render which clears this timer at
-    // the top of onRender — no double.
+    // apart → jank. Use a plain timeout. If a wheel event or immediate
+    // render arrives first, renderNow cancels this timer — no double.
     //
     // Drain frames are cheap (DECSTBM + ~10 patches, ~200 bytes) so run at
     // quarter interval (~250fps, setTimeout practical floor) for max scroll
     // speed. Regular renders stay at FRAME_INTERVAL_MS via the throttle.
     if (frame.scrollDrainPending) {
-      this.drainTimer = setTimeout(() => this.onRender(), FRAME_INTERVAL_MS >> 2);
+      this.drainTimer = setTimeout(this.renderNow, FRAME_INTERVAL_MS >> 2);
     }
     const yogaMs = getLastYogaMs();
     const commitMs = getLastCommitMs();
@@ -836,12 +926,12 @@ export default class Ink {
     // Flush pending React updates and render before pausing.
     // @ts-ignore -- ported CC build; type drift tolerated flushSyncFromReconciler exists in react-reconciler 0.31 but not in @types/react-reconciler
     reconciler.flushSyncFromReconciler();
-    this.onRender();
+    this.renderNow();
     this.isPaused = true;
   }
   resume(): void {
     this.isPaused = false;
-    this.onRender();
+    this.renderNow();
   }
 
   /**
@@ -883,7 +973,31 @@ export default class Ink {
       // diff sees no content. onRender resets the flag at frame end.
       this.prevFrameContaminated = true;
     }
-    this.onRender();
+    this.renderNow();
+  }
+
+  /**
+   * Establish a genuinely fresh terminal page: clear both the visible screen
+   * and native scrollback, reset frame correspondence, then redraw the current
+   * React tree. This is intentionally stronger than Ctrl+L/forceRedraw(),
+   * which preserves history; use it only at a destructive UI boundary such as
+   * `/new`, where showing the previous conversation above the new session is
+   * misleading.
+   */
+  clearScrollbackAndRedraw(): void {
+    if (!this.options.stdout.isTTY || this.isUnmounted || this.isPaused) return;
+    // Keep 3J outside synchronized output. Windows Terminal can relocate the
+    // viewport when erase-buffer commands execute inside BSU/ESU.
+    this.options.stdout.write(
+      SGR_RESET + ERASE_SCROLLBACK + ERASE_SCREEN + CURSOR_HOME,
+    );
+    if (this.altScreenActive) {
+      this.resetFramesForAltScreen();
+    } else {
+      this.repaint();
+      this.prevFrameContaminated = true;
+    }
+    this.renderNow();
   }
 
   /**
@@ -903,18 +1017,38 @@ export default class Ink {
   /**
    * Called by the <AlternateScreen> component on mount/unmount.
    * Controls cursor.y clamping in the renderer and gates alt-screen-aware
-   * behavior in SIGCONT/resize/unmount handlers. Repaints on change so
-   * the first alt-screen frame (and first main-screen frame on exit) is
-   * a full redraw with no stale diff state.
+   * behavior in SIGCONT/resize/unmount handlers. The first alt-screen frame
+   * redraws from blank; exit restores the saved main frame for a physical-
+   * screen-matched diff, with repaint as the resize fallback.
    */
   setAltScreenActive(active: boolean, mouseTracking = false): void {
     if (this.altScreenActive === active) return;
     this.altScreenActive = active;
     this.altScreenMouseTracking = active && mouseTracking;
     if (active) {
+      this.mainScreenFrameState = {
+        frontFrame: this.frontFrame,
+        displayCursor: this.displayCursor,
+        columns: this.terminalColumns,
+        rows: this.terminalRows
+      };
       this.resetFramesForAltScreen();
     } else {
-      this.repaint();
+      const saved = this.mainScreenFrameState;
+      this.mainScreenFrameState = null;
+      if (saved && saved.columns === this.terminalColumns && saved.rows === this.terminalRows) {
+        this.frontFrame = saved.frontFrame;
+        this.displayCursor = saved.displayCursor;
+        this.log.reset();
+        // The main React subtree may have changed while the alternate screen
+        // was mounted. Disable blitting once, but keep the restored frame as
+        // the diff baseline that matches the terminal's physical contents.
+        this.prevFrameContaminated = true;
+      } else {
+        // A resize reflows the terminal's saved main buffer, so the old frame
+        // is no longer a trustworthy physical baseline.
+        this.repaint();
+      }
     }
   }
   get isAltScreenActive(): boolean {
@@ -969,7 +1103,7 @@ export default class Ink {
       // cursor position. Idempotent when nothing drifted — the user sees
       // no change, at O(viewport) bytes once per >5s idle gap.
       this.log.requestViewportReanchor();
-      this.onRender();
+      this.renderNow();
       return;
     }
     // Mouse tracking — idempotent, safe to re-assert on every stdin gap.
@@ -999,6 +1133,7 @@ export default class Ink {
     // Cancel any pending throttled render so it doesn't fire between
     // cleanupTerminalModes() and process.exit() and write to main screen.
     this.scheduleRender.cancel?.();
+    this.app?.detachForShutdown();
     // Shutdown bypasses the normal unmount path, so release the process and
     // stdout listeners here as well. Otherwise a SIGCONT or resize arriving
     // while an updater is running can re-enter the alternate screen or render
@@ -1033,6 +1168,37 @@ export default class Ink {
         // disconnect). Shutdown must continue even if raw-mode restoration
         // is no longer possible.
       }
+    }
+  }
+
+  /**
+   * Fully detach stdin before handing the terminal to a child process that
+   * inherits it (the /update restart). `detachForShutdown()` restores
+   * cooked mode but leaves the App's 'readable' pump attached — ordinary
+   * exits don't care because the process dies right after, but a parent
+   * that lingers waiting on the child keeps a libuv read pending on the
+   * console and races the child for every keypress: the restarted TUI
+   * sees dropped or entirely swallowed input (issues #284/#307). Remove
+   * the listeners and pause the pump so the child is the sole reader.
+   */
+  detachStdinForHandoff(): void {
+    const stdin = this.options.stdin as NodeJS.ReadStream;
+    try {
+      this.drainStdin();
+    } catch {
+      // A destroyed stream must not block the handoff.
+    }
+    stdin.removeAllListeners('readable');
+    stdin.removeAllListeners('data');
+    try {
+      stdin.pause();
+    } catch {
+      // Same destroyed-stream tolerance as above.
+    }
+    try {
+      stdin.unref();
+    } catch {
+      // unref on a closed stream can throw on some Node versions.
     }
   }
 
@@ -1107,7 +1273,7 @@ export default class Ink {
       // Raw OSC 52, or DCS-passthrough-wrapped OSC 52 inside tmux (tmux
       // drops it silently unless allow-passthrough is on — no regression).
       void setClipboard(text).then(raw => {
-        if (raw) this.options.stdout.write(raw);
+        if (raw) this.writeRaw(raw);
       });
     }
     return text;
@@ -1333,7 +1499,7 @@ export default class Ink {
     return () => this.selectionListeners.delete(cb);
   }
   private notifySelectionChange(): void {
-    this.onRender();
+    this.renderNow();
     for (const cb of this.selectionListeners) cb();
   }
 
@@ -1345,9 +1511,14 @@ export default class Ink {
    * nodeCache rects map 1:1 to terminal cells (no scrollback offset).
    */
   dispatchClick(col: number, row: number): boolean {
-    if (!this.altScreenActive) return false;
+    if (!this.altScreenActive) {
+      logMouseDebug('dispatchClick skipped — alt screen inactive', { col, row });
+      return false;
+    }
     const blank = isEmptyCellAt(this.frontFrame.screen, col, row);
-    return dispatchClick(this.rootNode, col, row, blank);
+    const handled = dispatchClick(this.rootNode, col, row, blank);
+    logMouseDebug('dispatchClick', { col, row, handled });
+    return handled;
   }
   dispatchHover(col: number, row: number): void {
     if (!this.altScreenActive) return;
@@ -1541,9 +1712,12 @@ export default class Ink {
     }
     this.cursorDeclaration = decl;
   };
+  private setAppRef(app: App | null): void {
+    this.app = app;
+  }
   render(node: ReactNode): void {
     this.currentNode = node;
-    const tree = <App stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onHoverAt={this.dispatchHover} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
+    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onHoverAt={this.dispatchHover} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
         <TerminalWriteProvider value={this.writeRaw}>
           {node}
         </TerminalWriteProvider>
@@ -1558,7 +1732,7 @@ export default class Ink {
     if (this.isUnmounted) {
       return;
     }
-    this.onRender();
+    this.renderNow();
     this.unsubscribeExit();
     if (typeof this.restoreConsole === 'function') {
       this.restoreConsole();
@@ -1671,6 +1845,9 @@ export default class Ink {
     // them at the new pools so the next frame's IDs are comparable.
     this.backFrame.screen.charPool = this.charPool;
     this.backFrame.screen.hyperlinkPool = this.hyperlinkPool;
+    if (this.mainScreenFrameState) {
+      migrateScreenPools(this.mainScreenFrameState.frontFrame.screen, this.charPool, this.hyperlinkPool);
+    }
   }
   patchConsole(): () => void {
     // biome-ignore lint/suspicious/noConsole: intentionally patching global console

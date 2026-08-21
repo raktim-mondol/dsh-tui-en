@@ -7,14 +7,18 @@
  * scrollback: scrolling up shows a duplicated UI / splash inserted at
  * random / garbled content above the finished output.
  *
- * Scene from issue #39: 2 turns of history (cold height cache) + a long
- * streaming reply + independent spinner/metrics ticks. xterm-headless
- * rebuilds the terminal view with 2000-row scrollback and asserts each
- * unique UI string appears once in scrollback + viewport.
+ * Scene from issue #39: a small viewport preloaded with 2 turns of history
+ * (cold height cache) + a long streaming reply + independent spinner/metrics
+ * ticks. xterm-headless rebuilds the terminal view with 2000-row scrollback
+ * and asserts each unique UI string appears once in scrollback + viewport;
+ * after a full pass through streaming reasoning → tool → assistant/working →
+ * idle, it also asserts the hardware cursor lines up with the input caret,
+ * and that the thinking, tool, body, and input-border rows each stay on
+ * their own line without overlapping.
  * Run: node --import tsx/esm scripts/repro-inline-scrollback.tsx
  */
 process.env.FORCE_COLOR = '3'
-process.env.TERM_PROGRAM = 'WezTerm'  // DEC-2026 sync-output path (matches WT / WezTerm)
+process.env.TERM_PROGRAM = 'WezTerm'  // DEC-2026 sync-output path (matches real-machine Windows Terminal/WezTerm)
 process.env.DSH_TUI_THEME = 'dark'    // skip OSC 11 probe for determinism
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }] = await Promise.all([
@@ -27,8 +31,9 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat
 ])
 
 const COLS = 100
-const ROWS = 40
+const ROWS = 20
 const SCROLLBACK = 2000
+const INPUT_MARKER = 'CARET_ANCHOR_7F31'
 const term = new XTerm({ cols: COLS, rows: ROWS, scrollback: SCROLLBACK, allowProposedApi: true })
 
 const rawChunks: string[] = []
@@ -157,14 +162,34 @@ const instance = await render(
 const ticker = setInterval(() => { channel.responseChars += 7; bump() }, 100)
 await sleep(800)
 
-// ---- Live turn: user → reasoning → tool → long streaming reply -------------------
+// ---- Live turn: user → Read → reasoning ticker → settle → tool → long streaming reply ----
 const add = (row: any) => { channel.rows.push({ id: id++, ...row }); bump() }
 add({ kind: 'user', text: 'Look at this project and give an overview' })
 await sleep(120)
 
+// Real report shape: a completed Read row sits immediately above the live
+// thinking ticker. When the ticker settles from four rows to one, an incorrect
+// scrollback seam repaint duplicates this marker above the folded Thinking row.
+add({
+  kind: 'tool', text: '',
+  tool: {
+    callId: 'read-before-thinking', name: 'Read',
+    argsText: '{"file_path": "READ_ONCE_7F31"}',
+    argsFull: '{}', status: 'ok', resultText: 'READ_RESULT_ONCE_7F31',
+    startedAt: Date.now() - 80, durationMs: 80,
+  },
+})
+await sleep(150)
+
 const think1 = { id: id++, kind: 'reasoning', text: '', streaming: true, durationMs: undefined as number | undefined }
 channel.rows.push(think1); bump()
-for (const chunk of ['Look at the directory layout first', ', read the README', ', then summarize.']) {
+for (const chunk of [
+  'Look at the directory layout first',
+  ', read the README',
+  ', check package.json',
+  ', compare against the existing regression',
+  ', then summarize.',
+]) {
   think1.text += chunk; bump(); await sleep(140)
 }
 think1.streaming = false; think1.durationMs = 1000; bump()
@@ -174,7 +199,7 @@ const tool1 = {
   id: id++, kind: 'tool', text: '',
   tool: {
     callId: 'c1', name: 'Bash',
-    argsText: '{"command": "git log --oneline -15"}',
+    argsText: '{"command": "printf TOOL_CALL_ONCE_7F31"}',
     argsFull: '{}',
     status: 'running' as string, resultText: undefined as string | undefined, startedAt: Date.now(), durationMs: undefined as number | undefined,
   },
@@ -190,7 +215,7 @@ bump(); await sleep(200)
 const finalMsg = { id: id++, kind: 'assistant', text: '', streaming: true }
 channel.rows.push(finalMsg); bump()
 const sections = ['1. Project positioning', '2. Tech stack', '3. Core features', '4. Data design notes', '5. Code structure', '6. Engineering conventions', '7. Build and release', '8. Data migration', '9. Current status notes']
-const docLines: string[] = []
+const docLines: string[] = ['ASSISTANT_BODY_ONCE_7F31\n\n']
 for (const sec of sections) {
   docLines.push(sec + '\n')
   for (let i = 0; i < 11; i++) docLines.push(`- ${sec}  item ${i + 1}: app assembly, theme system, sync and encrypted packaging\n`)
@@ -210,12 +235,20 @@ for (const chunk of doc) {
 }
 finalMsg.streaming = false
 channel.working = false
+channel.status = 'idle'
 bump()
 await sleep(800)
 clearInterval(ticker)
 await sleep(300)
 
-// ---- Byte forensics: erase / clear / scroll sequence counts ----------------------
+// After going idle, type a short marker in the real PromptInput: the caret's
+// inverse-video cell must line up with the xterm hardware cursor. At this
+// point the whole frame is much taller than the small viewport, exercising
+// the long-frame coordinate path that covers the native cursor.
+stdin.write(INPUT_MARKER)
+await sleep(500)
+
+// ---- Byte forensics: erase/clear/scroll sequence counts (pinpoint the leak mechanism) ----
 const allRaw = rawChunks.join('')
 const stat = (name: string, re: RegExp) => {
   const n = (allRaw.match(re) ?? []).length
@@ -270,7 +303,17 @@ const countExact = (needle: string) => lines.filter(l => l.trim() === needle).le
 // includes; section titles match the whole line (body bullets
 // `- 5. … item N…` contain the title and belong to the same copy, so they
 // must not be counted by includes).
-for (const t of ['Explore the uncharted', 'History question 0:', 'History question 1:', 'Look at this project and give an overview']) {
+for (const t of [
+  'Explore the uncharted',
+  'History question 0:',
+  'History question 1:',
+  'Look at this project and give an overview',
+  'READ_ONCE_7F31',
+  'READ_RESULT_ONCE_7F31',
+  'TOOL_CALL_ONCE_7F31',
+  'ASSISTANT_BODY_ONCE_7F31',
+  INPUT_MARKER,
+]) {
   const n = count(t)
   check(`'${t}' appears exactly once`, n === 1, `got ${n}`)
 }
@@ -278,6 +321,47 @@ for (const t of ['5. Code structure', '9. Current status notes']) {
   const n = countExact(t)
   check(`'${t}' title row appears exactly once`, n === 1, `got ${n}`)
 }
+
+const rowOf = (needle: string) => lines.findIndex(line => line.includes(needle))
+const thinkingRow = lines.findLastIndex(line => line.includes('Thinking ·'))
+const toolRow = rowOf('TOOL_CALL_ONCE_7F31')
+const bodyRow = rowOf('ASSISTANT_BODY_ONCE_7F31')
+const inputRow = rowOf(INPUT_MARKER)
+const semanticRows = [thinkingRow, toolRow, bodyRow, inputRow]
+const separateRows = semanticRows.every(row => row >= 0) && new Set(semanticRows).size === semanticRows.length
+check(
+  'thinking, tool, body, and input each occupy a separate row',
+  separateRows,
+  `rows=${semanticRows.join(',')}`,
+)
+
+let caretX = -1
+if (inputRow >= 0) {
+  const inputLine = buf.getLine(inputRow)
+  if (inputLine) {
+    for (let x = 0; x < inputLine.length; x++) {
+      if (inputLine.getCell(x)?.isInverse()) { caretX = x; break }
+    }
+  }
+}
+const hardwareCursor = { x: buf.cursorX, y: buf.baseY + buf.cursorY }
+check(
+  'long-frame idle input: hardware cursor lines up with the inverse-video caret',
+  caretX >= 0 && hardwareCursor.x === caretX && hardwareCursor.y === inputRow,
+  `caret=${caretX},${inputRow} cursor=${hardwareCursor.x},${hardwareCursor.y} baseY=${buf.baseY}`,
+)
+
+const topBorder = lines[inputRow - 1] ?? ''
+const bottomBorder = lines[inputRow + 1] ?? ''
+const borderIntact = topBorder.includes('╭') && topBorder.includes('╮')
+  && bottomBorder.includes('╰') && bottomBorder.includes('╯')
+  && ![topBorder, bottomBorder].some(line => /Thinking ·|TOOL_CALL_ONCE|ASSISTANT_BODY_ONCE/.test(line))
+check(
+  'input border is intact and does not overlap thinking, tool, or body',
+  borderIntact,
+  `top=${JSON.stringify(topBorder)} bottom=${JSON.stringify(bottomBorder)}`,
+)
+
 // Zero full-resets: shrink frames (thinking fold, spinner teardown) must
 // redraw the viewport in place; any clearTerminal copies the whole UI
 // into scrollback.

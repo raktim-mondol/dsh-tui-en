@@ -9,8 +9,9 @@
  */
 import { Writable, PassThrough } from 'node:stream'
 import React from 'react'
-import { render } from '../lib/types/ui.js'
+import { render, useInput } from '../lib/types/ui.js'
 import { GoalTodoPanel } from '../lib/types/components/GoalTodoPanel.js'
+import { AlternateScreen } from '../lib/types/ink/components/AlternateScreen.js'
 
 let failed = 0
 function check(name, ok, extra = '') {
@@ -85,7 +86,7 @@ const baseChannel = {
   listModels: async () => [],
   runExternalCommand: async () => undefined,
   rewindTo: async () => null,
-  resumeTo: async () => true,
+  resumeTo: async () => ({ ok: true }),
   newSession: async () => true,
   switchModel: async () => true,
   loadOlder: () => 0,
@@ -114,6 +115,7 @@ async function run() {
     const { stdout, stderr, stdin } = makeStreams()
     const channel = {
       ...baseChannel,
+      working: true,
       goal: {
         id: 'g1',
         revision: 3,
@@ -145,7 +147,48 @@ async function run() {
     instance.unmount()
   }
 
-  // 3. Blocked goal with reason.
+  // 3. Idle channels drop a snapshot containing only completed work.
+  {
+    const { stdout, stderr, stdin } = makeStreams()
+    const channel = {
+      ...baseChannel,
+      todos: [
+        { content: 'Reproduce the crash', status: 'completed' },
+        { content: 'Fix the null deref in auth', status: 'completed' },
+      ],
+    }
+    const instance = await render(
+      React.createElement(GoalTodoPanel, { channel }),
+      { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
+    )
+    await sleep(500)
+    const frame = toPlain(stdout.frames.join(''))
+    check('idle channel hides an all-completed todo snapshot', frame.trim() === '', JSON.stringify(frame))
+    instance.unmount()
+  }
+
+  // 4. Idle channels retain unfinished work but drop completed rows.
+  {
+    const { stdout, stderr, stdin } = makeStreams()
+    const channel = {
+      ...baseChannel,
+      todos: [
+        { content: 'Reproduce the crash', status: 'completed' },
+        { content: 'Add a regression test', status: 'pending' },
+      ],
+    }
+    const instance = await render(
+      React.createElement(GoalTodoPanel, { channel }),
+      { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
+    )
+    await sleep(500)
+    const frame = toPlain(stdout.frames.join(''))
+    check('idle channel hides completed todo rows', !frame.includes('Reproduce the crash'))
+    check('idle channel keeps unfinished todo rows', frame.includes('Add a regression test'))
+    instance.unmount()
+  }
+
+  // 5. Blocked goal with reason.
   {
     const { stdout, stderr, stdin } = makeStreams()
     const channel = {
@@ -171,7 +214,7 @@ async function run() {
     instance.unmount()
   }
 
-  // 4. Live update: data arrives after mount (simulates a channel.emit from
+  // 6. Live update: data arrives after mount (simulates a channel.emit from
   //    a goal/change or todo/write event re-rendering the Chat screen).
   {
     const { stdout, stderr, stdin } = makeStreams()
@@ -208,6 +251,91 @@ async function run() {
     await sleep(600)
     const after = toPlain(stdout.frames.at(-1) ?? '')
     check('panel appears after live update', after.includes('Polish the panel') && after.includes('Render live'), JSON.stringify(after))
+    instance.unmount()
+  }
+
+  // 7. Collapsed mode (ctrl/cmd+q): the todo section folds to its header
+  //    line — counts plus the live-task preview — while the goal card stays.
+  {
+    const { stdout, stderr, stdin } = makeStreams()
+    const channel = {
+      ...baseChannel,
+      working: true,
+      goal: {
+        id: 'g4',
+        revision: 2,
+        objective: 'Fix the login page crash',
+        phase: 'active',
+        maxGoalRounds: 10,
+        roundsStarted: 2,
+      },
+      todos: [
+        { content: 'Reproduce the crash', status: 'completed' },
+        { content: 'Fix the null deref in auth', status: 'in_progress' },
+        { content: 'Add a regression test', status: 'pending' },
+      ],
+    }
+    const instance = await render(
+      React.createElement(GoalTodoPanel, { channel, collapsed: true }),
+      { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
+    )
+    await sleep(500)
+    const frame = toPlain(stdout.frames.join(''))
+    check('collapsed keeps the goal card', frame.includes('Fix the login page crash'))
+    check('collapsed shows the done/total header', /✓ 1\/3/.test(frame))
+    check('collapsed previews the live task', frame.includes('Fix the null deref in auth'))
+    check('collapsed hides non-preview todo rows', !frame.includes('Add a regression test'))
+    check('collapsed shows the fold marker', frame.includes('▸'))
+    instance.unmount()
+  }
+
+  // 8. SGR mouse click on the fold header: real stdin bytes → parser →
+  //    handleMouseEvent → dispatchClick → onToggle. Wrapped in
+  //    <AlternateScreen> like the real Chat screen — dispatchClick is gated
+  //    on altScreenActive (clicks need the fixed viewport for hit-testing).
+  {
+    const { stdout, stderr, stdin } = makeStreams()
+    const channel = {
+      ...baseChannel,
+      todos: [
+        { content: 'Fold via click', status: 'in_progress' },
+        { content: 'Second row', status: 'pending' },
+      ],
+    }
+    const state = { collapsed: false }
+    const App = () => {
+      const [, force] = React.useState(0)
+      // Enable raw mode so App subscribes to stdin — without a useInput
+      // consumer (PromptInput in the real screen), no input flows at all.
+      useInput(() => {})
+      const panel = React.createElement(GoalTodoPanel, {
+        channel,
+        collapsed: state.collapsed,
+        onToggle: () => {
+          state.collapsed = !state.collapsed
+          force(n => n + 1)
+        },
+      })
+      return React.createElement(AlternateScreen, null, panel)
+    }
+    const instance = await render(React.createElement(App), {
+      stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false,
+    })
+    await sleep(600)
+    // Joined frames: ink writes terminal diffs, so the last chunk alone may
+    // carry only the changed cells (the alt-screen clear frame, or a partial
+    // repaint) — accumulate for presence checks.
+    const before = toPlain(stdout.frames.join(''))
+    check('expanded before click', before.includes('▾'), JSON.stringify(before))
+    // Alt screen starts at row 0; panel paddingTop 1 → fold header on row 1
+    // (0-indexed), glyph at col 2. SGR is 1-indexed: press then release.
+    stdin.write('\x1b[<0;4;2M')
+    await sleep(120)
+    stdin.write('\x1b[<0;4;2m')
+    await sleep(500)
+    const after = toPlain(stdout.frames.join(''))
+    check('click on fold header collapses the todo list', after.includes('▸'), JSON.stringify(after))
+    check('click fold keeps the summary count', /✓ 0\/2/.test(after), JSON.stringify(after))
     instance.unmount()
   }
 

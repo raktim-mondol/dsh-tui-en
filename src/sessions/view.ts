@@ -6,8 +6,9 @@
  * flat list of rows. Two reasons it is shaped that way:
  *
  * - Filtering is where this feature's bugs were. Keeping it pure means the
- *   truth table — a sub-agent run is hidden, a rewind fork is not, a boot
- *   artifact is hidden but counted — is checkable without rendering anything.
+ *   truth table — a sub-agent run is hidden, an unrelated rewind fork is not,
+ *   a boot artifact is hidden but counted — is checkable without rendering
+ *   anything.
  * - Rows are flattened rather than nested. A windowed list of variable-height
  *   groups has to guess how much room each group needs; a flat list of
  *   single-line rows is windowed by arithmetic, and the group headers simply
@@ -87,8 +88,26 @@ export function buildView(
 ): BrowserView {
   const needle = filters.query.trim().toLowerCase()
 
+  // `/model` and `/rewind` continue the live conversation in a fork. Offering
+  // that fork's ancestors in `/resume` makes one conversation look like many,
+  // and selecting one silently jumps back before the fork. Only the live
+  // lineage is excluded: unrelated forks remain recoverable. Treat malformed
+  // cycles as a closed chain rather than looping forever over foreign data.
+  const byId = new Map(sessions.map(session => [session.id, session]))
+  const currentAncestors = new Set<string>()
+  const seen = new Set([context.currentId])
+  let cursor = byId.get(context.currentId)
+  while (cursor?.kind.kind === 'fork') {
+    const parent = cursor.kind.parent
+    if (seen.has(parent)) break
+    seen.add(parent)
+    currentAncestors.add(parent)
+    cursor = byId.get(parent)
+  }
+
   const inScope = (session: SessionSummary): boolean =>
     session.id !== context.currentId &&
+    !currentAncestors.has(session.id) &&
     (filters.allProjects || context.sameProject(context.cwd, session.cwd))
 
   // Empty sessions never reach a view, but they are counted — and the count
@@ -144,7 +163,19 @@ export function buildView(
   const rows: BrowserRow[] = []
   let shown = 0
   let lastProject: string | undefined
-  for (const session of visible.sort((left, right) => right.updatedAt - left.updatedAt)) {
+  const ordered = visible.sort((left, right) => right.updatedAt - left.updatedAt)
+  if (filters.allProjects) {
+    // Order project groups by their newest visible session, then keep every
+    // session from that project together in MRU order. A global MRU sort alone
+    // can interleave A/B/A and emit the same project header more than once.
+    const projectOrder = new Map<string, number>()
+    for (const session of ordered) {
+      if (!projectOrder.has(session.cwd)) projectOrder.set(session.cwd, projectOrder.size)
+    }
+    ordered.sort((left, right) =>
+      projectOrder.get(left.cwd)! - projectOrder.get(right.cwd)! || right.updatedAt - left.updatedAt)
+  }
+  for (const session of ordered) {
     // Group headers only earn their line when more than one project is in
     // play; inside a single project they would repeat the same path forever.
     if (filters.allProjects && session.cwd !== lastProject) {

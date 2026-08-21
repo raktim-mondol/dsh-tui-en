@@ -75,10 +75,15 @@ class FakeStdout extends Writable {
   _write(chunk: unknown, _e: BufferEncoding, cb: () => void) { term.write(String(chunk), cb) }
 }
 
-// descriptionWidth = COLS - 24 = 4, so 'directory' (9 cols) must truncate
-// to 'dir…' (exactly 4 cols). CJK names take the `20 - stringWidth(name)`
-// padding path.
-const files = ['中文目录名/', 'src/中文文件.ts', 'README.md']
+// descriptionWidth falls below 'directory' (9 cols) at 28 columns, so it
+// must take the truncation path and produce '…'; candidates are now
+// structured (FileCandidate), so the fixture keeps the same object shape
+// PromptInput itself uses.
+const files = [
+  { id: '中文目录名/', path: '中文目录名/', displayPath: '中文目录名/', name: '中文目录名', kind: 'directory', score: 0 },
+  { id: 'src/中文文件.ts', path: 'src/中文文件.ts', displayPath: 'src/中文文件.ts', name: '中文文件.ts', kind: 'file', score: 0 },
+  { id: 'README.md', path: 'README.md', displayPath: 'README.md', name: 'README.md', kind: 'file', score: 0 },
+]
 const app = await render(
   React.createElement(FileSuggestions, { files, selectedIndex: 0, columns: COLS }),
   { stdout: new FakeStdout(), exitOnCtrlC: false, patchConsole: false },

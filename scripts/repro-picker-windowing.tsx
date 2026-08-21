@@ -40,10 +40,15 @@ process.env.DSH_TUI_LANG = 'zh'
 // Isolate HOME: modelPrefs/history resolve homedir() at module load, so
 // this must switch to a temp directory before importing src; picker
 // interaction never touches any real preference file.
+// HOME and USERPROFILE must be set as a pair: os.homedir() reads HOME on
+// POSIX and USERPROFILE on Windows, so setting only one leaves the other
+// platform completely unisolated.
 const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
 const { tmpdir } = await import('node:os')
 const { join: joinPath } = await import('node:path')
-process.env.HOME = mkdtempSync(joinPath(tmpdir(), 'dshtui-repro-home-'))
+const reproHome = mkdtempSync(joinPath(tmpdir(), 'dshtui-repro-home-'))
+process.env.HOME = reproHome
+process.env.USERPROFILE = reproHome
 
 // ctrl+r data source: 30 history commands (each renders 2 rows: command + age description).
 const NOW = Date.now()

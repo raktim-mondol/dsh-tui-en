@@ -5,6 +5,8 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import type { Context } from '@deepseek-ai/cordis'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import Schema from '@deepseek-ai/schemastery'
 import { Config } from './index.js'
 import { createChannel } from './channel.js'
 import { createChildStderrReporter, installChildStderrGuard } from './childStderr.js'
@@ -12,6 +14,7 @@ import { logForDebugging } from '../utils/debug.js'
 import { QuestionStore } from './questions.js'
 import { ApprovalStore } from './approvals.js'
 import { registerPackagedSkills } from './packaged-skills.js'
+import { registerPromptDebug } from './promptDebug.js'
 import { readActivityFrames } from '../activityPrefs.js'
 import { readModelPref } from '../modelPrefs.js'
 import { explicitModelRoute, recordedModelRoute, resolveModelRoute, validateModelRoute } from '../modelRoute.js'
@@ -22,12 +25,19 @@ import { ensurePackagedPresets } from './packaged-presets.js'
 import { ensureLegacySessionEventTypes } from './compat/index.js'
 import { clearResumeTarget, writeResumeTarget } from '../sessionHistory.js'
 import { resolveSessionCwd } from '../utils/workspaceRoot.js'
-import { checkForTuiUpdate, installedTuiVersion, isVersionNewer, resolveDshProfileName, resolveTuiUpdateTarget, updateTuiAndRestart } from '../update.js'
-import { isLang, resolveStartupLang, setLang, t } from '../i18n.js'
+import { checkForTuiUpdate, installedTuiVersion, isBootDeadlockTarget, isVersionNewer, resolveDshProfileName, resolveTuiUpdateTarget, updateTuiAndRestart } from '../update.js'
+import { getLang, isLang, LANGS, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js'
+import { DEFAULT_STATUS_BAR, normalizeStatusBar, normalizeToolBackground, type StatusBarConfig, type ToolBackground } from '../tuiDisplayPrefs.js'
 import { detectLegacyEnv, migrateLegacyDataDir, RENAMED_ENV } from '../utils/paths.js'
+import { attachHerdrIntegration } from '../herdr.js'
 import { Chat } from '../screens/Chat.js'
+import { getHostDialogStore, type TuiDialogRuntime } from './dialogs.js'
+import { getHostStatusStore, type TuiStatusRuntime } from './status.js'
+import { getHostShortcuts, type TuiShortcutRuntime } from './shortcuts.js'
 import { attachSessionToWorkspace } from './workspace.js'
-import { createLocalWorkspaceRuntime } from './workspaces.js'
+import { createLocalWorkspaceRuntime, getHostWorkspaceRuntime } from './workspaces.js'
+import { getHostSettingsSections, type TuiSettingsSectionsRuntime } from './settings-sections.js'
+import { withHostRootCapability } from './host-access.js'
 import { render, ThemeProvider, AlternateScreen } from '../ui.js'
 import instances from '../ink/instances.js'
 import { cursorMove, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE } from '../ink/termio/csi.js'
@@ -72,10 +82,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // and the user deletes the legacy directory themselves.
   const migrated = migrateLegacyDataDir()
 
-  // UI language resolution: DSH_TUI_LANG env var wins, then cordis.yml
-  // `lang`, then the persisted `/lang` choice, then `en`. Must settle
-  // before the first render so every module resolves strings in the same
-  // language.
+  // UI language resolution: DSH_TUI_LANG env var wins, then the
+  // settings.yaml `dsh-tui.lang` user layer (applied once the settings
+  // namespace registers below), then cordis.yml `lang`, then the
+  // persisted `/lang` choice, then `en`. Must settle before the first
+  // render so every module resolves strings in the same language.
   const envLang = process.env.DSH_TUI_LANG
   setLang(isLang(envLang) ? envLang : isLang(config.lang) ? config.lang : resolveStartupLang())
 
@@ -116,6 +127,23 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
             `\ndsh-tui: /update restarted but the version did not advance (still ${now ?? 'unknown'}, was ${updatedFrom}); the mirror registry may be stale — retry later or check the registry config.\n`,
           )
         }
+      } else if (process.stderr.isTTY) {
+        // Launcher alignment bridge (0.8.3): /update only replaces the
+        // package inside the DSH profile; a globally installed `dsh-tui`
+        // launcher is a separate copy that keeps its old version. Launchers
+        // >=0.8.3 export DSH_TUI_LAUNCHER_VERSION so we can tell whether
+        // the outer launcher lags the freshly installed profile. Launchers
+        // <=0.8.2 never set the marker — the generic branch below is
+        // intentionally one-shot: DSH_TUI_UPDATED_FROM exists only on the
+        // replacement process immediately after /update.
+        const launcherVersion = process.env.DSH_TUI_LAUNCHER_VERSION
+        if (launcherVersion === undefined) {
+          process.stderr.write(`\n[dsh-tui] ${t('update-launcher-align-unknown', { version: now })}\n`)
+        } else if (isVersionNewer(now, launcherVersion)) {
+          process.stderr.write(
+            `\n[dsh-tui] ${t('update-launcher-outdated', { profile: now, launcher: launcherVersion })}\n`,
+          )
+        }
       }
     }
   }
@@ -154,6 +182,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     order: 1,
     text: 'Always reply in English. Do not use Chinese or any other language unless the user explicitly asks for it.',
   })
+  // `/debug-prompt` snapshots the final provider-neutral request at the
+  // llm/stream boundary, after every prompt and tool contributor has run.
+  registerPromptDebug(ctx)
   // Yield to an incumbent provider instead of crashing the whole plugin tree
   // (issue #98): the harness allows exactly ONE user-questions provider per
   // context, and stacking this TUI onto a profile that already carries
@@ -229,7 +260,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // without the service means the patch came from an older dsh-tui copy
   // than the running code — warn once so the skew is diagnosable. Bare
   // embedders (no --profile) take the same fallback by design, silently.
-  const mountedWorkspaceService = ctx.get('tuiWorkspaces')
+  const mountedWorkspaceService = getHostWorkspaceRuntime(ctx.get('tuiWorkspaces'))
   if (mountedWorkspaceService === undefined && resolveDshProfileName() !== undefined) {
     ctx.logger.warn(
       'dsh-tui: tuiWorkspaces service is not mounted; /workspace runs with the local-only fallback. ' +
@@ -237,6 +268,38 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     )
   }
   const workspaceService = mountedWorkspaceService ?? createLocalWorkspaceRuntime()
+  // Same skew guard for the plugin-scene registry (dsh-tui-scenes row): the
+  // channel degrades to never opening scenes when the service is absent, so
+  // say why on profile launches — a plugin's open() otherwise fails with only
+  // its own warn to go on.
+  if (ctx.get('tuiScenes') === undefined && resolveDshProfileName() !== undefined) {
+    ctx.logger.warn(
+      'dsh-tui: tuiScenes service is not mounted; plugin scenes will never open. ' +
+      'The bundle patch is older than the installed dsh-tui package — update the globally installed dsh-tui launcher to match the profile (issue #183).',
+    )
+  }
+  // Same skew guard for the plugin-UI services (dsh-tui-extensions row):
+  // managed dialogs park unanswered, status contributions never render,
+  // shortcuts never match, and custom-entry renderers stay invisible when
+  // the row is absent — say why on profile launches.
+  if (ctx.get('tuiDialogs') === undefined && resolveDshProfileName() !== undefined) {
+    ctx.logger.warn(
+      'dsh-tui: tuiDialogs/tuiStatus/tuiShortcuts/tuiRenderers services are not mounted; plugin dialogs, status contributions, shortcuts and custom-entry renderers are off. ' +
+      'The bundle patch is older than the installed dsh-tui package — update the globally installed dsh-tui launcher to match the profile (issue #183).',
+    )
+  }
+  // Same skew guard for the plugin-host row (dsh-tui-plugin-host): without
+  // it there is no runtime generation id, no unified grant store service,
+  // and no Host Descriptor — plugin interop surfaces degrade silently
+  // otherwise. The D-7 decision gate does NOT depend on this row (the
+  // channel installs its own), so interception gating stays intact either
+  // way — what breaks is everything that rides on tuiPluginHost.
+  if (ctx.get('tuiPluginHost') === undefined && resolveDshProfileName() !== undefined) {
+    ctx.logger.warn(
+      'dsh-tui: tuiPluginHost service is not mounted; plugin grant store, runtime generation and Host Descriptor are unavailable. ' +
+      'The bundle patch is older than the installed dsh-tui package — update the globally installed dsh-tui launcher to match the profile (issue #183).',
+    )
+  }
   const initialWorkspace = requestedWorkspace === undefined
     ? undefined
     : await workspaceService.resolve(requestedWorkspace)
@@ -304,8 +367,329 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // Shift+Tab session-mode cycle (undefined → the built-in default/
     // plan/full cycle in sessionModes.ts).
     modes: config.modes,
+    // Edit/Write diff presentation (schema default 'auto'); the /settings
+    // screen edits this key live through the dsh-tui namespace.
+    diffLayout: config.diffLayout,
+    thinkingFold: config.thinkingFold,
+    toolBackground: config.toolBackground,
+    statusBar: config.statusBar,
     handle,
   })
+  // Fullscreen layout decision: the settings user layer (edited through the
+  // /settings screen) overrides cordis.yml when set. The settings injection
+  // below resolves it synchronously when the host settings service is up —
+  // i.e. before the tree mounts. `fullscreenFrozen` latches at mount: the
+  // exit funnel and the AlternateScreen wrap must keep reading the mode this
+  // session ACTUALLY runs, never a mid-session edit meant for the next boot
+  // (swapping layouts requires re-mounting the whole tree).
+  let bootedFullscreen = config.fullscreen === true
+  let fullscreenFrozen = false
+  // Register the dsh-tui settings namespace so the /settings screen can
+  // edit it (the section below reported "namespace not registered"
+  // without this): the user layer in settings.yaml wins over cordis.yml's
+  // diffLayout, and watch() lands commits on the live channel — no
+  // recompose needed.
+  ctx.inject(['settings'], (settingsCtx) => {
+    const scope = settingsCtx.settings.register(
+      settingsNamespace('dsh-tui'),
+      Schema.object({
+        diffLayout: Schema.union(['auto', 'split', 'unified']).default('auto'),
+        thinkingFold: Schema.union(['preview', 'full']).default('preview'),
+        toolBackground: Schema.union(['none', 'subtle', 'strong']).default('none'),
+        statusBar: Schema.object({
+          compact: Schema.boolean().default(DEFAULT_STATUS_BAR.compact),
+          model: Schema.boolean().default(DEFAULT_STATUS_BAR.model),
+          thinking: Schema.boolean().default(DEFAULT_STATUS_BAR.thinking),
+          cwd: Schema.boolean().default(DEFAULT_STATUS_BAR.cwd),
+          contextUsage: Schema.boolean().default(DEFAULT_STATUS_BAR.contextUsage),
+          cache: Schema.boolean().default(DEFAULT_STATUS_BAR.cache),
+          tokens: Schema.boolean().default(DEFAULT_STATUS_BAR.tokens),
+          tps: Schema.boolean().default(DEFAULT_STATUS_BAR.tps),
+          gitBranch: Schema.boolean().default(DEFAULT_STATUS_BAR.gitBranch),
+          sessionTitle: Schema.boolean().default(DEFAULT_STATUS_BAR.sessionTitle),
+          goal: Schema.boolean().default(DEFAULT_STATUS_BAR.goal),
+          mode: Schema.boolean().default(DEFAULT_STATUS_BAR.mode),
+          contextBar: Schema.boolean().default(DEFAULT_STATUS_BAR.contextBar),
+          activity: Schema.boolean().default(DEFAULT_STATUS_BAR.activity),
+          trajectory: Schema.boolean().default(DEFAULT_STATUS_BAR.trajectory),
+          shortcutHint: Schema.boolean().default(DEFAULT_STATUS_BAR.shortcutHint),
+        }).default({ ...DEFAULT_STATUS_BAR }),
+        // Header pixel whale art; on unless settings.yaml says otherwise.
+        whale: Schema.boolean().default(true),
+        // Minimal mode: strips the header splash, emoji glyphs, and
+        // decorative colors; code highlight and tool colors stay.
+        minimal: Schema.boolean().default(false),
+        // No default on purpose: an unset `lang` keeps the field showing
+        // the effective language (see the section's format below) and lets
+        // cordis.yml / lang.json keep their precedence.
+        lang: Schema.union(['zh', 'en']),
+        // Same no-default rule: unset keeps cordis.yml's `fullscreen`
+        // decisive; set overrides it from the next boot on.
+        fullscreen: Schema.boolean(),
+      }),
+    )
+    type SettingsValue = {
+      diffLayout?: 'auto' | 'split' | 'unified'
+      lang?: 'zh' | 'en'
+      whale?: boolean
+      minimal?: boolean
+      fullscreen?: boolean
+      thinkingFold?: 'preview' | 'full'
+      toolBackground?: ToolBackground
+      statusBar?: Partial<StatusBarConfig>
+    }
+    const applyLayout = (value: SettingsValue): void => {
+      channel.setDiffLayout(value.diffLayout ?? config.diffLayout ?? 'auto')
+    }
+    const applyWhale = (value: { whale?: boolean }): void => {
+      channel.setWhale(value.whale ?? true)
+    }
+    const applyMinimal = (value: { minimal?: boolean }): void => {
+      channel.setMinimal(value.minimal ?? false)
+    }
+    // Fullscreen: only meaningful before the tree mounts (the freeze latch
+    // above). A later doc change (mid-session /settings edit) is persisted
+    // by the service and picked up on the next boot; the watch below says
+    // so with a notify.
+    const applyFullscreen = (value: SettingsValue): void => {
+      if (!fullscreenFrozen && typeof value.fullscreen === 'boolean') {
+        bootedFullscreen = value.fullscreen
+      }
+    }
+    // The /settings language field writes `lang` through the settings
+    // service (user layer): apply it live and mirror it to lang.json so
+    // the /lang command and next-boot resolution agree. DSH_TUI_LANG
+    // stays the top precedence — a pinned env is never overridden by the
+    // document.
+    const applyLang = (value: SettingsValue): void => {
+      if (!isLang(process.env.DSH_TUI_LANG) && isLang(value.lang)) {
+        setLang(value.lang)
+        writeLangPref(value.lang)
+      }
+    }
+    // Display preferences ride the same namespace: /settings writes them
+    // live and future render consumers observe the channel version bump.
+    const applyDisplay = (value: SettingsValue): void => {
+      channel.setThinkingFold(value.thinkingFold ?? config.thinkingFold ?? 'preview')
+      channel.setToolBackground(normalizeToolBackground(value.toolBackground ?? config.toolBackground))
+      channel.setStatusBar(normalizeStatusBar(value.statusBar ?? config.statusBar))
+    }
+    const apply = (next: SettingsValue): void => {
+      applyLayout(next)
+      applyWhale(next)
+      applyMinimal(next)
+      applyLang(next)
+      applyDisplay(next)
+      applyFullscreen(next)
+    }
+    apply(scope.get())
+    scope.watch(next => {
+      apply(next)
+      if (typeof next.fullscreen === 'boolean' && next.fullscreen !== bootedFullscreen) {
+        channel.notify(t('settings-fullscreen-restart'), { color: 'warning' })
+      }
+    })
+  })
+  // The tree mounts with the resolved value from here on; a settings doc
+  // landing later must not flip the running session's exit/layout truth.
+  fullscreenFrozen = true
+  // The /settings screen's own section: the dsh-tui namespace comes from
+  // the settings registration above, and the declared selects write `lang`
+  // and `diffLayout` back through the settings service's revision-fenced
+  // mutate (the watch applies both live).
+  const settingsSections = getHostSettingsSections(
+    ctx.get('tuiSettingsSections') as TuiSettingsSectionsRuntime | undefined,
+  )
+  if (settingsSections !== undefined) {
+    const unregister = settingsSections.register({
+      ns: 'dsh-tui',
+      title: 'dsh-tui',
+      groups: [{ id: 'status-bar', title: 'Status bar' }],
+      fields: [
+        {
+          path: ['lang'],
+          label: 'Language',
+          hint: 'UI language for the whole interface — applies immediately and is saved.',
+          kind: 'select',
+          options: LANGS.map(lang => ({ value: lang, label: lang === 'en' ? 'English' : lang })),
+          format(value: unknown): string {
+            // Unset in settings.yaml: show the effective UI language
+            // (env / cordis.yml / lang.json resolution) instead of a
+            // blank "unset" that hides the current choice.
+            return value === undefined || value === null ? getLang() : String(value)
+          },
+        },
+        {
+          path: ['fullscreen'],
+          label: 'Fullscreen mode',
+          hint: 'Alt-screen fullscreen layout with in-app mouse selection and wheel scroll; off keeps the terminal-native scrollback and selection. Saved for the next launch.',
+          kind: 'boolean',
+          format(value: unknown): string {
+            // Unset in settings.yaml: show what THIS session booted with
+            // (the cordis.yml resolution) instead of a misleading false.
+            return value === undefined || value === null ? String(bootedFullscreen) : String(value)
+          },
+        },
+        {
+          path: ['diffLayout'],
+          label: 'Diff layout',
+          hint: 'Edit/Write tool cards: auto picks by terminal width, or force one layout.',
+          kind: 'select',
+          options: [
+            { value: 'auto', label: 'Auto (by width)' },
+            { value: 'split', label: 'Side-by-side' },
+            { value: 'unified', label: 'Unified' },
+          ],
+        },
+        {
+          path: ['thinkingFold'],
+          label: 'Thinking display',
+          hint: 'Streaming thinking shows a 2-3 line live preview and each step folds when it settles; Full keeps thinking expanded until the turn ends.',
+          kind: 'select',
+          options: [
+            { value: 'preview', label: 'Preview (2-3 lines)' },
+            { value: 'full', label: 'Full until turn end' },
+          ],
+        },
+        {
+          path: ['toolBackground'],
+          label: 'Tool background',
+          hint: 'Choose whether tool-call cards add no, subtle, or strong background emphasis.',
+          kind: 'select',
+          options: [
+            { value: 'none', label: 'None' },
+            { value: 'subtle', label: 'Subtle' },
+            { value: 'strong', label: 'Strong' },
+          ],
+        },
+        {
+          path: ['statusBar', 'compact'],
+          label: 'Compact status bar',
+          hint: 'Prefer the compact status presentation when terminal space allows.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'model'],
+          label: 'Show model',
+          hint: 'Show the live model id in the status bar.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'thinking'],
+          label: 'Show thinking',
+          hint: 'Show the live reasoning effort or thinking mode.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'cwd'],
+          label: 'Show working directory',
+          hint: 'Show the session working directory.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'contextUsage'],
+          label: 'Show context usage',
+          hint: 'Show current context-window consumption.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'cache'],
+          label: 'Show cache',
+          hint: 'Show prompt-cache hit information.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'tokens'],
+          label: 'Show token totals',
+          hint: 'Show running input and output token totals.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'tps'],
+          label: 'Show output speed',
+          hint: 'Show live and recent tokens-per-second metrics.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'gitBranch'],
+          label: 'Show git branch',
+          hint: 'Show the current git branch when available.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'sessionTitle'],
+          label: 'Show session title',
+          hint: 'Show the current session title.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'goal'],
+          label: 'Show goal status',
+          hint: 'Show a compact goal chip (phase glyph + rounds) in the status footer while a goal exists.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'mode'],
+          label: 'Show session mode',
+          hint: 'Show the active non-default session mode.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'contextBar'],
+          label: 'Show context progress bar',
+          hint: 'Show the segmented context progress bar on its own footer row.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'activity'],
+          label: 'Show activity summary',
+          hint: 'Show the idle working-activity summary.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'trajectory'],
+          label: 'Show trajectory strip',
+          hint: 'Show the animated mini trajectory strip at the footer edge.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'shortcutHint'],
+          label: 'Show shortcut reminder',
+          hint: 'Control only the idle `? for shortcuts` reminder; pressing ? and the Esc shortcut hints are unaffected.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['whale'],
+          label: 'Whale art',
+          hint: 'Show the pixel whale in the header splash.',
+          kind: 'boolean',
+        },
+        {
+          path: ['minimal'],
+          label: 'Minimal mode',
+          hint: 'Hide the header splash, emoji glyphs, and decorative colors; code highlight and tool colors stay. Trims the status bar to model + cwd.',
+          kind: 'boolean',
+        },
+      ],
+    })
+    ctx.effect(() => unregister)
+  }
   // DSH approval seam: the permission layer asks ApprovalService.request(),
   // which dispatches an `approval/request` waterfall. With no answerer the
   // chain falls through to the fail-closed 'unavailable', so register this
@@ -319,6 +703,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.on('approval/request', (req, next) =>
       String(req.agent.id) === channel.agentId ? approvalStore.park(req) : next())
     ctx.effect(() => () => approvalStore.settleAll('cancelled'))
+  }
+  const herdr = attachHerdrIntegration({
+    channel,
+    questions: questionStore,
+    approvals: approvalStore,
+  })
+  if (herdr !== undefined) {
+    ctx.effect(() => () => herdr.dispose())
   }
   // Positional command-line arguments are the initial prompt (issue #53):
   // `dsh-tui "run the tests"` forwards positionals through the dsh CLI,
@@ -346,6 +738,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   let instance: Awaited<ReturnType<typeof render>> | undefined
   let exited = false
   let updateRequested = false
+  let updateTargetVersion: string | undefined
   // The profile this process was booted with (`dsh --profile <name>`); dsh
   // exposes it nowhere else, and /update must update the installation the
   // user is actually running, not a hard-coded one.
@@ -366,7 +759,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         void finishExit(
           ctx,
           instance,
-          config.fullscreen === true,
+          bootedFullscreen,
           undefined,
           `dsh-tui crashed: ${message}`,
           () => disposeRootAndExit(ctx, 1),
@@ -382,10 +775,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         void finishExit(
           ctx,
           instance,
-          config.fullscreen === true,
+          bootedFullscreen,
           'Updating @deepseek-harness-tui/dsh-tui and restarting…',
           undefined,
-          () => runUpdate(ctx, profile, channel.agentId),
+          () => runUpdate(ctx, profile, channel.agentId, updateTargetVersion),
         )
         return
       }
@@ -411,7 +804,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       void finishExit(
         ctx,
         instance,
-        config.fullscreen === true,
+        bootedFullscreen,
         hint,
         undefined,
         () => disposeRootAndExit(ctx, 0),
@@ -424,10 +817,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     channel,
     questionStore,
     approvalStore,
+    // The dsh-tui-extensions row's services (managed dialogs, status line,
+    // shortcuts). Soft-consumed: absent the row (stale patch, bare embed),
+    // Chat falls back to inert stores and no shortcut registry.
+    extensionDialogs: getHostDialogStore(ctx.get('tuiDialogs') as TuiDialogRuntime | undefined),
+    extensionStatus: getHostStatusStore(ctx.get('tuiStatus') as TuiStatusRuntime | undefined),
+    extensionShortcuts: getHostShortcuts(ctx.get('tuiShortcuts') as TuiShortcutRuntime | undefined),
     // Full-screen surfaces inside Chat — the trajectory scene and the session
     // browser — enter the alt screen themselves in inline mode; in fullscreen
     // the tree is already wrapped below, so they must not nest.
-    fullscreen: config.fullscreen === true,
+    fullscreen: bootedFullscreen,
     onExit: () => handleExit(),
     // Only a `dsh --profile <name>` launch has a profile installation for
     // `/update` to act on; source checkouts and `--config` overlays get the
@@ -445,6 +844,23 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         }
         if (target.kind === 'unknown') {
           channel.notify(t('update-check-failed'))
+        } else {
+          // 0.7.0/0.7.1 hard-inject tuiWorkspaces at the code level; under
+          // an older global launcher patch (no service row) that is a
+          // permanent boot deadlock (issues #183/#307, the exact report
+          // "pending (waiting for service: tuiWorkspaces)"). A stale mirror
+          // pinning /update onto that range must be refused, not installed.
+          if (isBootDeadlockTarget(target.latest)) {
+            channel.notify(t('update-refused-deadlock', {
+              latest: target.latest,
+              authoritative: target.authoritative ?? target.latest,
+            }), { color: 'warning' })
+            return
+          }
+          if (target.authoritative !== undefined) {
+            channel.notify(t('update-mirror-lag', { latest: target.latest, authoritative: target.authoritative }))
+          }
+          updateTargetVersion = target.latest
         }
         channel.notify(t('update-starting'))
         updateRequested = true
@@ -459,7 +875,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const tree = React.createElement(
     ThemeProvider,
     null,
-    config.fullscreen ? React.createElement(AlternateScreen, null, chat) : chat,
+    bootedFullscreen ? React.createElement(AlternateScreen, null, chat) : chat,
   )
   instance = await render(tree, { exitOnCtrlC: false })
 
@@ -663,6 +1079,12 @@ export function isExitResumable(deps: {
 
 type InkShutdownState = {
   detachForShutdown?: () => void
+  /**
+   * Full stdin detach for the /update child handoff (issues #284/#307):
+   * removes the readable/data listeners and pauses the pump so the
+   * lingering parent stops racing the restarted TUI for keypresses.
+   */
+  detachStdinForHandoff?: () => void
   frontFrame?: { cursor?: { x: number; y: number } }
   displayCursor?: { x: number; y: number } | null
 }
@@ -685,6 +1107,11 @@ async function finishExit(
 
     try {
       runtime?.detachForShutdown?.()
+      // The /update continuation spawns children that inherit this stdin;
+      // strip the readable pump so the parent cannot swallow their input
+      // (issues #284/#307). Harmless on plain exits — the process exits
+      // right after this cleanup anyway.
+      runtime?.detachStdinForHandoff?.()
     } catch {
       ctx.logger.debug('dsh-tui: Ink shutdown detach failed; continuing with generic terminal cleanup')
     }
@@ -716,6 +1143,7 @@ function readInkShutdownState(value: unknown): InkShutdownState | undefined {
   if (value === null || typeof value !== 'object') return undefined
   const candidate = value as Record<string, unknown>
   if (candidate.detachForShutdown !== undefined && typeof candidate.detachForShutdown !== 'function') return undefined
+  if (candidate.detachStdinForHandoff !== undefined && typeof candidate.detachStdinForHandoff !== 'function') return undefined
   if (candidate.frontFrame !== undefined && !isFrameState(candidate.frontFrame)) return undefined
   if (candidate.displayCursor !== undefined && candidate.displayCursor !== null && !isCursorState(candidate.displayCursor)) return undefined
   return value as InkShutdownState
@@ -763,13 +1191,18 @@ function writeStream(stream: NodeJS.WriteStream, data: string): Promise<void> {
   })
 }
 
-function runUpdate(ctx: Context, profile: string | undefined, sessionId: string): void {
+function runUpdate(
+  ctx: Context,
+  profile: string | undefined,
+  sessionId: string,
+  targetVersion: string | undefined,
+): void {
   disposeRootAndThen(ctx, () => {
     if (profile === undefined) {
       process.stderr.write(`\n${t('update-aborted-no-profile')}\n`)
       process.exit(1)
     }
-    void updateTuiAndRestart(sessionId, profile).then(
+    void updateTuiAndRestart(sessionId, profile, targetVersion).then(
       ({ updateCode, restartCode }) => {
         if (updateCode !== 0) {
           process.stderr.write(
@@ -823,7 +1256,7 @@ function resumeCommand(profile: string | undefined, sessionId: string): string {
 function disposeRootAndThen(ctx: Context, done: () => void, fallbackCode = 1): void {
   const timer = setTimeout(() => process.exit(fallbackCode), 5000)
   timer.unref()
-  void ctx.root.fiber.dispose().then(
+  void withHostRootCapability(() => ctx.root.fiber.dispose()).then(
     () => {
       clearTimeout(timer)
       done()

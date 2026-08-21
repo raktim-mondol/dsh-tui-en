@@ -72,9 +72,11 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   { name: 'btw', description: 'Ask a quick side question without interrupting the conversation' },
   { name: 'trace', description: 'Show the session event trace timeline' },
   // Session / environment
+  { name: 'context', description: 'Show loaded context details' },
   { name: 'status', description: 'Show session status' },
   { name: 'cost', description: 'Show session token usage' },
   { name: 'config', description: 'Show the dsh-tui configuration source' },
+  { name: 'settings', description: 'View and edit plugin settings' },
   { name: 'doctor', description: 'Run environment checks' },
   { name: 'init', description: 'Create AGENTS.md in the working directory' },
   { name: 'agents', description: 'Show subagents of this session' },
@@ -95,7 +97,8 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   { name: 'add-dir', description: 'Show the filesystem policy scope' },
   { name: 'hooks', description: 'Show hooks status' },
   { name: 'mcp', description: 'Show MCP status' },
-  { name: 'memory', description: 'Show memory status' },
+  { name: 'skills', description: 'List available skills' },
+  { name: 'plugins', description: 'Show plugin contract, grant, and ledger diagnostics' },
   { name: 'update', description: 'Update dsh-tui and restart' },
   // Built-in skills (CC's skill commands, driven through DSH skills)
   { name: 'audit', description: 'Run a comprehensive code audit on this project' },
@@ -112,10 +115,35 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   { name: 'workspace', description: 'Resume, rename, or open a workspace' },
   // Help / exit
   { name: 'help', description: 'Show shortcuts and commands' },
+  { name: 'tips', description: 'Show usage tips and shortcuts' },
   { name: 'exit', description: 'Exit dsh-tui' },
   { name: 'quit', description: 'Exit dsh-tui', tag: 'alias of /exit' },
   { name: 'q', description: 'Exit dsh-tui', tag: 'alias of /exit' },
 ]
+
+/**
+ * Hidden slash commands: intentionally not exposed in the `/` suggestion
+ * menu or Help, but still recognized as local commands when typed. They are
+ * kept out of `LOCAL_COMMANDS` so `filterCommands`/`completeCommands` never
+ * surface them; dispatch recognizes them via {@link HIDDEN_COMMAND_NAMES}.
+ */
+export const HIDDEN_COMMANDS: readonly LocalCommand[] = [
+  { name: 'deepseek', description: 'Hidden DeepSeek easter egg' },
+]
+
+/** Names of hidden commands, for fast dispatch/lookup. */
+export const HIDDEN_COMMAND_NAMES: ReadonlySet<string> = new Set(
+  HIDDEN_COMMANDS.map(command => command.name),
+)
+
+/**
+ * Whether the input names a hidden command (same slash-optional trimming
+ * rules as {@link isLocalCommandName}).
+ */
+export function isHiddenCommandName(input: string): boolean {
+  const name = input.replace(/^\//, '').trim()
+  return HIDDEN_COMMAND_NAMES.has(name)
+}
 
 /**
  * Resolve a command's description in the active UI language. The en text in
@@ -162,7 +190,7 @@ export function isLocalCommandName(
   // Trailing whitespace is legal (Tab completion leaves a space after the
   // name so the user can type arguments).
   const name = input.replace(/^\//, '').trim()
-  return list.some(command => command.name === name)
+  return HIDDEN_COMMAND_NAMES.has(name) || list.some(command => command.name === name)
 }
 
 /**
@@ -196,7 +224,10 @@ export function completeCommands(
 ): CommandCompletion[] {
   if (!input.startsWith('/') || /[\r\n]/u.test(input)) return []
   const body = input.slice(1)
-  if (!/^[a-z0-9_-]*(?:[\t ]+[a-z0-9_-]*)*$/iu.test(body)) return []
+  // Token charset includes `. : /` so provider/model specs (e.g.
+  // `deepseek/deepseek-v4-flash`, `openai/gpt-4.1`) survive as ONE token —
+  // the /model completion matches its candidates against the whole spec.
+  if (!/^[a-z0-9_.:\/-]*(?:[\t ]+[a-z0-9_.:\/-]*)*$/iu.test(body)) return []
   const trailingSeparator = /[\t ]$/u.test(body)
   const tokens = body.split(/[\t ]+/u)
   const prefix = trailingSeparator ? '' : (tokens.pop() ?? '')

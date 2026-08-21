@@ -8,8 +8,12 @@
  * - resolveRegistryBase() honors NPM_CONFIG_REGISTRY (both spellings), the
  *   user ~/.npmrc `registry=` line, and falls back to npmjs.org
  * - isVersionNewer() requires a strictly greater valid semver
- * - updateTuiAndRestart's pnpm args include --latest (cross-minor updates);
- *   asserted via the compiled source text since spawning dsh is out of scope
+ * - update command args pin the preflight target version, with --latest as the
+ *   fallback when preflight could not resolve one
+ * - isBootDeadlockTarget() flags exactly the 0.7.0–0.7.1 hard-inject range
+ * - DSH_TUI_UPDATED_FROM is stamped from the pre-update version: the stamp
+ *   read happens before the first installer child runs and the restart env
+ *   reuses that captured value (issue #307's new-vs-new false alarm)
  *
  * Run: node scripts/verify-update.mjs
  */
@@ -24,9 +28,16 @@ function check(name, ok, extra = '') {
   if (!ok) failed += 1
 }
 
-const { installedTuiVersion, resolveRegistryBase, isVersionNewer, resolveDshProfileName, shellQuote } = await import(
-  '../lib/types/update.js'
-)
+const {
+  installedTuiVersion,
+  resolveRegistryBase,
+  isVersionNewer,
+  isBootDeadlockTarget,
+  resolveDshProfileName,
+  shellQuote,
+  tuiUpdatePluginArgs,
+  isTransientUpdateFailure,
+} = await import('../lib/types/update.js')
 const compiledModulePath = fileURLToPath(new URL('../lib/types/update.js', import.meta.url))
 const compiledShellQuotePath = fileURLToPath(new URL('../lib/types/utils/shellQuote.js', import.meta.url))
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -189,16 +200,33 @@ check(
   shellQuote(['a"b c']).join(' ') === '"a""b c"',
 )
 
-// ---- pnpm args include --latest (must-fix: cross-minor update capability)
+// ---- pnpm args reuse the preflight result instead of resolving latest twice
+const exactUpdateArgs = tuiUpdatePluginArgs('dsh-tui', '0.7.2')
+check(
+  'update command pins the preflight target version',
+  JSON.stringify(exactUpdateArgs) === JSON.stringify([
+    'plugin', '--profile', 'dsh-tui', 'update', '@deepseek-harness-tui/dsh-tui@0.7.2',
+  ]),
+  `got ${JSON.stringify(exactUpdateArgs)}`,
+)
+const fallbackUpdateArgs = tuiUpdatePluginArgs('custom-profile')
+check(
+  'update command falls back to --latest when preflight failed',
+  JSON.stringify(fallbackUpdateArgs) === JSON.stringify([
+    'plugin', '--profile', 'custom-profile', 'update', '--latest', '@deepseek-harness-tui/dsh-tui',
+  ]),
+  `got ${JSON.stringify(fallbackUpdateArgs)}`,
+)
+
+// ---- isBootDeadlockTarget: the 0.7.0–0.7.1 hard-inject range only
+check('deadlock: 0.7.0 is refused', isBootDeadlockTarget('0.7.0'))
+check('deadlock: 0.7.1 is refused', isBootDeadlockTarget('0.7.1'))
+check('deadlock: 0.6.1 predates the inject and is fine', !isBootDeadlockTarget('0.6.1'))
+check('deadlock: 0.7.2 dropped the hard inject', !isBootDeadlockTarget('0.7.2'))
+check('deadlock: 0.8.0 is fine', !isBootDeadlockTarget('0.8.0'))
+check('deadlock: invalid input is never a deadlock target', !isBootDeadlockTarget('banana'))
+
 const compiledSource = readFileSync(compiledModulePath, 'utf8')
-check(
-  'update command passes --latest to pnpm',
-  /['"]update['"],\s*\n\s*['"]--latest['"],/.test(compiledSource),
-)
-check(
-  'update command keeps the scoped package name',
-  compiledSource.includes('@deepseek-harness-tui/dsh-tui'),
-)
 // P1: the node restart must NOT go through a shell — assert the compiled
 // restart spawn call has no shell option while the dsh call does.
 const dshSpawn = compiledSource.indexOf("runProcess(dsh")
@@ -207,11 +235,74 @@ const dshSegment = compiledSource.slice(dshSpawn, nodeSpawn)
 const nodeSegment = compiledSource.slice(nodeSpawn)
 check(
   'P1: dsh.cmd spawn requests a shell',
-  /\{\s*shell:\s*true\s*\}/.test(dshSegment),
+  /\{\s*shell:\s*true[,\s}]/.test(dshSegment),
 )
 check(
   'P1: node restart spawn has no shell (space-safe exec path)',
   !/shell/.test(nodeSegment.replace(/shellQuote/g, '')),
+)
+
+// ---- DSH_TUI_UPDATED_FROM stamping (issue #307): the pre-update version is
+// captured before the installer child runs and reused in the restart env —
+// a post-update read already sees the replaced manifest (new-vs-new).
+const stampRead = compiledSource.indexOf('const updatedFrom = installedTuiVersion()')
+check(
+  'stamp: pre-update version is captured before the installer runs',
+  stampRead !== -1 && stampRead < dshSpawn,
+)
+check(
+  'stamp: restart env reuses the captured value, not a fresh read',
+  /\[UPDATED_FROM_ENV\]:\s*updatedFrom/.test(nodeSegment),
+)
+// The --latest fallback (preflight failed) can also land on the deadlock
+// range on a stale mirror: the post-install guard must refuse a restart
+// into a version that JUST moved into 0.7.0–0.7.1. Two occurrences = the
+// export plus the call inside updateTuiAndRestart.
+check(
+  'deadlock: post-install guard refuses a fresh landing on the range',
+  (compiledSource.match(/isBootDeadlockTarget/g) ?? []).length >= 2,
+)
+
+// ---- launcher bridge (0.8.3): the compiled runtime must keep the
+// post-/update launcher-alignment hints — static contract against the built
+// output so future refactors cannot silently drop the bridge.
+const compiledPluginPath = join(repoRoot, 'lib', 'types', 'dsh-adapter', 'plugin.js')
+const compiledPluginSource = readFileSync(compiledPluginPath, 'utf8')
+check(
+  'launcher bridge: runtime reads the launcher version marker',
+  compiledPluginSource.includes('DSH_TUI_LAUNCHER_VERSION'),
+)
+check(
+  'launcher bridge: old-launcher update path keeps a generic alignment hint',
+  compiledPluginSource.includes('update-launcher-align-unknown'),
+)
+check(
+  'launcher bridge: known older launcher gets a directional hint',
+  compiledPluginSource.includes('update-launcher-outdated'),
+)
+
+// ---- isTransientUpdateFailure: the Windows tmp-rename race (issue #225)
+check(
+  'transient: pnpm tmp-rename ENOENT qualifies',
+  isTransientUpdateFailure(
+    "[ERR_PNPM_ENOENT] [importPackage D:\\p\\node_modules\\dsh-tui] ENOENT: no such file or directory, scandir 'D:\\p\\node_modules\\dsh-tui_tmp_40044_1\\node_modules'",
+  ),
+)
+check(
+  'transient: EPERM rename on a tmp staging dir qualifies',
+  isTransientUpdateFailure('EPERM: operation not permitted, rename D:\\p\\dsh-tui_tmp_123_4'),
+)
+check(
+  'transient: plain resolution ENOENT without tmp token does not qualify',
+  !isTransientUpdateFailure('ENOENT: no such file or directory, open /home/u/package.json'),
+)
+check(
+  'transient: registry 404 does not qualify',
+  !isTransientUpdateFailure('ERR_PNPM_FETCH_404 GET https://registry.npmjs.org/x: Not Found - 404'),
+)
+check(
+  'transient: empty output does not qualify',
+  !isTransientUpdateFailure(''),
 )
 
 if (failed > 0) {

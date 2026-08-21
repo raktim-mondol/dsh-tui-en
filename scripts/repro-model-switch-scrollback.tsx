@@ -26,10 +26,15 @@ process.env.DSH_TUI_LANG = 'en'        // pin the UI language (splash tagline as
 // the real machine's config — every turn on the next real launch would then
 // report "no adapter registered for provider fake-provider". Must run
 // before importing src.
+// HOME and USERPROFILE must be set as a pair: os.homedir() reads HOME on
+// POSIX and USERPROFILE on Windows, so setting only one leaves the other
+// platform completely unisolated.
 const { mkdtempSync } = await import('node:fs')
 const { tmpdir } = await import('node:os')
 const { join: joinPath } = await import('node:path')
-process.env.HOME = mkdtempSync(joinPath(tmpdir(), 'dshtui-repro-home-'))
+const reproHome = mkdtempSync(joinPath(tmpdir(), 'dshtui-repro-home-'))
+process.env.HOME = reproHome
+process.env.USERPROFILE = reproHome
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }, { createChannel }] = await Promise.all([
   import('node:stream'),

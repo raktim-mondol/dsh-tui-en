@@ -106,8 +106,8 @@ async function show(key: string, tool: Record<string, unknown>, verbose = false)
   check('edit card title is "Edit /tmp/a.ts" (not JSON args)', s.includes('Edit /tmp/a.ts') && !s.includes('{"file_path"'))
   const delRow = rowOf('- const a = 1')
   const addRow = rowOf('+ const a = 2')
-  check('deleted line carries the ⎿ gutter', delRow >= 0 && lines()[delRow]!.startsWith('  ⎿  - const a = 1'))
-  check('added line continues the gutter indent', addRow >= 0 && lines()[addRow]!.startsWith('     + const a = 2'))
+  check('deleted line carries the ⎿ gutter', delRow >= 0 && lines()[delRow]!.startsWith(' ⎿ - const a = 1'))
+  check('added line continues the gutter indent', addRow >= 0 && lines()[addRow]!.startsWith('   + const a = 2'))
   check('deleted line is in the red family', delRow >= 0 && fgAt(7, delRow) === 0xb26671)
   check('added line is in the green family', addRow >= 0 && fgAt(7, addRow) === 0x57956b)
 }
@@ -139,7 +139,7 @@ await show('bash', {
   const s = screen()
   check('terminal card title is "Bash(ls -la)"', s.includes('Bash(ls -la)'))
   const outRow = rowOf('total 8')
-  check('terminal output carries the ⎿ gutter', outRow >= 0 && lines()[outRow]!.startsWith('  ⎿  total 8'))
+  check('terminal output carries the ⎿ gutter', outRow >= 0 && lines()[outRow]!.startsWith(' ⎿ total 8'))
 }
 
 // 4. Bash non-zero exit: appends an Exit code row.
@@ -166,7 +166,7 @@ await show('read', {
   const s = screen()
   check('Read body has no envelope tags', s.includes('line one') && !s.includes('<content>') && !s.includes('<path>'))
   const row = rowOf('line one')
-  check('Read body carries the ⎿ gutter', row >= 0 && lines()[row]!.startsWith('  ⎿  line one'))
+  check('Read body carries the ⎿ gutter', row >= 0 && lines()[row]!.startsWith(' ⎿ line one'))
 }
 
 // 6. Tool without a presenter: fall back to Name(args) + raw result (still indented).
@@ -178,7 +178,7 @@ await show('fallback', {
   const s = screen()
   check('without a view, title falls back to Name(args)', s.includes('Read({"file_path":"/tmp/a.ts"})'))
   const row = rowOf('raw output here')
-  check('without a view, the result is still indented', row >= 0 && lines()[row]!.startsWith('  ⎿  raw output here'))
+  check('without a view, the result is still indented', row >= 0 && lines()[row]!.startsWith(' ⎿ raw output here'))
 }
 
 // 7. Fold cap: body over 3 lines folds + hint; Ctrl+O expands.
@@ -208,7 +208,7 @@ await show('error', {
 })
 {
   const row = rowOf('Error: ENOENT')
-  check('error row carries the ⎿ gutter', row >= 0 && lines()[row]!.startsWith('  ⎿  Error: ENOENT'))
+  check('error row carries the ⎿ gutter', row >= 0 && lines()[row]!.startsWith(' ⎿ Error: ENOENT'))
   check('error row is colored', row >= 0 && fgAt(7, row) !== 0)
 }
 
@@ -224,7 +224,29 @@ await show('running-diff', {
 })
 check('running edit shows the pending diff', rowOf('- old') >= 0 && rowOf('+ new') >= 0)
 
-// 10. Multi-hunk edit (settled contextual diff): adjacent hunks in one file separated by ⋯.
+// 10. Status dot: per-tool-family color, red ✗ on failure.
+await show('dot-bash', { name: 'bash', argsText: '{"command":"ls"}' })
+{
+  const row = rowOf('Bash')
+  check('bash dot is sage green', row >= 0 && lines()[row]!.includes('•') && fgAt(lines()[row]!.indexOf('•'), row) === 0x7fae99)
+}
+await show('dot-read', { name: 'read' })
+{
+  const row = rowOf('Read')
+  check('read dot is teal blue', row >= 0 && fgAt(lines()[row]!.indexOf('•'), row) === 0x82b8c7)
+}
+await show('dot-edit', { name: 'edit' })
+{
+  const row = rowOf('Edit')
+  check('edit dot is misty purple', row >= 0 && fgAt(lines()[row]!.indexOf('•'), row) === 0xb3a0d4)
+}
+await show('dot-error', { name: 'bash', status: 'error', errorText: 'boom' })
+{
+  const row = rowOf('Bash')
+  check('failure dot turns into a red ✗', row >= 0 && lines()[row]!.includes('✗') && fgAt(lines()[row]!.indexOf('✗'), row) === 0xda8a93)
+}
+
+// 12. Multi-hunk edit (settled contextual diff): adjacent hunks in one file separated by ⋯.
 await show('multi-hunk', {
   name: 'edit',
   callView: {
@@ -243,7 +265,7 @@ await show('multi-hunk', {
 })
 check('multi-hunk uses ⋯ separators', rowOf('⋯') >= 0 && rowOf('- l1') >= 0 && rowOf('+ l9c') >= 0)
 
-// 11. Grep search card: matches grouped by file.
+// 13. Grep search card: matches grouped by file.
 await show('grep', {
   name: 'grep',
   callView: { card: 'generic', title: 'Grep TODO in src' },
@@ -262,7 +284,7 @@ await show('grep', {
   check('search card groups by file + truncation count', rowOf('src/a.ts') >= 0 && rowOf('12: // TODO fix') >= 0 && rowOf('(7 total)') >= 0)
 }
 
-// 12. Glob search card: paths shape.
+// 14. Glob search card: paths shape.
 await show('glob', {
   name: 'glob',
   callView: { card: 'generic', title: 'Glob **/*.ts' },

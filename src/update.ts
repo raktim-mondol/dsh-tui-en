@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { gt, valid } from 'semver'
+import { gte, gt, lt, valid } from 'semver'
 import { shellQuote } from './utils/shellQuote.js'
 
 // Re-exported for scripts/verify-update.mjs and the bin launcher, which reads
@@ -23,7 +23,7 @@ export interface TuiUpdateInfo {
 
 /** What a fresh registry lookup says about this install. */
 export type TuiUpdateTarget =
-  | { kind: 'update'; current: string; latest: string }
+  | { kind: 'update'; current: string; latest: string; authoritative?: string }
   | { kind: 'latest'; current: string }
   | { kind: 'unknown' }
 
@@ -105,16 +105,31 @@ export function isVersionNewer(current: string, previous: string): boolean {
   return a !== null && b !== null && gt(a, b)
 }
 
+/**
+ * Versions whose compiled plugin hard-injects `tuiWorkspaces`
+ * ('0.7.0'–'0.7.1'; removed in 0.7.2). Installing one while the globally
+ * installed launcher copy predates the `dsh-tui-workspaces` patch row
+ * deadlocks boot forever at "pending (waiting for service: tuiWorkspaces)"
+ * (issues #183/#307) — and /update reaching such a target is exactly how
+ * stale-mirror installs stranded users. /update must refuse them.
+ * @param version - the candidate install target.
+ * @returns true for the known boot-deadlock version range.
+ */
+export function isBootDeadlockTarget(version: string): boolean {
+  const v = valid(version)
+  return v !== null && gte(v, '0.7.0') && lt(v, '0.7.2')
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-/** Fetch `latest` from the configured registry; undefined on any failure. */
-async function fetchLatestVersion(): Promise<string | undefined> {
+/** Fetch `latest` from a registry; undefined on any failure. */
+async function fetchLatestVersion(registryBase: string): Promise<string | undefined> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
   try {
-    const response = await fetch(`${resolveRegistryBase()}/${PACKAGE_NAME}/latest`, {
+    const response = await fetch(`${registryBase}/${PACKAGE_NAME}/latest`, {
       headers: { accept: 'application/json' },
       signal: controller.signal,
     })
@@ -135,16 +150,29 @@ async function fetchLatestVersion(): Promise<string | undefined> {
  * Classify this install against a fresh registry lookup: an update is
  * available, the install is already latest, or the answer is unknown
  * (offline / registry error / unreadable own version).
+ *
+ * The configured registry decides the install target (pnpm must be able to
+ * fetch it), but when that registry is a mirror it can lag behind npmjs —
+ * issue #307's users were pinned onto stale versions this way. A
+ * best-effort npmjs.org check runs in parallel and surfaces as
+ * `authoritative` when it knows a strictly newer release, so callers can
+ * say "installing X now, official latest is Y" instead of silently
+ * upgrading to yesterday's version.
  */
 export async function resolveTuiUpdateTarget(): Promise<TuiUpdateTarget> {
   const current = installedTuiVersion()
   const currentVersion = current === undefined ? null : valid(current)
   if (currentVersion === null) return { kind: 'unknown' }
 
-  const latest = await fetchLatestVersion()
+  const registryBase = resolveRegistryBase()
+  const [latest, official] = await Promise.all([
+    fetchLatestVersion(registryBase),
+    registryBase === DEFAULT_REGISTRY ? undefined : fetchLatestVersion(DEFAULT_REGISTRY),
+  ])
   if (latest === undefined) return { kind: 'unknown' }
   if (!gt(latest, currentVersion)) return { kind: 'latest', current: currentVersion }
-  return { kind: 'update', current: currentVersion, latest }
+  const authoritative = official !== undefined && gt(official, latest) ? official : undefined
+  return { kind: 'update', current: currentVersion, latest, ...(authoritative === undefined ? {} : { authoritative }) }
 }
 
 /**
@@ -160,6 +188,11 @@ export async function checkForTuiUpdate(): Promise<TuiUpdateInfo | undefined> {
 interface ProcessOptions {  env?: NodeJS.ProcessEnv
   /** Needed only for .cmd launchers on Windows (they cannot spawn directly). */
   shell?: boolean
+  /**
+   * Receives each stderr chunk while output still flows to the terminal, so
+   * the caller can classify failures (issue #225's transient-race retry).
+   */
+  onStderr?: (chunk: string) => void
 }
 
 /**
@@ -187,9 +220,17 @@ function runProcess(
       : [command, args]
     const child = spawn(runCommand, runArgs as string[], {
       env: options.env,
-      stdio: 'inherit',
+      stdio: options.onStderr === undefined ? 'inherit' : ['inherit', 'inherit', 'pipe'],
       shell: useShell,
     })
+    if (options.onStderr !== undefined && child.stderr !== null) {
+      const onStderr = options.onStderr
+      child.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf8')
+        process.stderr.write(text)
+        onStderr(text)
+      })
+    }
     const finish = (code: number): void => {
       if (settled) return
       settled = true
@@ -203,34 +244,178 @@ function runProcess(
   })
 }
 
+/** Build the profile-manager command, preferring a preflight-pinned version. */
+export function tuiUpdatePluginArgs(profile: string, targetVersion?: string): string[] {
+  return targetVersion === undefined
+    ? ['plugin', '--profile', profile, 'update', '--latest', PACKAGE_NAME]
+    : ['plugin', '--profile', profile, 'update', `${PACKAGE_NAME}@${targetVersion}`]
+}
+
+/**
+ * The pnpm Windows tmp-rename race signature (issue #225): pnpm swaps a
+ * package directory via a `<name>_tmp_<pid>` staging dir, and a file lock or
+ * AV scan makes the scandir/rename fail with ENOENT/EPERM/EBUSY. The failure
+ * is transient — the identical command succeeds on retry — but the crashed
+ * run leaves a half-updated profile (manifest pins the old version while the
+ * lockfile already carries the new snapshot), which presents as "update did
+ * nothing" (#209). Genuine resolution errors never carry the `_tmp_<pid>`
+ * token, so matching both keeps the retry from masking real failures.
+ */
+export function isTransientUpdateFailure(stderr: string): boolean {
+  return /ENOENT|EPERM|EBUSY/i.test(stderr) && /_tmp_\d+/i.test(stderr)
+}
+
+/**
+ * Best-effort migrate the GLOBAL launcher to the delegating shim (0.8.7):
+ * after a successful profile update, copy this package's `bin/dsh-tui.js`
+ * and `package.json` over the global install so the launcher can never lag
+ * the profile again — the shim delegates all logic to the profile copy it
+ * just updated. Single-file-safe by contract: the new bin imports nothing
+ * from lib/ (see its header), so overwriting it inside an older global
+ * install cannot dangle a missing helper.
+ *
+ * Locating the global dir relies on argv[1] being the global `dsh-tui.js`
+ * (true when booted through the `dsh-tui` command). Source checkouts and
+ * direct `dsh --profile` boots resolve nothing — the migration is a silent
+ * no-op there. Write failures (permissions, locked files) are equally
+ * silent: the launcher-alignment warning remains the fallback diagnosis.
+ *
+ * @returns true when the global launcher files were replaced.
+ */
+export function migrateGlobalLauncher(): boolean {
+  const launcherBin = process.argv[1]
+  if (launcherBin === undefined || !launcherBin.endsWith('dsh-tui.js')) return false
+  // Walk up from the bin to the containing package; accept it only when it
+  // is OUR package and not the profile copy we are running from (junction
+  // layouts collapse both onto the same real path — copying onto ourselves
+  // would be a no-op at best).
+  let dir = dirname(resolve(launcherBin))
+  const ownDir = dirname(dirname(fileURLToPath(import.meta.url)))
+  for (let depth = 0; depth < 4; depth++) {
+    const manifest = join(dir, 'package.json')
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(manifest, 'utf8'))
+      if (
+        parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+        && (parsed as Record<string, unknown>).name === PACKAGE_NAME
+      ) {
+        let same = false
+        try {
+          same = realpathSync(dir) === realpathSync(ownDir)
+        } catch {
+          same = resolve(dir) === resolve(ownDir)
+        }
+        if (same) return false
+        // tmp + rename keeps each file atomic; a crash mid-migration leaves
+        // either the old or the new file, never a truncated one.
+        const replace = (target: string, source: string): void => {
+          const staged = `${target}.dsh-tui-migrate`
+          writeFileSync(staged, readFileSync(source))
+          renameSync(staged, target)
+        }
+        replace(join(dir, 'bin', 'dsh-tui.js'), join(ownDir, 'bin', 'dsh-tui.js'))
+        replace(manifest, join(ownDir, 'package.json'))
+        return true
+      }
+    } catch {
+      // Unreadable manifest at this level — keep walking up.
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return false
+    dir = parent
+  }
+  return false
+}
+
 /**
  * Update the installed dsh-tui package and restart the same launcher while
  * preserving the active session. The TUI must already be unmounted before
  * this is called so pnpm output cannot corrupt the rendered terminal frame.
  *
- * `--latest` is required: `pnpm add` writes a caret range into the profile
- * manifest, and a plain `pnpm update` stays inside that range — with this
- * project's minor-per-release cadence the TUI would restart unchanged while
- * reporting success. The restart carries `DSH_TUI_UPDATED_FROM` so the new
- * process can warn when the version did not actually move (e.g. a mirror
- * registry still serving the old `latest`).
+ * When the preflight registry check resolved an exact target, pass that
+ * version to pnpm instead of resolving `latest` a second time. This avoids a
+ * stale mirror/dist-tag response between the check and install. If preflight
+ * failed, retain the `--latest` fallback: a plain `pnpm update` stays inside
+ * the manifest range and can restart unchanged across minor releases.
  *
  * @param sessionId - Session to resume in the replacement process.
  * @param profile - The dsh profile this TUI was launched with; updating any
  *   other profile would leave the running install untouched.
+ * @param targetVersion - Exact version returned by the preflight registry
+ *   check, or undefined when that check failed and pnpm should resolve latest.
  * @returns Exit codes for the update run and the replacement process.
  */
-export async function updateTuiAndRestart(sessionId: string, profile: string): Promise<TuiUpdateResult> {
+export async function updateTuiAndRestart(
+  sessionId: string,
+  profile: string,
+  targetVersion?: string,
+): Promise<TuiUpdateResult> {
+  // Stamp the pre-update version BEFORE pnpm runs: it reads this package's
+  // manifest from disk, which the update replaces on the fly — a
+  // post-update read already sees the NEW version, and the restarted
+  // process then compares new-vs-new and false-alarms "version did not
+  // advance" on every successful update (issue #307's screenshots).
+  const updatedFrom = installedTuiVersion() ?? ''
   const dsh = process.platform === 'win32' ? 'dsh.cmd' : 'dsh'
-  const updateCode = await runProcess(dsh, [
-    'plugin',
-    '--profile',
-    profile,
-    'update',
-    '--latest',
-    PACKAGE_NAME,
-  ], { shell: true })
+  const updateArgs = tuiUpdatePluginArgs(profile, targetVersion)
+  let updateStderr = ''
+  const capture = (chunk: string): void => { updateStderr += chunk }
+  let updateCode = await runProcess(dsh, updateArgs, { shell: true, onStderr: capture })
+  // Transient Windows tmp-rename race (issue #225): retry the identical
+  // command once — it succeeds on a clean second run, and only the
+  // `_tmp_<pid>` race signature qualifies, never a real resolution error.
+  if (updateCode !== 0 && isTransientUpdateFailure(updateStderr)) {
+    process.stderr.write('dsh-tui: transient pnpm failure (Windows tmp-rename race) — retrying once…\n')
+    updateStderr = ''
+    updateCode = await runProcess(dsh, updateArgs, { shell: true, onStderr: capture })
+  }
   if (updateCode !== 0) return { updateCode, restartCode: updateCode }
+
+  // A --latest fallback (preflight failed) on a stale mirror can still land
+  // on the 0.7.0–0.7.1 hard-inject range — restarting into it under an older
+  // global-launcher patch is the permanent boot deadlock of issues
+  // #183/#307. Refuse the restart when the version JUST moved there; a user
+  // who was already on it keeps their restart (their combo demonstrably
+  // boots) and gets the repair hint on the next /update instead.
+  const installedNow = installedTuiVersion()
+  if (installedNow !== undefined && installedNow !== updatedFrom && isBootDeadlockTarget(installedNow)) {
+    process.stderr.write(
+      `dsh-tui: update landed on ${installedNow}, which can permanently deadlock boot under older launcher patches ` +
+        `(#183/#307) — NOT restarting into it. Repair with:\n` +
+        `  dsh plugin --profile ${profile} add ${PACKAGE_NAME}@latest\n` +
+        `(if the mirror has not synced the latest release yet, retry later)\n`,
+    )
+    return { updateCode: 1, restartCode: 1 }
+  }
+
+  // Post-update verification (issue #225): pnpm can report success yet leave
+  // the profile half-updated (manifest old / lockfile new). Verify against
+  // the preflight target; a full `install` reconciles lockfile →
+  // node_modules, and if the mismatch survives, stop before restarting into
+  // a mixed state and hand the user the exact repair command instead.
+  if (targetVersion !== undefined) {
+    let installed = installedTuiVersion()
+    if (installed !== targetVersion) {
+      await runProcess(dsh, ['plugin', '--profile', profile, 'install'], { shell: true })
+      installed = installedTuiVersion()
+    }
+    if (installed !== targetVersion) {
+      process.stderr.write(
+        `dsh-tui: update completed but the profile still runs ${installed ?? 'an unreadable version'} ` +
+          `(expected ${targetVersion}) — the profile is half-updated. Repair manually with:\n` +
+          `  dsh plugin --profile ${profile} add ${PACKAGE_NAME}@${targetVersion}\n`,
+      )
+      return { updateCode: 1, restartCode: 1 }
+    }
+  }
+
+  // Launcher migration (0.8.7): the freshly installed profile carries the
+  // delegating shim — stamp it over the global launcher so this is the LAST
+  // time the outer copy can lag. Best-effort; the alignment warning stays as
+  // the fallback when the copy is impossible.
+  if (migrateGlobalLauncher()) {
+    process.stderr.write('dsh-tui: global launcher aligned to the delegating shim (no manual npm i -g needed anymore).\n')
+  }
 
   const restartCode = await runProcess(process.execPath, [...process.execArgv, ...process.argv.slice(1)], {
     env: {
@@ -239,7 +424,7 @@ export async function updateTuiAndRestart(sessionId: string, profile: string): P
       // still-old TUI build reads only DSH_CC_RESUME_SESSION.
       DSH_TUI_RESUME_SESSION: sessionId,
       DSH_CC_RESUME_SESSION: sessionId,
-      [UPDATED_FROM_ENV]: installedTuiVersion() ?? '',
+      [UPDATED_FROM_ENV]: updatedFrom,
     },
   })
   return { updateCode, restartCode }

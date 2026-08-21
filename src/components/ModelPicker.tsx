@@ -29,12 +29,14 @@ export function ModelPicker({
   const { rows: terminalRows } = useTerminalSize()
   // Focus windowing is budgeted by rows: a ListItem with a description
   // takes 2 rows (body + description, both truncated to a single line) —
-  // counting items alone crops the focus row out of the floater.
-  // Chrome rows: 8 floater reserve + 2 Pane + 2 title + 1 footer = 13.
+  // counting items alone crops the focus row out of the floater (confirmed
+  // by a follow-up review).
+  // Chrome rows: 8 floater reserve + 2 Pane + 2 title + 1 footer + 1 mount
+  // wrapper marginTop = 14.
   const { start, end } = listWindow(
     models.map(m => (m.description ? 2 : 1)),
     focusIndex,
-    Math.max(terminalRows - 13, 2),
+    Math.max(terminalRows - 14, 2),
   )
   return (
     <Pane color="permission">

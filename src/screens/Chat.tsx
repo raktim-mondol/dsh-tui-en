@@ -1,17 +1,23 @@
 import React from 'react'
 import { t, getLang, setLang, isLang, writeLangPref, subscribeLang, type I18nKey } from '../i18n.js'
 import { AlternateScreen, Box, Text, useInput, ScrollBox, type ScrollBoxHandle, useTheme, useTerminalSize } from '../ui.js'
+import * as tuiKit from '../ui.js'
 import { POINTER } from '../cc/figures.js'
 import { isMod, isPlainReturnInput, modLabel } from '../utils/modifiers.js'
 import { formatTokens } from '../cc/format.js'
 import { homeDir } from '../utils/paths.js'
 import type { LlmModelInfo } from '../dsh-adapter/types.js'
-import { sessionCwdMatches, type Channel, type ChatRow, type EffortOption, type PresetOption } from '../dsh-adapter/channel.js'
+import { sessionCwdMatches, type Channel, type ChatRow, type EffortOption, type PresetOption, type SkillInfo } from '../dsh-adapter/channel.js'
 import type { QuestionStore } from '../dsh-adapter/questions.js'
+import { TuiDialogStore } from '../dsh-adapter/dialogs.js'
+import { TuiStatusStore } from '../dsh-adapter/status.js'
+import type { TuiShortcutHost } from '../dsh-adapter/shortcuts.js'
+import type { TuiRewindMode } from '../dsh-adapter/extension-events.js'
 import { runProviderWizard } from '../dsh-adapter/providerWizard.js'
 import { ApprovalStore } from '../dsh-adapter/approvals.js'
 import { AskUserQuestionPanel } from '../components/questions/AskUserQuestionPanel.js'
 import { ApprovalPanel } from '../components/approvals/ApprovalPanel.js'
+import { ExtensionDialog } from '../components/ExtensionDialog.js'
 import type { DOMElement } from '../ink/dom.js'
 import { useSearchHighlight } from '../ink/hooks/use-search-highlight.js'
 import { useTerminalTitle } from '../ink/hooks/use-terminal-title.js'
@@ -28,7 +34,10 @@ import { StatusLine } from './StatusLine.js'
 import { WorkingSpinner, useThinkingStatus } from '../components/WorkingSpinner.js'
 import { ActivityLine, contextPressurePct } from '../components/ActivityLine.js'
 import { ModelPicker } from '../components/ModelPicker.js'
+import { PluginSceneBoundary } from '../components/PluginSceneBoundary.js'
+import { SkillsPicker, SkillsPickerLoading } from '../components/SkillsPicker.js'
 import { SessionBrowser } from './SessionBrowser.js'
+import { Settings } from './Settings.js'
 import { WorkspacePicker } from '../components/WorkspacePicker.js'
 import { WorkspaceFlowPicker } from '../components/WorkspaceFlowPicker.js'
 import type { TuiWorkspaceCommandResult, TuiWorkspaceTarget } from '../workspaces.js'
@@ -42,7 +51,11 @@ import { ThinkingToggle } from '../components/ThinkingToggle.js'
 import { HistorySearchDialog } from '../components/HistorySearchDialog.js'
 import { RewindPicker } from '../components/RewindPicker.js'
 import { BtwPanel } from '../components/BtwPanel.js'
+import { TipsPanel } from '../components/TipsPanel.js'
+import { SubagentDashboard } from '../components/SubagentDashboard.js'
+import { SubagentDetailScene } from '../components/SubagentDetailScene.js'
 import { setClipboard } from '../ink/termio/osc.js'
+import { TerminalWriteContext } from '../ink/useTerminalNotification.js'
 import instances from '../ink/instances.js'
 import { useAnimationFrame } from '../ink/hooks/use-animation-frame.js'
 import { TrajectoryScene } from './TrajectoryScene.js'
@@ -53,6 +66,7 @@ import type { SessionEvent } from '../dsh-adapter/types.js'
 import { LoadingState } from '../components/design-system/LoadingState.js'
 import { Pane } from '../components/design-system/Pane.js'
 import { loadHistory, type HistoryEntry } from '../history.js'
+import { formatLoadedContextReport } from '../utils/loaded-context.js'
 
 /** Shared empty snapshot for hosts whose channel has no event log. */
 const NO_EVENTS: readonly SessionEvent[] = []
@@ -131,10 +145,22 @@ function searchableText(row: ChatRow): string {
  */
 let fallbackApprovalStore: ApprovalStore | undefined
 
+/**
+ * Shared inert extension stores for hosts that render Chat without the
+ * dsh-tui-extensions row (headless verify scripts, bare embeds). Never
+ * written, so the dialog panel and the plugin status line never mount and
+ * no shortcut ever matches.
+ */
+let fallbackDialogStore: TuiDialogStore | undefined
+let fallbackStatusStore: TuiStatusStore | undefined
+
 export function Chat({
   channel,
   questionStore,
   approvalStore,
+  extensionDialogs,
+  extensionStatus,
+  extensionShortcuts,
   onExit,
   onUpdate,
   fullscreen = false,
@@ -148,6 +174,16 @@ export function Chat({
    * simply never see an approval panel — the question panel keeps its seat.
    */
   approvalStore?: ApprovalStore
+  /**
+   * The managed plugin dialog queue (tuiDialogs service's store). Optional
+   * for the same hosts as approvalStore; absent, plugin dialog requests
+   * park unanswered (their `timeoutMs` is the plugin's guard).
+   */
+  extensionDialogs?: TuiDialogStore
+  /** Plugin status-line contributions (tuiStatus service's store). */
+  extensionStatus?: TuiStatusStore
+  /** Host-only keyboard shortcut dispatch path. */
+  extensionShortcuts?: TuiShortcutHost
   onExit: () => void
   /** Update the installed package and restart the current TUI process. */
   onUpdate?: () => void
@@ -169,6 +205,7 @@ export function Chat({
    */
   trajectorySeen?: boolean
 }) {
+  const writeRaw = React.useContext(TerminalWriteContext)
   // Re-render whenever the channel mutates; rows/status are read fresh below.
   React.useSyncExternalStore(channel.subscribe, () => channel.version)
   // Re-render on language switches so the whole UI hot-swaps its strings.
@@ -188,6 +225,32 @@ export function Chat({
     listener => approvals.subscribe(listener),
     () => approvals.getSnapshot(),
   )
+  // The pending managed plugin dialog (tuiDialogs seam): a plugin's
+  // select/confirm/input request parks here until the panel settles it.
+  // Priority sits right below the approval panel (a gated tool outranks a
+  // plugin's question) and above the questionnaire. Hosts without the
+  // extensions row share one inert store that never holds a dialog.
+  const dialogs = extensionDialogs ?? (fallbackDialogStore ??= new TuiDialogStore())
+  const dialogSnapshot = React.useSyncExternalStore(
+    listener => dialogs.subscribe(listener),
+    () => dialogs.getSnapshot(),
+  )
+  // Plugin status-line contributions (tuiStatus seam): keyed texts joined
+  // into one line above the prompt.
+  const statusContributions = extensionStatus ?? (fallbackStatusStore ??= new TuiStatusStore())
+  const statusEntries = React.useSyncExternalStore(
+    listener => statusContributions.subscribe(listener),
+    () => statusContributions.getSnapshot(),
+  )
+  // Shortcut handler failures surface as toasts (the registry also logs
+  // them); the hook is re-pointed on every mount so a stale closure never
+  // outlives its channel.
+  React.useEffect(() => {
+    if (extensionShortcuts === undefined) return
+    return extensionShortcuts.setErrorHandler(combo => {
+      channel.notify(t('ext-shortcut-failed', { combo }), { color: 'error', timeoutMs: 4000 })
+    })
+  }, [extensionShortcuts, channel])
   // When a questionnaire batch completes, fold a Q&A summary into the
   // transcript (the tool card itself is hidden from the message list).
   const questionOpenRef = React.useRef(questionSnapshot !== null)
@@ -211,9 +274,17 @@ export function Chat({
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false)
   const [models, setModels] = React.useState<readonly LlmModelInfo[]>([])
   const [modelIndex, setModelIndex] = React.useState(0)
+  /** `/skills` 技能目录（issue #204）：null = 注册表快照在途。 */
+  const [skillsPickerOpen, setSkillsPickerOpen] = React.useState(false)
+  const [skillsList, setSkillsList] = React.useState<readonly SkillInfo[] | null>(null)
+  const [skillsIndex, setSkillsIndex] = React.useState(0)
   /** `/resume` opens the session browser, a screen rather than a panel. It
    *  owns its own selection, filters and keyboard — Chat only opens it. */
   const [browserOpen, setBrowserOpen] = React.useState(false)
+  /** `/settings` opens the plugin settings screen (issue #165) — like the
+   *  browser, a screen rather than a panel: it owns its own focus, staged
+   *  drafts and keyboard; Chat only opens it. */
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = React.useState(false)
   const [workspaceTargets, setWorkspaceTargets] = React.useState<readonly TuiWorkspaceTarget[]>([])
   const [workspaceIndex, setWorkspaceIndex] = React.useState(0)
@@ -245,11 +316,11 @@ export function Chat({
   const [themeName, setTheme] = useTheme()
   const { rows: terminalRows } = useTerminalSize()
   const [showAllMessages, setShowAllMessages] = React.useState(false)
+  /** Fold state for the GoalTodoPanel todo section (ctrl/cmd+q or click). */
+  const [todoCollapsed, setTodoCollapsed] = React.useState(false)
   const [thinkingVisible, setThinkingVisible] = React.useState(true)
   const [thinkingOpen, setThinkingOpen] = React.useState(false)
   const [thinkingFocus, setThinkingFocus] = React.useState(0)
-  /** Mid-conversation toggle waiting for Enter confirmation (CC semantics). */
-  const [thinkingConfirm, setThinkingConfirm] = React.useState<boolean | null>(null)
   /** ctrl+r history search dialog (ported from CC's HistorySearchDialog). */
   const [historyOpen, setHistoryOpen] = React.useState(false)
   const [historyQuery, setHistoryQuery] = React.useState('')
@@ -261,6 +332,17 @@ export function Chat({
   const [rewindOpen, setRewindOpen] = React.useState(false)
   const [rewindIndex, setRewindIndex] = React.useState(0)
   const [rewindConfirm, setRewindConfirm] = React.useState<ChatRow | null>(null)
+  /** Plugin rewind modes (tui/rewind-prompt seam): extra choices offered in
+   *  the confirm pane; null = the plain conversation-only confirm. */
+  const [rewindModes, setRewindModes] = React.useState<readonly TuiRewindMode[] | null>(null)
+  const [rewindModeIndex, setRewindModeIndex] = React.useState(0)
+  /** True while the tui/rewind-prompt decision is in flight (a plugin may be
+   *  showing its own dialog); keys except Esc are swallowed meanwhile. */
+  const [rewindBusy, setRewindBusy] = React.useState(false)
+  /** Monotonic token: only the latest rewind decision may land (a slow
+   *  plugin answering after the user moved on must not open a confirm for
+   *  a row they are no longer looking at). */
+  const rewindRequestRef = React.useRef(0)
   /** /btw side-question overlay (CC): pure UI state — the answer never
    *  enters the transcript or the session log. */
   const [btw, setBtw] = React.useState<{ question: string; answer: string; error?: string; done: boolean } | null>(null)
@@ -270,6 +352,17 @@ export function Chat({
     btwAbortRef.current = null
     setBtw(null)
   }
+  /** /tips usage-tips overlay: pure UI state, no session side effects. */
+  const [tipsOpen, setTipsOpen] = React.useState(false)
+  /** Subagent dashboard (Ctrl+A): displays active/completed subagents. */
+  const [subagentDashboardOpen, setSubagentDashboardOpen] = React.useState(false)
+  /** Detail view for a specific subagent (opened from dashboard). */
+  const [subagentDetailId, setSubagentDetailId] = React.useState<string | null>(null)
+  /**
+   * Hidden `/deepseek` easter egg: each invocation bumps this key so the
+   * logo header remounts and replays the whale spout + text shimmer.
+   */
+  const [logoNonce, setLogoNonce] = React.useState(0)
   React.useEffect(() => () => btwAbortRef.current?.abort(), [])
   /**
    * The trajectory scene (issue #80 evolution). Unlike every other overlay
@@ -282,15 +375,9 @@ export function Chat({
   /**
    * Close the scene.
    *
-   * Leaving the alternate screen makes the terminal restore the main buffer
-   * itself; Ink then repaints once, because `setAltScreenActive(false)` blanks
-   * its front frame. In inline mode that costs one frame of scrollback per
-   * round trip — the same, already-accepted cost as the Ctrl+X external-editor
-   * handoff, and bounded per OPEN rather than per keystroke. Making it zero
-   * needs the render core to save and restore the pre-alt front frame, which
-   * is a separate change to `setAltScreenActive` and deliberately not made
-   * here. `verify-trace-scene` pins the property that matters meanwhile:
-   * navigating inside the scene adds nothing at all.
+   * Leaving the alternate screen makes the terminal restore the main buffer;
+   * Ink restores the matching saved frame and diffs any conversation changes
+   * that happened while the scene was open.
    */
   const closeScene = React.useCallback(() => {
     setSceneOpen(false)
@@ -305,8 +392,22 @@ export function Chat({
     })
     setSceneOpen(true)
   }, [])
-  /** Startup context panel: expanded by header click or Ctrl+T. */
+  /** The startup summary gives way to transcript rows after the first local command or message. */
+  const loadedContextVisible = channel.rows.length === 0 && channel.loadedContext !== undefined
+  /** Startup context panel: collapsed by default, toggled with Ctrl+P. */
   const [loadedContextOpen, setLoadedContextOpen] = React.useState(false)
+  /**
+   * The context panel changes the height of the main-screen transcript by a
+   * large amount. In inline mode that invalidates the renderer's previous
+   * scrollback/layout correspondence; asking it to repaint from the physical
+   * viewport prevents the collapsed frame from reusing stale blank cells.
+   */
+  const toggleLoadedContext = React.useCallback(() => {
+    setLoadedContextOpen(previous => !previous)
+    const ink = instances.get(process.stdout) ?? instances.values().next().value
+    ink?.invalidatePrevFrame()
+    ink?.reanchorViewport()
+  }, [])
   /** `/` transcript search (less-style incsearch, ported from CC's REPL). */
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState('')
@@ -374,10 +475,17 @@ export function Chat({
   // Spinner timing refs, fed from channel state each render (the spinner
   // only mounts while working, so values are stable for the mount).
   const responseLengthRef = React.useRef(0)
+  const uploadTokensRef = React.useRef(0)
   const loadingStartTimeRef = React.useRef(0)
   const totalPausedMsRef = React.useRef(0)
   const pauseStartTimeRef = React.useRef<number | null>(null)
   responseLengthRef.current = channel.responseChars
+  // Most recent request's real upload (input + cache read/write occupy the
+  // wire exactly like the context window); 0 until the first usage event.
+  const lastUploadTokens = channel.lastUsage === undefined
+    ? 0
+    : channel.lastUsage.input + channel.lastUsage.cacheRead + channel.lastUsage.cacheWrite
+  uploadTokensRef.current = lastUploadTokens
   loadingStartTimeRef.current = channel.turnStart
   const thinkingStatus = useThinkingStatus(channel.spinnerMode === 'thinking')
 
@@ -603,7 +711,8 @@ export function Chat({
       case 'lang': {
         // `/lang` shows the current UI language, `/lang en|zh` switches
         // (hot-swap, persisted to ~/.dsh-tui/lang.json). Precedence on next
-        // launch: DSH_TUI_LANG > cordis.yml `lang` > the persisted choice.
+        // launch: DSH_TUI_LANG > settings.yaml `dsh-tui.lang` > cordis.yml
+        // `lang` > the persisted choice.
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts[0] === 'status') {
           setHelpOpen(false)
@@ -619,6 +728,16 @@ export function Chat({
           if (isLang(parts[0])) {
             const ok = writeLangPref(parts[0])
             setLang(parts[0])
+            // Mirror into the dsh-tui settings namespace when it is served,
+            // so /settings and the next boot see the same last-write-wins
+            // choice (best effort; lang.json stays the fallback).
+            const settingsHost = channel.settingsHost()
+            const tuiView = settingsHost?.listNamespaces().find(entry => entry.ns === 'dsh-tui')
+            if (settingsHost !== undefined && tuiView !== undefined) {
+              void settingsHost
+                .write('dsh-tui', [{ op: 'set', path: ['lang'], value: parts[0] }], tuiView.revision)
+                .catch(() => {})
+            }
             channel.notify(
               ok ? t('lang-switched', { lang: parts[0] }) : t('lang-switch-failed', { lang: parts[0] }),
               { color: ok ? 'success' : 'error' },
@@ -679,7 +798,25 @@ export function Chat({
         // non-destructive — no CC-style "press /new again" confirmation.
         setHelpOpen(false)
         void channel.newSession().then((ok) => {
-          if (ok) channel.notify(t('new-session-started'))
+          if (!ok) return
+          // A new session is a fresh terminal page, not merely an emptied
+          // transcript. Reset view-local state, return the ScrollBox to the
+          // top, then clear native scrollback and repaint the whale homepage.
+          setExpanded(false)
+          setExpandedRows(new Set())
+          setSelectedId(null)
+          setSelectionActive(false)
+          setShowAllMessages(false)
+          setLoadedContextOpen(false)
+          handle?.scrollTo(0)
+          channel.notify(t('new-session-started'))
+          const ink = instances.get(process.stdout) ?? instances.values().next().value
+          // Wait one task so React commits the empty transcript/homepage tree;
+          // clearing before that would immediately repaint the old session.
+          setTimeout(() => {
+            handle?.scrollTo(0)
+            ink?.clearScrollbackAndRedraw()
+          }, 0)
         })
         return true
       }
@@ -700,6 +837,16 @@ export function Chat({
         setHelpOpen(false)
         openScene()
         return true
+      case 'context': {
+        setHelpOpen(false)
+        const context = channel.loadedContext
+        if (context === undefined) {
+          channel.notify(t('context-unavailable'), { color: 'warning' })
+          return true
+        }
+        channel.pushLocal('/context', formatLoadedContextReport(context))
+        return true
+      }
       case 'help':
         setHelpOpen(true)
         return true
@@ -712,6 +859,23 @@ export function Chat({
             model => model.provider === channel.provider && model.id === channel.model,
           )
           setModelIndex(index >= 0 ? index : 0)
+        })
+        return true
+      case 'skills':
+        // issue #204: 列出当前 agent 的完整技能目录（名称 + 来源 + 简述），
+        // Enter 把可直调技能以 `/name ` 填回输入行（completion-only 分发的
+        // 同一路径）。注册表读取走 channel（快照 scoped 到 live agent）。
+        setHelpOpen(false)
+        setSkillsList(null)
+        setSkillsIndex(0)
+        setSkillsPickerOpen(true)
+        void channel.listSkills().then((list) => {
+          if (list === undefined) {
+            setSkillsPickerOpen(false)
+            channel.notify(t('skills-load-failed'), { color: 'error' })
+            return
+          }
+          setSkillsList(list)
         })
         return true
       case 'provider': {
@@ -862,6 +1026,13 @@ export function Chat({
         channel.pushLocal('/cost', lines)
         return true
       }
+      case 'settings': {
+        // Plugin settings screen (issue #165): opens immediately; the screen
+        // reads sections + namespaces from the channel itself.
+        setHelpOpen(false)
+        setSettingsOpen(true)
+        return true
+      }
       case 'config': {
         const userHome = process.env.USERPROFILE ?? ''
         const lines = [
@@ -878,6 +1049,13 @@ export function Chat({
       case 'doctor':
         setHelpOpen(false)
         channel.pushLocal('/doctor', channel.doctorInfo())
+        return true
+      case 'plugins':
+        // Plugin diagnostics (C-070): trust banner first, then descriptor /
+        // grant matrix / ledger tail — or validate+negotiate for
+        // `/plugins check <path>` (rawInput carries the subcommand).
+        setHelpOpen(false)
+        channel.pushLocal('/plugins', channel.pluginsInfo(rawInput))
         return true
       case 'export': {
         const target = channel.exportSession()
@@ -903,14 +1081,28 @@ export function Chat({
         })
         return true
       case 'login': {
-        const key = process.env.DEEPSEEK_API_KEY
-        const lines = [
-          `${t('login-api-key', { key: key ? key.slice(0, 6) + '…' + key.slice(-4) : t('login-key-missing') })}`,
-          `${t('login-base-url', { url: process.env.DEEPSEEK_BASE_URL ?? t('login-official-endpoint') })}`,
-          t('login-source-hint'),
-        ]
         setHelpOpen(false)
-        channel.pushLocal('/login', lines)
+        void channel.describeCredential('DEEPSEEK_API_KEY')
+          .catch(() => undefined)
+          .then(status => {
+            const keyStatus = status === undefined
+              ? t('login-credentials-unavailable')
+              : status.configured
+                ? t('login-key-configured', { ref: 'DEEPSEEK_API_KEY' })
+                : t('login-key-missing')
+            channel.pushLocal('/login', [
+              t('login-api-key', { status: keyStatus }),
+              ...(status === undefined
+                ? []
+                : [
+                    t('login-credential-source', { source: status.source ?? t('login-source-none') }),
+                    t('login-credential-storage', {
+                      mode: t(status.writable ? 'login-storage-writable' : 'login-storage-read-only'),
+                    }),
+                  ]),
+              t('login-base-url', { url: process.env.DEEPSEEK_BASE_URL ?? t('login-official-endpoint') }),
+            ])
+          })
         return true
       }
       case 'logout':
@@ -947,13 +1139,6 @@ export function Chat({
       case 'mcp':
         setHelpOpen(false)
         channel.pushLocal('/mcp', channel.mcpStatus())
-        return true
-      case 'memory':
-        setHelpOpen(false)
-        channel.pushLocal('/memory', [
-          t('memory-none'),
-          t('memory-hint'),
-        ])
         return true
       case 'update':
         setHelpOpen(false)
@@ -999,6 +1184,22 @@ export function Chat({
         })
         return true
       }
+      case 'deepseek': {
+        // Hidden easter egg: replay the logo header's whale spout + text
+        // shimmer. The command is intentionally not in the suggestion/help
+        // catalogs; PromptInput recognizes it through HIDDEN_COMMAND_NAMES.
+        setHelpOpen(false)
+        setLogoNonce(n => n + 1)
+        // Bring the logo back into view if the transcript has scrolled.
+        setTimeout(() => {
+          handle?.scrollTo(0)
+        }, 0)
+        return true
+      }
+      case 'tips':
+        setHelpOpen(false)
+        setTipsOpen(true)
+        return true
       case 'connect':
         setHelpOpen(false)
         channel.pushLocal('/connect', [t('connect-none')])
@@ -1080,11 +1281,30 @@ export function Chat({
     }
     setRewindIndex(0)
     setRewindConfirm(null)
+    setRewindModes(null)
+    setRewindBusy(false)
+    rewindRequestRef.current += 1
     setRewindOpen(true)
   }
+  /**
+   * Enter on a rewind candidate: ask the plugins first (tui/rewind-prompt).
+   * A veto keeps the list open; offered modes turn the confirm pane into a
+   * choice list; "no opinion" lands on the plain confirm as before.
+   */
+  const requestRewindConfirm = async (row: ChatRow) => {
+    const token = ++rewindRequestRef.current
+    setRewindBusy(true)
+    const decision = await channel.promptRewind(row)
+    if (token !== rewindRequestRef.current) return
+    setRewindBusy(false)
+    if (decision === 'cancel') return
+    setRewindConfirm(row)
+    setRewindModes(decision?.modes ?? null)
+    setRewindModeIndex(0)
+  }
   /** Execute the confirmed rewind; the message comes back into the input. */
-  const performRewind = async (row: ChatRow) => {
-    const text = await channel.rewindTo(row)
+  const performRewind = async (row: ChatRow, mode: string | null = null) => {
+    const text = await channel.rewindTo(row, mode)
     if (text !== null) {
       // CC puts the restored message back in the prompt for re-editing.
       setHistoryFill(text)
@@ -1262,24 +1482,43 @@ export function Chat({
     // so every key belongs to it — including the plain letters that drive its
     // search box, which Chat would otherwise route into the prompt.
     if (browserOpen) return
-    // The questionnaire / approval panel owns the keyboard while one is
-    // pending (the panel's own useInput handles ↑/↓/Space/Tab/Enter/Esc;
-    // the prompt input is unmounted, so nothing else should see these keys).
-    if (questionSnapshot !== null || approvalSnapshot !== null) return
-    const returnCandidate = isPlainReturnInput(input, key)
-    const returnNow = Date.now()
-    const plainReturn = returnCandidate && returnNow - lastModalEnterAtRef.current >= 80
-    if (plainReturn) lastModalEnterAtRef.current = returnNow
-    // Mouse wheel scrolls the transcript — in fullscreen there is no
-    // terminal scrollback (alt-screen), so this is the only way back.
-    // Imperative scrollBy: no React re-render per notch (CC semantics).
+    // Same for the settings screen: plain letters (s save / d discard) and
+    // the field draft editor belong to it alone.
+    if (settingsOpen) return
+    // Subagent dashboard or detail scene: it owns the keyboard while open.
+    if (subagentDashboardOpen || subagentDetailId !== null) return
+    // A plugin scene (dsh-tui-scenes) or the trajectory scene owns the whole
+    // screen while open: every key belongs to it. Unguarded, an Esc meant to
+    // CLOSE the scene also reached the chat:cancel branch below whenever a
+    // turn was in flight — closing the view and killing the turn in one key.
+    if (sceneOpen || channel.pluginScene !== undefined) return
+    // Mouse wheel scrolls the transcript even while a question/approval/
+    // dialog panel is open — those panels own arrow/Enter/Esc keys, but the
+    // transcript above them should still be scrollable in fullscreen mode.
+    // Help is different: its own ScrollBox owns wheel input, so Chat must
+    // yield before stopping propagation or both covered layers would move.
     // Events only arrive with mouse tracking on; inline mode never sees
     // them, so this is a no-op there.
     if (key.wheelUp || key.wheelDown) {
+      if (helpOpen) return
       handle?.scrollBy(key.wheelUp ? -3 : 3)
       event.stopImmediatePropagation()
       return
     }
+    // Help is modal over Chat. Chat's listener registers before PromptInput's,
+    // so yield every remaining key before any global/custom shortcut, search,
+    // selection, or working-turn cancellation branch can mutate hidden state.
+    // PromptInput then owns Esc, navigation, Tab guards, and ordinary typing.
+    if (helpOpen) return
+    // The questionnaire / approval panel / managed plugin dialog owns the
+    // keyboard while one is pending (the panel's own useInput handles
+    // ↑/↓/Space/Tab/Enter/Esc; the prompt input is unmounted, so nothing
+    // else should see these keys).
+    if (questionSnapshot !== null || approvalSnapshot !== null || dialogSnapshot !== null) return
+    const returnCandidate = isPlainReturnInput(input, key)
+    const returnNow = Date.now()
+    const plainReturn = returnCandidate && returnNow - lastModalEnterAtRef.current >= 80
+    if (plainReturn) lastModalEnterAtRef.current = returnNow
     // Esc clears a settled mouse selection first (CC precedence), ahead of
     // every other Esc meaning below (close pickers, interrupt the turn).
     // hasSelection() is an imperative read — no subscription needed.
@@ -1338,29 +1577,13 @@ export function Chat({
       return
     }
     if (thinkingOpen) {
-      if (thinkingConfirm !== null) {
-        // Confirmation state: Enter applies, Esc backs out to the select.
-        if (plainReturn) {
-          const enabled = thinkingConfirm
-          setThinkingVisible(enabled)
-          setThinkingConfirm(null)
-          setThinkingOpen(false)
-          channel.notify(t('thinking-toggled', { state: enabled ? t('thinking-on') : t('thinking-off') }))
-        } else if (key.escape) {
-          setThinkingConfirm(null)
-        }
-      } else if (key.upArrow || key.downArrow) {
+      if (key.upArrow || key.downArrow) {
         setThinkingFocus(index => (index === 0 ? 1 : 0))
       } else if (plainReturn) {
-        const enabled = thinkingFocus === 0
-        const midConversation = channel.rows.some(row => row.kind === 'assistant')
-        if (midConversation && enabled !== thinkingVisible) {
-          setThinkingConfirm(enabled)
-        } else {
-          setThinkingVisible(enabled)
-          setThinkingOpen(false)
-          channel.notify(t('thinking-toggled', { state: enabled ? t('thinking-on') : t('thinking-off') }))
-        }
+        const visible = thinkingFocus === 0
+        setThinkingVisible(visible)
+        setThinkingOpen(false)
+        channel.notify(t('thinking-toggled', { state: visible ? t('thinking-on') : t('thinking-off') }))
       } else if (key.escape) {
         setThinkingOpen(false)
       }
@@ -1482,6 +1705,24 @@ export function Chat({
       }
       return
     }
+    if (skillsPickerOpen) {
+      const list = skillsList ?? []
+      if (key.upArrow) {
+        if (list.length > 0) setSkillsIndex(index => (index <= 0 ? list.length - 1 : index - 1))
+      } else if (key.downArrow) {
+        if (list.length > 0) setSkillsIndex(index => (index >= list.length - 1 ? 0 : index + 1))
+      } else if (plainReturn) {
+        const skill = list[skillsIndex]
+        setSkillsPickerOpen(false)
+        // 可直调技能 Enter 填入 `/name `——与 / 菜单选中技能同一条
+        // completion-only 分发路径；模型专用技能（userInvocable=false）只关闭。
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
+        if (skill?.userInvocable) setHistoryFill(`/${skill.name} `)
+      } else if (key.escape) {
+        setSkillsPickerOpen(false)
+      }
+      return
+    }
     if (activityPickerOpen) {
       if (key.upArrow) {
         setActivityIndex(index => (index <= 0 ? PRESET_NAMES.length - 1 : index - 1))
@@ -1579,9 +1820,19 @@ export function Chat({
           setHistoryFocus(0)
         }
       } else if (key.leftArrow) {
-        setHistoryCursor(cursor => Math.max(0, cursor - 1))
+        // Step by code point, not UTF-16 unit: an emoji is two units, and
+        // a mid-pair caret offset would split it in the SearchBox render.
+        setHistoryCursor(cursor => {
+          if (cursor <= 0) return 0
+          const ch = [...historyQuery.slice(0, cursor)].pop()!
+          return cursor - ch.length
+        })
       } else if (key.rightArrow) {
-        setHistoryCursor(cursor => Math.min(historyQuery.length, cursor + 1))
+        setHistoryCursor(cursor => {
+          if (cursor >= historyQuery.length) return historyQuery.length
+          const ch = [...historyQuery.slice(cursor)][0]!
+          return cursor + ch.length
+        })
       } else if (key.home) {
         setHistoryCursor(0)
       } else if (key.end) {
@@ -1595,7 +1846,37 @@ export function Chat({
       return
     }
     if (rewindOpen) {
+      // While the plugin decision is in flight the picker is read-only;
+      // Esc abandons the wait (the stale answer is dropped by the token).
+      if (rewindBusy) {
+        if (key.escape) {
+          rewindRequestRef.current += 1
+          setRewindBusy(false)
+        }
+        return
+      }
       if (rewindConfirm !== null) {
+        if (rewindModes !== null) {
+          // Plugin offered modes: the confirm pane is a choice list —
+          // option 0 is always the built-in conversation-only rewind.
+          const optionCount = rewindModes.length + 1
+          if (key.upArrow) {
+            setRewindModeIndex(index => (index <= 0 ? optionCount - 1 : index - 1))
+          } else if (key.downArrow) {
+            setRewindModeIndex(index => (index >= optionCount - 1 ? 0 : index + 1))
+          } else if (plainReturn) {
+            const row = rewindConfirm
+            const mode = rewindModeIndex === 0 ? null : (rewindModes[rewindModeIndex - 1]?.id ?? null)
+            setRewindOpen(false)
+            setRewindConfirm(null)
+            setRewindModes(null)
+            void performRewind(row, mode)
+          } else if (key.escape) {
+            setRewindConfirm(null)
+            setRewindModes(null)
+          }
+          return
+        }
         // Confirmation state: Enter rewinds, Esc backs out to the list.
         if (plainReturn) {
           const row = rewindConfirm
@@ -1612,20 +1893,29 @@ export function Chat({
       } else if (plainReturn) {
         const row = rewindRows[rewindIndex]
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
-        if (row) setRewindConfirm(row)
+        if (row) void requestRewindConfirm(row)
       } else if (key.escape) {
         setRewindOpen(false)
         setRewindConfirm(null)
+        setRewindModes(null)
       }
       return
     }
     if (isMod(key) && input === 't') {
-      // Ctrl+T opens the trajectory scene (issue #80 evolution). It used to
-      // toggle the startup loaded-context panel — which only ever renders
-      // before the first message (see the render below), so the binding was
-      // dead for the whole rest of a session. The panel keeps its header
-      // click-to-toggle; the key now has a meaning that always applies.
+      // Ctrl+T opens the trajectory scene at any point in the session.
       openScene()
+      return
+    }
+    if (isMod(key) && input === 'a') {
+      // Ctrl+A opens the subagent dashboard.
+      setSubagentDashboardOpen(true)
+      return
+    }
+    if (isMod(key) && input === 'p' && loadedContextVisible) {
+      // Ctrl+P toggles the startup loaded-context panel while it is on
+      // screen (transcript still empty); once rows take over and the
+      // panel disappears the key has nothing left to do.
+      toggleLoadedContext()
       return
     }
     if (isMod(key) && input === 'r' && !helpOpen) {
@@ -1636,7 +1926,7 @@ export function Chat({
       setHistoryOpen(true)
       return
     }
-    if (key.shift && key.upArrow && !selectionActive) {
+    if (key.shift && key.upArrow && !selectionActive && !helpOpen) {
       enterSelection()
     } else if (selectionActive) {
       if (key.upArrow) {
@@ -1649,7 +1939,7 @@ export function Chat({
         setSelectionActive(false)
         setSelectedId(null)
       }
-    } else if (key.escape && channel.working) {
+    } else if (key.escape && channel.working && !helpOpen) {
       // CC's chat:cancel — esc interrupts a running turn (the prompt input
       // only sees esc when idle, where it has the double-tap-clear meaning).
       // With messages queued for delivery, interrupt-and-deliver them right
@@ -1663,10 +1953,23 @@ export function Chat({
         channel.cancel()
       }
       event.stopImmediatePropagation()
-    } else if (isMod(key) && input === 'o') {
+    } else if (isMod(key) && input === 'o' && !helpOpen) {
       // Leaving transcript mode (Ctrl+O) — search was already handled above.
+      // Help is modal: toggling this state behind the overlay is invisible,
+      // then the next `/` unexpectedly opens transcript search instead of
+      // slash-command completion after Help closes.
       setExpanded(previous => !previous)
-    } else if (input === '/' && !key.ctrl && !key.meta && !key.super) {
+      // The toggle rewrites every thinking row's layout at once. The
+      // ordinary scroll-based diff pushes rows into terminal scrollback on
+      // each expand and nothing removes them on collapse — rapid toggling
+      // drifts the virtual↔scrollback mapping until writes misland
+      // (garbled transcript, duplicated rows). Re-anchor the next frame:
+      // in-place viewport repaint, nothing added to scrollback. Lookup
+      // falls back to the only live instance for embedders whose stdout
+      // isn't process.stdout (test harnesses).
+      const ink = instances.get(process.stdout) ?? instances.values().next().value
+      ink?.reanchorViewport()
+    } else if (input === '/' && !key.ctrl && !key.meta && !key.super && !helpOpen) {
       // `/` in transcript mode (Ctrl+O expanded, CC's REPL semantics:
       // search is active on the transcript screen where `/` isn't a command).
       if (expanded) {
@@ -1698,14 +2001,62 @@ export function Chat({
       instances.get(process.stdout)?.forceRedraw()
     } else if (isMod(key) && input === 'e') {
       setShowAllMessages(previous => !previous)
+    } else if (isMod(key) && input === 'q') {
+      // Fold/unfold the GoalTodoPanel todo section — works mid-turn too:
+      // the collapsed line keeps the done/total count and the live task
+      // preview, so long todo lists stop crowding the prompt.
+      setTodoCollapsed(previous => !previous)
     } else if (plainReturn && showPill) {
       handle?.scrollToBottom()
+    } else if (extensionShortcuts !== undefined && extensionShortcuts.dispatch(input, key)) {
+      // Plugin shortcut (tuiShortcuts seam): matched only after every
+      // built-in global binding above declined — locals always win, and the
+      // registry additionally refuses the prompt editor's own combos at
+      // registration, so a plugin can never shadow anything. The handler
+      // runs fire-and-forget; its errors arrive via the onError hook
+      // (wired to the toast below).
+      event.stopImmediatePropagation()
     }
   })
 
   // Working-activity line (spinner slot): context-pressure prefix shares the
   // StatusLine thresholds (amber ≥ 80, red ≥ 95).
   const activityWarnPct = contextPressurePct(channel.lastUsage, channel.contextWindow)
+
+  // A plugin scene (dsh-tui-scenes) takes the whole terminal the same way
+  // the trajectory scene does, and sits at the TOP of this return chain:
+  // an open() landing while the session browser or the trajectory scene is
+  // up must still take the screen (and the keyboard, via the useInput guard
+  // above), not queue silently behind them. Closing the plugin scene lands
+  // back on whatever screen was up before, so these early returns read as a
+  // stack. The component comes from the registry, so its identity is stable
+  // across renders and its hook state survives re-renders; it receives the
+  // TUI's own React + ui kit because a plugin importing its own React copy
+  // would die on the first hook call under this reconciler.
+  // The scene is third-party code, so it renders inside a boundary: a render
+  // crash reports to the transcript and closes the scene instead of taking
+  // the whole TUI down through ink's app-level boundary.
+  const pluginScene = channel.pluginScene
+  if (pluginScene !== undefined) {
+    const node = (
+      <PluginSceneBoundary
+        id={pluginScene.id}
+        onError={(id, error) => {
+          channel.notify(t('plugin-scene-crashed', { id, err: error.message }), { color: 'error' })
+          channel.closePluginScene()
+        }}
+      >
+        {React.createElement(pluginScene.component, {
+          React,
+          ui: tuiKit,
+          channel,
+          close: () => channel.closePluginScene(),
+        })}
+      </PluginSceneBoundary>
+    )
+    return fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>
+  }
+
   // The browser is a screen, not an overlay: it REPLACES the conversation
   // rather than floating above it. Rendering it as an early return (after
   // every hook above has run) is what makes that literal — there is no
@@ -1724,11 +2075,58 @@ export function Chat({
     return fullscreen ? browser : <AlternateScreen>{browser}</AlternateScreen>
   }
 
+  // The settings screen follows the browser's rule exactly: it REPLACES the
+  // conversation (an early return after every hook above has run), so there
+  // is no transcript underneath to be repainted or bled through.
+  if (settingsOpen) {
+    const screen = <Settings channel={channel} onClose={() => setSettingsOpen(false)} />
+    return fullscreen ? screen : <AlternateScreen>{screen}</AlternateScreen>
+  }
+
+  // Subagent detail scene: displays detailed view of a specific subagent.
+  // Like the browser and settings, it replaces the conversation entirely.
+  if (subagentDetailId !== null) {
+    const subagent = channel.subagents.find(s => s.agentId === subagentDetailId)
+    if (!subagent) {
+      // Agent not found, go back to dashboard
+      setSubagentDetailId(null)
+      setSubagentDashboardOpen(true)
+      return null
+    }
+    const scene = (
+      <SubagentDetailScene
+        subagent={subagent}
+        onInterrupt={(id) => channel.subagentControl.interrupt(id)}
+        onBack={() => {
+          setSubagentDetailId(null)
+          setSubagentDashboardOpen(true)
+        }}
+      />
+    )
+    return fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>
+  }
+
+  // Subagent dashboard: displays all active and completed subagents.
+  // Like the browser and settings, it replaces the conversation entirely.
+  if (subagentDashboardOpen) {
+    const dashboard = (
+      <SubagentDashboard
+        subagents={[...channel.subagents]}
+        onSelect={(id) => {
+          setSubagentDashboardOpen(false)
+          setSubagentDetailId(id)
+        }}
+        onClose={() => setSubagentDashboardOpen(false)}
+      />
+    )
+    return fullscreen ? dashboard : <AlternateScreen>{dashboard}</AlternateScreen>
+  }
+
   /** Prompt input is inert while a modal dialog owns the keyboard. */
   const promptSelectionActive =
-    selectionActive || modelPickerOpen || workspacePickerOpen || workspaceFlow !== null || activityPickerOpen ||
+    selectionActive || modelPickerOpen || skillsPickerOpen || workspacePickerOpen || workspaceFlow !== null || activityPickerOpen ||
     effortSliderOpen || presetPickerOpen || themePickerOpen || thinkingOpen || historyOpen || rewindOpen || searchOpen ||
-    btw !== null
+    btw !== null || tipsOpen
 
   // The trajectory scene replaces the conversation for as long as it is open.
   // Rendering it INSTEAD of (not above) the transcript is what makes it a
@@ -1753,10 +2151,10 @@ export function Chat({
   // blank screen when Esc closes a picker).
   const dialogOverlayOpen =
     thinkingOpen || (workspacePickerOpen && workspaceTargets.length > 0) || workspaceFlow !== null ||
-    modelPickerOpen ||
+    modelPickerOpen || skillsPickerOpen ||
     activityPickerOpen || (effortSliderOpen && effortOptions.length > 1) ||
     (presetPickerOpen && presetOptions.length > 0) || themePickerOpen || historyOpen ||
-    rewindOpen || searchOpen
+    rewindOpen || searchOpen || tipsOpen
 
   return (
     <Box ref={wakeTickRef} flexDirection="column" flexGrow={1} width="100%">
@@ -1773,19 +2171,22 @@ export function Chat({
       )}
       <ScrollBox ref={setHandle} flexDirection="column" flexGrow={1} flexShrink={1} stickyScroll>
         <LogoHeader
+          key={logoNonce}
           model={channel.model}
           effort={channel.reasoningEffort}
           cwd={channel.displayCwd}
+          whale={channel.whale}
         />
         {/* The startup loaded-context panel: before the first message the
-            transcript is empty, so the collapsed summary of what this
-            conversation will load (system prompt, workspace instructions,
-            skills, tools) sits at the top; the first rows take over. */}
-        {channel.rows.length === 0 && channel.loadedContext !== undefined && (
+            transcript is empty, so the inventory of what this conversation
+            will load (system prompt, workspace instructions, skills, tools)
+            sits at the top, collapsed to a summary line and expandable with
+            Ctrl+P; the first rows take over. */}
+        {loadedContextVisible && (
           <LoadedContextPanel
             context={channel.loadedContext}
             open={loadedContextOpen}
-            onToggle={() => { setLoadedContextOpen(previous => !previous) }}
+            onToggle={toggleLoadedContext}
           />
         )}
         <MessageList
@@ -1797,6 +2198,10 @@ export function Chat({
           selectedId={selectionActive ? selectedId : null}
           onToggleRow={toggleRowExpanded}
           model={channel.model}
+          diffLayout={channel.diffLayout}
+          thinkingFold={channel.thinkingFold}
+          toolBackground={channel.toolBackground}
+          activityFrames={channel.activityFrames}
           showAll={showAllMessages}
           thinkingVisible={thinkingVisible}
           onToggleAll={() =>{  setShowAllMessages(previous => !previous) }}
@@ -1820,6 +2225,7 @@ export function Chat({
         )}
         {channel.working &&
           (channel.activityEnabled &&
+          !channel.minimal &&
           channel.workingActivity !== undefined &&
           channel.workingActivity.line !== '' &&
           channel.workingActivity.phase !== 'idle' ? (
@@ -1837,7 +2243,11 @@ export function Chat({
                   activityFrames={channel.activityFrames}
                   warnPct={activityWarnPct}
                   warnDanger={activityWarnPct !== undefined && activityWarnPct >= 95}
-                  suffix={` · ↓ ${channel.responseChars} tokens`}
+                  // Upload = real tokens of the last request; download =
+                  // the animated chars/4 estimate, matching the classic
+                  // spinner's counter (the suffix used raw chars before,
+                  // inflating the reading next to a real upload number).
+                  suffix={`${lastUploadTokens > 0 ? ` · ↑ ${formatTokens(lastUploadTokens)}` : ''} · ↓ ${formatTokens(Math.round(channel.responseChars / 4))} tokens`}
                 />
               </Box>
             ) : (
@@ -1845,19 +2255,43 @@ export function Chat({
                 mode={channel.spinnerMode}
                 hasActiveTools={channel.activeToolCount > 0}
                 responseLengthRef={responseLengthRef}
+                uploadTokensRef={uploadTokensRef}
                 loadingStartTimeRef={loadingStartTimeRef}
                 totalPausedMsRef={totalPausedMsRef}
                 pauseStartTimeRef={pauseStartTimeRef}
                 thinkingStatus={thinkingStatus}
               />
             ))}
-        <GoalTodoPanel channel={channel} />
+        <GoalTodoPanel
+          channel={channel}
+          collapsed={todoCollapsed}
+          onToggle={() => setTodoCollapsed(previous => !previous)}
+        />
+        {statusEntries.length > 0 && (
+          // Plugin status contributions (tuiStatus seam): one joined line,
+          // truncated by the Text wrap contract — the host owns the layout,
+          // plugins own only their text.
+          <Text dimColor wrap="truncate">
+            {statusEntries.map(entry => entry.text).join(' · ')}
+          </Text>
+        )}
         {approvalSnapshot !== null ? (
           <ApprovalPanel
             key={approvalSnapshot.key}
             approval={approvalSnapshot}
             onDecide={outcome => approvals.decide(outcome)}
           />
+        ) : dialogSnapshot !== null ? (
+          <ExtensionDialog
+            key={dialogSnapshot.key}
+            dialog={dialogSnapshot}
+            onDecide={value => dialogs.decide(dialogSnapshot.key, value)}
+            onCancel={() => dialogs.cancel(dialogSnapshot.key)}
+          />
+        ) : tipsOpen ? (
+          <Box flexDirection="column" marginTop={1}>
+            <TipsPanel onClose={() => setTipsOpen(false)} />
+          </Box>
         ) : btw !== null ? (
           <Box flexDirection="column" marginTop={1}>
             <BtwPanel
@@ -1867,7 +2301,7 @@ export function Chat({
               streaming={!btw.done}
               onClose={closeBtw}
               onCopy={() => {
-                void setClipboard(btw.answer ?? '').then(raw => { if (raw) process.stdout.write(raw) })
+                void setClipboard(btw.answer ?? '').then(raw => { if (raw) writeRaw?.(raw) })
                 channel.notify(t('copied-chars', { n: (btw.answer ?? '').length }), { timeoutMs: 1500 })
               }}
             />
@@ -1925,7 +2359,6 @@ export function Chat({
             <ThinkingToggle
               currentValue={thinkingVisible}
               focusIndex={thinkingFocus}
-              confirmationPending={thinkingConfirm}
             />
           )}
           {workspacePickerOpen && workspaceTargets.length > 0 && (
@@ -1957,6 +2390,18 @@ export function Chat({
                   models={models}
                   focusIndex={modelIndex}
                   currentModel={`${channel.provider}/${channel.model}`}
+                />
+              )}
+            </Box>
+          )}
+          {skillsPickerOpen && (
+            <Box flexDirection="column" marginTop={1}>
+              {skillsList === null ? (
+                <SkillsPickerLoading />
+              ) : (
+                <SkillsPicker
+                  skills={skillsList}
+                  focusIndex={skillsIndex}
                 />
               )}
             </Box>
@@ -2008,6 +2453,9 @@ export function Chat({
                 rows={rewindRows}
                 focusIndex={rewindIndex}
                 confirmRow={rewindConfirm}
+                modes={rewindModes}
+                modeIndex={rewindModeIndex}
+                busy={rewindBusy}
               />
             </Box>
           )}
@@ -2031,19 +2479,15 @@ function StickyPromptHeader({
   text: string
   onClick: () => void
 }): React.ReactNode {
-  const [hover, setHover] = React.useState(false)
   return (
     <Box
       flexShrink={0}
       width="100%"
       height={1}
       paddingRight={1}
-      backgroundColor={hover ? 'userMessageBackgroundHover' : 'userMessageBackground'}
-      onMouseEnter={() =>{  setHover(true) }}
-      onMouseLeave={() =>{  setHover(false) }}
       onClick={onClick}
     >
-      <Text color="subtle" wrap="truncate-end">
+      <Text color="briefLabelYou" bold wrap="truncate-end">
         {POINTER} {text}
       </Text>
     </Box>

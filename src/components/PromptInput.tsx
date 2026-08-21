@@ -2,15 +2,20 @@ import React from 'react'
 import { readFile, unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { t } from '../i18n.js'
-import { Box, Text, useInput, useTerminalSize } from '../ui.js'
+import { Box, Text, useInput, useTerminalSize, useTheme, type ScrollBoxHandle } from '../ui.js'
+import { EffortChargeGlyph } from './EffortChargeGlyph.js'
+import { EffortInputBorder } from './EffortInputBorder.js'
+import { EffortTierBadge } from './EffortTierBadge.js'
+import { isLightThemeActive } from '../theme.js'
 import { useDeclaredCursor } from '../ink/hooks/use-declared-cursor.js'
 import { stringWidth } from '../ink/stringWidth.js'
 import { formatClipboardInsert, readClipboard } from '../utils/clipboard.js'
 import { editInExternalEditor } from '../utils/externalEditor.js'
 import type { Channel } from '../dsh-adapter/channel.js'
-import { parseCommandName } from '../commands.js'
+import { isHiddenCommandName, parseCommandName } from '../commands.js'
 import { appendHistory } from '../history.js'
 import { mentionAtCaret } from '../utils/mentions.js'
+import { preserveSelection, type FileCandidate } from '../utils/fileSuggestions.js'
 import { isMod } from '../utils/modifiers.js'
 import { CommandSuggestions } from './CommandSuggestions.js'
 import { FileSuggestions } from './FileSuggestions.js'
@@ -96,9 +101,10 @@ export interface PromptInputProps {
 /**
  * Claude Code style prompt input: rounded border box (top+bottom borders
  * only), `❯ ` prompt char (dimmed while a turn is working), the text with a
- * block cursor at the cursor position, and below it the slash-command
- * suggestion overlay (name column + description, selected row in the
- * `suggestion` color — mirroring Claude Code's PromptInputFooterSuggestions).
+ * block cursor at the cursor position, and above it the slash-command /
+ * file-completion suggestion card (SuggestionCard: rounded panel with the
+ * selected row behind a `❯` pointer in the theme's `suggestion` color,
+ * mirroring Claude Code's PromptInputFooterSuggestions layout).
  *
  * Empty input: a solid block caret on a blank cell and nothing else — no
  * placeholder text, so the terminal-painted IME preedit (pinyin) at the
@@ -108,7 +114,7 @@ export interface PromptInputProps {
  * the input spans multiple lines (history/command selection otherwise); the
  * visible window scrolls to keep the caret row on screen past
  * MAX_VISIBLE_LINES. Enter submits, backspace/delete edit, ←/→ move the
- * cursor, Tab completes the selected command, Ctrl+X opens the draft in the
+ * cursor, Tab completes the selected command, Ctrl+G opens the draft in the
  * external editor ($VISUAL/$EDITOR), Escape clears (or closes the help
  * menu), `?` toggles the help menu. Windows ConPTY pipelines deliver
  * whole lines with the Enter key lost: a trailing CR/LF in the input marks
@@ -134,6 +140,7 @@ export function PromptInput({
   onRewindRequest,
   controllerRef,
 }: PromptInputProps) {
+  const [themeName] = useTheme()
   const [value, setValue] = React.useState('')
   const [cursor, setCursor] = React.useState(0)
   const valueRef = React.useRef(value)
@@ -147,6 +154,8 @@ export function PromptInput({
     controllerRef.current = {
       hasText: () => value.length > 0,
       clear: () => {
+        valueRef.current = ''
+        cursorRef.current = 0
         setValue('')
         setCursor(0)
       },
@@ -158,12 +167,15 @@ export function PromptInput({
   const [selectedCommand, setSelectedCommand] = React.useState(0)
   const history = React.useRef<string[]>([])
   const historyIndex = React.useRef(-1)
+  const historyDraft = React.useRef('')
   // ctrl+r history fill: replace the input when a new fill arrives, then
   // tell the caller to clear it.
   const lastFill = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (fillText && fillText !== lastFill.current) {
       lastFill.current = fillText
+      valueRef.current = fillText
+      cursorRef.current = fillText.length
       setValue(fillText)
       setCursor(fillText.length)
       onFillConsumed?.()
@@ -174,18 +186,8 @@ export function PromptInput({
   const escTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   /** True while a Ctrl+V clipboard read is in flight (ignore repeat keys). */
   const clipboardBusyRef = React.useRef(false)
-  /** True while the external editor owns the terminal (Ctrl+X round-trip). */
+  /** True while the external editor owns the terminal (Ctrl+G round-trip). */
   const editorBusyRef = React.useRef(false)
-  /**
-   * Latest committed input state. The Ctrl+V clipboard read resolves
-   * asynchronously; inserting against the render that STARTED the read
-   * would drop whatever the user typed while waiting. The continuation
-   * inserts against this mirror instead.
-   */
-  const liveInputRef = React.useRef({ value: '', cursor: 0 })
-  React.useEffect(() => {
-    liveInputRef.current = { value, cursor }
-  })
   /** Enter dedupe window: cmd pipelines can deliver one Enter as `\r`+`\n`. */
   const lastEnterAtRef = React.useRef(0)
   React.useEffect(() => {
@@ -194,6 +196,11 @@ export function PromptInput({
     }
   }, [])
   const { columns, rows: terminalRows } = useTerminalSize()
+  const helpScrollRef = React.useRef<ScrollBoxHandle | null>(null)
+  // OverlayAbove reserves six terminal rows for the composer/status chrome;
+  // the help block also keeps one row below it. Its own final row is a
+  // persistent navigation hint, leaving the remainder to ScrollBox.
+  const helpViewportHeight = Math.max(3, Math.max(terminalRows - 6, 4) - 1)
 
   const suggestions = value.startsWith('/') ? channel.commandCompletions(value) : []
   const overlayOpen =
@@ -206,27 +213,30 @@ export function PromptInput({
   // CARET, so `@` works mid-message (`look at @src/a.ts please`), not only
   // when it is the input's first character. The cwd listing loads when the
   // trigger appears.
-  const [fileList, setFileList] = React.useState<readonly string[]>([])
+  const [fileMatches, setFileMatches] = React.useState<readonly FileCandidate[]>([])
   const [fileSelected, setFileSelected] = React.useState(0)
   const mention = mentionAtCaret(value, cursor)
   const atTrigger = mention !== undefined
+  const fileRequestId = React.useRef(0)
+  const selectedFile = fileMatches[fileSelected]
   React.useEffect(() => {
-    if (atTrigger) {
-      void channel.listFiles().then(setFileList)
+    const requestId = ++fileRequestId.current
+    if (!mention) {
+      setFileMatches([])
+      setFileSelected(0)
+      return
     }
-  }, [atTrigger, channel])
-  const atRest = (mention?.query ?? '').toLowerCase()
-  // Match the relative path prefix OR the basename (CC's IDE suggestions do
-  // both): `@src/ink` and `@ink` both find `src/ink/Box.js`.
-  const fileMatches = atTrigger
-    ? fileList.filter(file => {
-        const lower = file.toLowerCase()
-        if (lower.startsWith(atRest)) return true
-        if (atRest.includes('/')) return false
-        const base = lower.split('/').pop() ?? ''
-        return base.startsWith(atRest)
-      })
-    : []
+    const previous = selectedFile
+    // Deps key on `mention.query` (and trigger on/off) only: cursor movement
+    // within the same token must NOT refetch, and `selectedFile`/`fileSelected`
+    // are read as their render-time values only to seed selection preservation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void channel.listFileCandidates(mention.query, { topK: 50 }).then(next => {
+      if (requestId !== fileRequestId.current) return
+      setFileMatches(next)
+      setFileSelected(preserveSelection(previous, next, fileSelected))
+    })
+  }, [channel, mention?.query, atTrigger])
   // Esc dismisses the overlay for the token being edited (it reopens once the
   // text changes); it must NOT clear a mid-message input.
   const fileEscRef = React.useRef(-1)
@@ -239,16 +249,24 @@ export function PromptInput({
     !selectionActive &&
     fileEscRef.current !== mention?.start
 
+  const setInput = (next: string, cursorOffset = next.length) => {
+    valueRef.current = next
+    cursorRef.current = Math.max(0, Math.min(cursorOffset, next.length))
+    setValue(next)
+    setCursor(cursorRef.current)
+  }
+
   /**
    * Accept the selected file suggestion: replace ONLY the mention token at
    * the caret (prefix/suffix text survives), quoting whitespace paths. A
    * directory inserts `@dir/` without a trailing space so completion
    * continues into it; a file completes the token with a space.
    */
-  const acceptFile = (file: string) => {
+  const acceptFile = (candidate: FileCandidate) => {
     if (!mention) return
+    const file = candidate.path
     const body = /\s/.test(file) ? `@"${file}"` : `@${file}`
-    const insert = file.endsWith('/') ? body : `${body} `
+    const insert = candidate.kind === 'directory' ? body : `${body} `
     const next = value.slice(0, mention.start) + insert + value.slice(mention.end)
     setInput(next, mention.start + insert.length)
     setFileSelected(0)
@@ -260,8 +278,7 @@ export function PromptInput({
     history.current.push(trimmed)
     if (history.current.length > HISTORY_LIMIT) history.current.shift()
     historyIndex.current = -1
-    setValue('')
-    setCursor(0)
+    setInput('', 0)
     setSelectedCommand(0)
     appendHistory(trimmed)
     channel.submit(trimmed)
@@ -285,8 +302,7 @@ export function PromptInput({
     history.current.push(trimmed)
     if (history.current.length > HISTORY_LIMIT) history.current.shift()
     historyIndex.current = -1
-    setValue('')
-    setCursor(0)
+    setInput('', 0)
     setSelectedCommand(0)
     appendHistory(trimmed)
     channel.steer(trimmed)
@@ -303,8 +319,7 @@ export function PromptInput({
     history.current.push(trimmed)
     if (history.current.length > HISTORY_LIMIT) history.current.shift()
     historyIndex.current = -1
-    setValue('')
-    setCursor(0)
+    setInput('', 0)
     setSelectedCommand(0)
     appendHistory(trimmed)
     channel.submit(trimmed)
@@ -323,8 +338,7 @@ export function PromptInput({
       channel.notify(t('input-cannot-retract'), { color: 'warning', timeoutMs: 2500 })
       return
     }
-    setValue(item.text)
-    setCursor(item.text.length)
+    setInput(item.text)
     setSelectedCommand(0)
     setFileSelected(0)
     channel.notify(t('input-retracted'), { timeoutMs: 2000 })
@@ -348,8 +362,7 @@ export function PromptInput({
     history.current.push(trimmed)
     if (history.current.length > HISTORY_LIMIT) history.current.shift()
     historyIndex.current = -1
-    setValue('')
-    setCursor(0)
+    setInput('', 0)
     setSelectedCommand(0)
     setFileSelected(0)
     appendHistory(trimmed)
@@ -357,35 +370,30 @@ export function PromptInput({
   }
 
   /**
-   * Execute a slash command (built-in or plugin-registered) when the input
-   * resolves to one: the name parses as the first token so `/plan off`
-   * dispatches `plan` with its argument text, and the merged command list
-   * (locals + registry) decides whether the line is a command at all.
+   * Execute a slash command (built-in, plugin-registered, or hidden) when
+   * the input resolves to one: the name parses as the first token so
+   * `/plan off` dispatches `plan` with its argument text, and the merged
+   * command list (locals + registry) decides whether the line is a command
+   * at all. Hidden commands are recognized even though they are intentionally
+   * absent from the suggestion/help catalogs.
    */
   const tryRunCommand = (text: string): boolean => {
     if (!text.startsWith('/')) return false
     const parsed = parseCommandName(text)
     if (parsed === undefined) return false
     const known = channel.commandList.some(command => command.name === parsed.name)
+      || isHiddenCommandName(parsed.name)
     if (!known) return false
     const handled = onRunCommand(parsed.name, parsed.rawInput)
     if (handled) {
       history.current.push(text.trim())
       if (history.current.length > HISTORY_LIMIT) history.current.shift()
       historyIndex.current = -1
-      setValue('')
-      setCursor(0)
+      setInput('', 0)
       setSelectedCommand(0)
       appendHistory(text.trim())
     }
     return handled
-  }
-
-  const setInput = (next: string, cursorOffset = next.length) => {
-    valueRef.current = next
-    cursorRef.current = Math.max(0, Math.min(cursorOffset, next.length))
-    setValue(next)
-    setCursor(cursorRef.current)
   }
 
   /** Clipboard reads are asynchronous; insert against the latest render so
@@ -399,13 +407,13 @@ export function PromptInput({
   }
 
   /** Line index of the cursor; -1 when the cursor is at the very end. */
-  const cursorLine = () => {
-    const before = value.slice(0, cursor)
+  const cursorLine = (text: string, cursorOffset: number) => {
+    const before = text.slice(0, cursorOffset)
     return before.split('\n').length - 1
   }
   /** Column of the cursor within its line. */
-  const cursorColumn = () => {
-    const before = value.slice(0, cursor)
+  const cursorColumn = (text: string, cursorOffset: number) => {
+    const before = text.slice(0, cursorOffset)
     const line = before.split('\n').pop() ?? ''
     return line.length
   }
@@ -417,12 +425,17 @@ export function PromptInput({
     // setValue can never overwrite fresh typing (and vice versa).
     if (editorBusyRef.current) return
 
+    // App deliberately dispatches every parsed key from one stdin read in a
+    // single React update. Read the synchronous mirrors so each event sees
+    // the text/caret produced by the preceding event in that batch.
+    const value = valueRef.current
+    const cursor = cursorRef.current
+
     /** Insert text at the caret (typing, paste) and dismiss overlays. */
     const insertAtCaret = (text: string) => {
       if (helpOpen) onToggleHelp()
       const next = value.slice(0, cursor) + text + value.slice(cursor)
-      setValue(next)
-      setCursor(cursor + text.length)
+      setInput(next, cursor + text.length)
       setSelectedCommand(0)
       setFileSelected(0)
     }
@@ -479,10 +492,7 @@ export function PromptInput({
           // Insert against the LIVE input state: the read above resolved
           // asynchronously and the user may have typed while waiting.
           const text = formatClipboardInsert(content)
-          const live = liveInputRef.current
-          const caret = Math.min(live.cursor, live.value.length)
-          setValue(live.value.slice(0, caret) + text + live.value.slice(caret))
-          setCursor(caret + text.length)
+          insertClipboardAtCaret(text)
         })
         .catch(() => {
           channel.notify(t('input-clipboard-read-failed'), { color: 'warning' })
@@ -495,21 +505,29 @@ export function PromptInput({
       return
     }
 
-    // Ctrl+X / Cmd+X: edit the current draft in $VISUAL/$EDITOR (issue #123,
+    // Help is modal for modified keys and every Enter variant. Ctrl+V above
+    // is the intentional exception: paste closes Help and inserts visibly.
+    // Swallow here before editor/submit/interrupt branches can mutate hidden
+    // composer or working-turn state; plain typing still dismisses Help below.
+    if (helpOpen && !key.escape && (key.ctrl || key.meta || key.super || key.return || input.includes('\n') || input.includes('\r'))) {
+      event.stopImmediatePropagation()
+      return
+    }
+
+    // Ctrl+G: edit the current draft in $VISUAL/$EDITOR (issue #123,
     // readline's edit-and-execute-command). The draft is written to a temp
     // file, the terminal is handed to the editor (Ink's alt-screen handoff),
     // and the saved text replaces the input when it differs. The util maps
     // every failure to an outcome, but the catch/finally here is the hard
     // guarantee: a rejected promise must never kill the process, and the
-    // busy flag must always clear or Ctrl+X stays locked forever.
-    if (isMod(key) && input === 'x') {
+    // busy flag must always clear or Ctrl+G stays locked forever.
+    if (key.ctrl && input === 'g') {
       editorBusyRef.current = true
       void (async () => {
         try {
           const outcome = await editInExternalEditor(value)
           if (outcome.kind === 'edited') {
-            setValue(outcome.text)
-            setCursor(outcome.text.length)
+            setInput(outcome.text)
             setSelectedCommand(0)
             setFileSelected(0)
           } else if (outcome.kind === 'unavailable') {
@@ -562,10 +580,15 @@ export function PromptInput({
       }
       if (channel.working && value.trim() !== '') {
         // CC's immediate-command semantics: /btw is exempt from steering —
-        // the side question never interrupts the running turn. Every other
-        // input keeps the steer behavior so /new /model etc. stay idle-only.
+        // the side question never interrupts the running turn. Hidden
+        // UI-only easter eggs (e.g. /deepseek) are also safe to run while
+        // streaming. Every other input keeps the steer behavior so /new
+        // /model etc. stay idle-only.
         const parsed = value.startsWith('/') ? parseCommandName(value) : undefined
-        if (parsed?.name === 'btw' && channel.commandList.some(c => c.name === 'btw')) {
+        if (parsed !== undefined && (
+          (parsed.name === 'btw' && channel.commandList.some(c => c.name === 'btw'))
+          || isHiddenCommandName(parsed.name)
+        )) {
           tryRunCommand(value)
           return
         }
@@ -575,11 +598,18 @@ export function PromptInput({
       if (!tryRunCommand(value)) submitText(value)
     }
 
+    // Ctrl+J is the only portable multiline fallback when a terminal cannot
+    // report modifiers on Enter. The parser names its bare LF `enter`, while
+    // the physical Enter key arrives as CR (`return`).
+    if (input === '\n' && event?.keypress.name === 'enter') {
+      insertAtCaret('\n')
+      return
+    }
+
     // Whole-line input from Windows ConPTY pipelines (cmd batch -> node):
-    // the trailing CR/LF marks a complete line to submit. A bare Enter
-    // arrives as `\r`/`\n`/`\r\n` — treat it as Enter, NOT a direct
-    // submit. Only real multi-char piped lines keep the legacy
-    // direct-submit path.
+    // the trailing CR/LF marks a complete line to submit. A bare CR/CRLF is
+    // Enter, while real multi-char piped lines keep the legacy direct-submit
+    // path.
     if (input.includes('\n') || input.includes('\r')) {
       if (/^[\r\n]+$/.test(input)) {
         handleEnter()
@@ -609,13 +639,18 @@ export function PromptInput({
       // ink/terminal.ts); Option+Enter (ESC CR) is the fallback on terminals
       // that can't report shift — e.g. macOS Terminal.app (issue #110).
       const next = value.slice(0, cursor) + '\n' + value.slice(cursor)
-      setValue(next)
-      setCursor(cursor + 1)
+      setInput(next, cursor + 1)
       setSelectedCommand(0)
       return
     }
     if (key.return) {
       handleEnter()
+      return
+    }
+    // Help is modal over the composer. Backtab must not cycle the session
+    // mode invisibly behind it, and plain Tab has no Help action.
+    if (helpOpen && key.tab) {
+      event.stopImmediatePropagation()
       return
     }
     // Shift+Tab cycles the configured session modes (default: default →
@@ -642,6 +677,41 @@ export function PromptInput({
       queueSend(value)
       return
     }
+    // Help is a viewport, not prompt history. It deliberately owns every
+    // vertical navigation event while visible; otherwise Up/Down silently
+    // walk the input history and the clipped command rows remain unreachable.
+    if (helpOpen) {
+      const page = Math.max(1, helpViewportHeight - 2)
+      if (key.upArrow || key.wheelUp) {
+        helpScrollRef.current?.scrollBy(key.wheelUp ? -3 : -1)
+        event.stopImmediatePropagation()
+        return
+      }
+      if (key.downArrow || key.wheelDown) {
+        helpScrollRef.current?.scrollBy(key.wheelDown ? 3 : 1)
+        event.stopImmediatePropagation()
+        return
+      }
+      if (key.pageUp || key.pageDown) {
+        helpScrollRef.current?.scrollBy(key.pageUp ? -page : page)
+        event.stopImmediatePropagation()
+        return
+      }
+      if (key.home) {
+        helpScrollRef.current?.scrollTo(0)
+        event.stopImmediatePropagation()
+        return
+      }
+      if (key.end) {
+        // Use a deliberately oversized absolute target rather than the
+        // sticky-bottom path: compact Help may still be measuring nested
+        // sections in this commit, while ScrollBox's render clamp resolves
+        // the target to the exact current maximum without a follow-up frame.
+        helpScrollRef.current?.scrollTo(Number.MAX_SAFE_INTEGER)
+        event.stopImmediatePropagation()
+        return
+      }
+    }
     if (key.meta && key.upArrow) {
       // Alt+Up: pull the last pending message back for editing (pi/Codex).
       pullBackLast()
@@ -654,14 +724,14 @@ export function PromptInput({
         )
         return
       }
-      const line = cursorLine()
+      const line = cursorLine(value, cursor)
       if (line > 0) {
         // Move to the previous line, clamping to its length.
         const upToLineStart = value.lastIndexOf('\n', cursor - 1)
         const prevLineStart =
           upToLineStart === -1 ? 0 : value.lastIndexOf('\n', upToLineStart - 1) + 1
         const prevLine = value.slice(prevLineStart, upToLineStart)
-        setCursor(prevLineStart + Math.min(cursorColumn(), prevLine.length))
+        setInput(value, prevLineStart + Math.min(cursorColumn(value, cursor), prevLine.length))
         return
       }
       if (overlayOpen) {
@@ -671,12 +741,14 @@ export function PromptInput({
         return
       }
       if (history.current.length === 0) return
-      historyIndex.current = historyIndex.current < 0
-        ? history.current.length - 1
-        : Math.max(0, historyIndex.current - 1)
+      if (historyIndex.current < 0) {
+        historyDraft.current = value
+        historyIndex.current = history.current.length - 1
+      } else {
+        historyIndex.current = Math.max(0, historyIndex.current - 1)
+      }
       const entry = history.current[historyIndex.current] ?? ''
-      setValue(entry)
-      setCursor(entry.length)
+      setInput(entry)
       return
     }
     if (key.downArrow) {
@@ -686,7 +758,7 @@ export function PromptInput({
         )
         return
       }
-      const line = cursorLine()
+      const line = cursorLine(value, cursor)
       const lines = value.split('\n')
       if (line < lines.length - 1) {
         const nextLineStart = value.indexOf('\n', cursor) + 1
@@ -695,7 +767,7 @@ export function PromptInput({
           nextLineStart,
           nextLineEnd === -1 ? value.length : nextLineEnd,
         )
-        setCursor(nextLineStart + Math.min(cursorColumn(), nextLine.length))
+        setInput(value, nextLineStart + Math.min(cursorColumn(value, cursor), nextLine.length))
         return
       }
       if (overlayOpen) {
@@ -705,78 +777,77 @@ export function PromptInput({
         return
       }
       if (historyIndex.current < 0) return
-      historyIndex.current += 1
-      const entry = historyIndex.current >= history.current.length
-        ? ''
-        : (history.current[historyIndex.current] ?? '')
-      setValue(entry)
-      setCursor(entry.length)
+      if (historyIndex.current >= history.current.length - 1) {
+        historyIndex.current = -1
+        setInput(historyDraft.current)
+      } else {
+        historyIndex.current += 1
+        setInput(history.current[historyIndex.current] ?? '')
+      }
       return
     }
     if (isMod(key) && key.leftArrow) {
       // Jump to the previous word boundary (readline alt+b). Must precede the
       // bare-arrow arms: Ctrl+Left arrives as leftArrow + ctrl.
-      setCursor(previous => wordBoundaryLeft(value, previous))
+      setInput(value, wordBoundaryLeft(value, cursor))
       return
     }
     if (isMod(key) && key.rightArrow) {
       // Jump to the next word boundary (readline alt+f).
-      setCursor(previous => wordBoundaryRight(value, previous))
+      setInput(value, wordBoundaryRight(value, cursor))
       return
     }
     if (key.leftArrow) {
-      setCursor(previous => Math.max(0, previous - 1))
+      setInput(value, Math.max(0, cursor - 1))
       return
     }
     if (key.rightArrow) {
-      setCursor(previous => Math.min(value.length, previous + 1))
+      setInput(value, Math.min(value.length, cursor + 1))
       return
     }
     if (key.backspace) {
       if (cursor === 0) return
-      setValue(value.slice(0, cursor - 1) + value.slice(cursor))
-      setCursor(cursor - 1)
+      setInput(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1)
       return
     }
     if (key.delete) {
       if (cursor >= value.length) return
-      setValue(value.slice(0, cursor) + value.slice(cursor + 1))
+      setInput(value.slice(0, cursor) + value.slice(cursor + 1), cursor)
       return
     }
     if (key.home) {
       // Start of the current line.
       const lineStart = value.lastIndexOf('\n', cursor - 1) + 1
-      setCursor(lineStart)
+      setInput(value, lineStart)
       return
     }
     if (key.end) {
       // End of the current line.
       const nextLine = value.indexOf('\n', cursor)
-      setCursor(nextLine === -1 ? value.length : nextLine)
+      setInput(value, nextLine === -1 ? value.length : nextLine)
       return
     }
     if (isMod(key) && input === 'a') {
       const lineStart = value.lastIndexOf('\n', cursor - 1) + 1
-      setCursor(lineStart)
+      setInput(value, lineStart)
       return
     }
     if (isMod(key) && input === 'e') {
       const nextLine = value.indexOf('\n', cursor)
-      setCursor(nextLine === -1 ? value.length : nextLine)
+      setInput(value, nextLine === -1 ? value.length : nextLine)
       return
     }
     if (isMod(key) && input === 'u') {
       // Delete to start of line.
       const lineStart = value.lastIndexOf('\n', cursor - 1) + 1
-      setValue(value.slice(0, lineStart) + value.slice(cursor))
-      setCursor(lineStart)
+      setInput(value.slice(0, lineStart) + value.slice(cursor), lineStart)
       return
     }
     if (isMod(key) && input === 'k') {
       // Delete to end of line.
       const nextLine = value.indexOf('\n', cursor)
       const end = nextLine === -1 ? value.length : nextLine
-      setValue(value.slice(0, cursor) + value.slice(end))
+      setInput(value.slice(0, cursor) + value.slice(end), cursor)
       return
     }
     if (isMod(key) && input === 'w') {
@@ -787,8 +858,7 @@ export function PromptInput({
       while (end > 0 && /\s/.test(before[end - 1]!)) end--
       let start = end
       while (start > 0 && !/\s/.test(before[start - 1]!)) start--
-      setValue(value.slice(0, start) + value.slice(cursor))
-      setCursor(start)
+      setInput(value.slice(0, start) + value.slice(cursor), start)
       return
     }
     if (key.escape) {
@@ -799,8 +869,7 @@ export function PromptInput({
       // A single Esc closes the open command menu first (CC/pi behavior);
       // the double-tap-clear semantics only apply to ordinary input.
       if (overlayOpen) {
-        setValue('')
-        setCursor(0)
+        setInput('', 0)
         setSelectedCommand(0)
         setFileSelected(0)
         return
@@ -824,8 +893,7 @@ export function PromptInput({
       // A single Esc clears the current input (if any); the double-tap
       // path below handles rewind/clear on an already-empty input.
       if (value.length > 0) {
-        setValue('')
-        setCursor(0)
+        setInput('', 0)
         setSelectedCommand(0)
         setFileSelected(0)
         return
@@ -839,16 +907,13 @@ export function PromptInput({
         if (value.length === 0) {
           onRewindRequest?.()
         } else {
-          setValue('')
-          setCursor(0)
+          setInput('', 0)
         }
         return
       }
       escPendingRef.current = true
       channel.notify(
-        value.length === 0
-          ? 'Press Esc again to rewind'
-          : 'Press Esc again to clear',
+        value.length === 0 ? t('esc-again-rewind') : t('esc-again-clear'),
       )
       escTimerRef.current = setTimeout(() => {
         escPendingRef.current = false
@@ -863,8 +928,7 @@ export function PromptInput({
       // Typing anything else dismisses the help menu (CC behavior).
       if (helpOpen) onToggleHelp()
       const next = value.slice(0, cursor) + input + value.slice(cursor)
-      setValue(next)
-      setCursor(cursor + input.length)
+      setInput(next, cursor + input.length)
       setSelectedCommand(0)
       setFileSelected(0)
     }
@@ -954,6 +1018,9 @@ export function PromptInput({
   // transcript rows it covered are left blank (see the dialogOverlayOpen
   // comment in Chat.tsx).
   const floatersOpen = helpOpen || channel.pending.length > 0 || fileOverlayOpen || overlayOpen
+  // The completion card border matches the input box's idle border color
+  // (in plan mode, the whole panel set switches to sage green together).
+  const promptAccent = channel.mode.plan === true ? 'planMode' : 'promptBorder'
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -967,10 +1034,15 @@ export function PromptInput({
       <OverlayAbove maxHeight={Math.max(terminalRows - 6, 4)}>
         {helpOpen && (
           <Box marginBottom={1}>
-            <HelpMenu commands={channel.commandList} />
+            <HelpMenu
+              commands={channel.commandList}
+              viewportHeight={helpViewportHeight}
+              viewportWidth={columns}
+              scrollRef={helpScrollRef}
+            />
           </Box>
         )}
-        {channel.pending.length > 0 && (
+        {!helpOpen && channel.pending.length > 0 && (
           <Box flexDirection="column" paddingLeft={2} paddingBottom={1}>
             {channel.pending.some(item => item.placement === 'steer') && (
               <Box flexDirection="column">
@@ -1000,22 +1072,22 @@ export function PromptInput({
           </Box>
         )}
         {fileOverlayOpen && (
-          <Box paddingLeft={2} paddingBottom={1}>
-            <FileSuggestions
-              files={fileMatches}
-              selectedIndex={fileSelected}
-              columns={columns}
-            />
-          </Box>
+          <FileSuggestions
+            files={fileMatches}
+            selectedIndex={fileSelected}
+            columns={columns}
+            query={mention?.query ?? ''}
+            accent={promptAccent}
+          />
         )}
         {overlayOpen && (
-          <Box paddingLeft={2} paddingBottom={1}>
-            <CommandSuggestions
-              commands={suggestions}
-              selectedIndex={selectedCommand}
-              columns={columns}
-            />
-          </Box>
+          <CommandSuggestions
+            commands={suggestions}
+            selectedIndex={selectedCommand}
+            columns={columns}
+            query={value}
+            accent={promptAccent}
+          />
         )}
       </OverlayAbove>
       )}
@@ -1045,31 +1117,49 @@ export function PromptInput({
           </Box>
         </Box>
       )}
-      <Box
-        flexDirection="column"
-        alignItems="flex-start"
-        justifyContent="flex-start"
-        borderColor={channel.mode.plan === true ? 'planMode' : 'promptBorder'}
-        borderStyle="round"
-        borderLeft={false}
-        borderRight={false}
-        borderBottom
-        width="100%"
+      {/* The prompt's own top/bottom border rows, self-drawn so the effort
+          overlay can play on them (sweep → tier name → fade; see
+          EffortInputBorder). Idle colour keeps the plan-mode accent the old
+          Box border carried. */}
+      <EffortInputBorder
+        effort={channel.reasoningEffort}
+        levels={channel.effortLevels}
+        columns={columns}
+        onLight={isLightThemeActive(themeName)}
+        idleColor={promptAccent}
       >
         <Box flexDirection="row" alignItems="flex-start" width="100%">
-          <Text dimColor={channel.working}>❯ </Text>
+          <EffortChargeGlyph
+            effort={channel.reasoningEffort}
+            levels={channel.effortLevels}
+            working={channel.working}
+          />
           <Box ref={valueBoxRef} flexGrow={1} flexShrink={1}>
             {value.length === 0 ? (
               // Solid block caret on a BLANK cell: the terminal paints the
               // IME preedit (pinyin) at the physical cursor, which is parked
               // right here, so nothing else may occupy this cell.
-              <Text inverse> </Text>
+              <>
+                <Text inverse> </Text>
+                {/* Effort-ignition act two of three: on an empty input row,
+                    briefly shows the uppercased tier name centered (the
+                    plain text stream carries its own offset spaces — no
+                    nested Box, so the row count stays constant; hidden once
+                    there's text). */}
+                <EffortTierBadge
+                  effort={channel.reasoningEffort}
+                  levels={channel.effortLevels}
+                  onLight={isLightThemeActive(themeName)}
+                  columns={columns}
+                  leadingColumns={3}
+                />
+              </>
             ) : (
               <Box flexDirection="column">{rendered}</Box>
             )}
           </Box>
         </Box>
-      </Box>
+      </EffortInputBorder>
     </Box>
   )
 }
