@@ -99,7 +99,7 @@ async function mountAt(cols: number) {
     // padding. The invariant is INSIDE the pane — between the title row and
     // the footer row there must be no blank (phantom) rows beyond the title margin, and both title
     // and footer must be on screen at all.
-    const titleAt = texts.findIndex(text => text.includes('模型'))
+    const titleAt = texts.findIndex(text => text.includes('Model'))
     const footerAt = texts.findIndex(text => text.includes('Enter'))
     let innerBlanks = -1
     if (titleAt >= 0 && footerAt > titleAt) {

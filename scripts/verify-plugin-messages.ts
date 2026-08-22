@@ -1,25 +1,31 @@
 /**
- * 批 4 电池：messages.observe broker（C-042）。
+ * Batch-4 battery: the messages.observe broker (C-042).
  *
- *   A. 授权订阅收到双映射 envelope（user/message→message.received、
- *      assistant/message→message.sent），envelope 独立过 vendored schema，
- *      eventId/scope/messageId/author 逐字段；
- *   B. sequence=event.seq 单调含 gap（非映射事件留洞）；
- *   C. 无 grant：订阅快速失败（noop disposer + warn），零投递；
- *   D. 投递时撤销：store 翻转后订阅被释放 + warn，后续零投递；
- *   E. scope 隔离（C-042）：订阅必须带精确 scope；只收同 scope 的
- *      envelope，跨会话零泄漏；过长 session scope 与空 scope 均拒绝；
- *   F. listener 抛错/拒绝被隔离，其他订阅续投；
- *   G. 截断：长文 summary 截断 + payload.truncated；短文无标记；
- *   H. 非映射事件零产出；session 无 id 丢弃；eventId 字符拍平；
- *   I. schema 缺失 fail-closed（suppress + warn）；畸形 schema 丢 envelope；
- *   J. 零持久化（broker 不落任何文件）；disposer 幂等。
- *   K. 图片块：attachment 引用经 attachments 服务解析为 base64 image
- *      block（过 schema）；不可读/超大/坏媒体型 → 丢弃 + truncated；
- *   L. 台账：subscribe 成功落 bind、disposer 落 release（恰一次）、
- *      scope 拒绝不落 bind。
+ *   A. An authorized subscription receives the dual-mapped envelope
+ *      (user/message→message.received, assistant/message→message.sent),
+ *      the envelope independently passes the vendored schema,
+ *      eventId/scope/messageId/author field by field;
+ *   B. sequence=event.seq is monotonic with gaps (unmapped events leave a hole);
+ *   C. No grant: the subscription fails fast (noop disposer + warn), zero delivery;
+ *   D. Revoked mid-delivery: once the store flips, the subscription is
+ *      released + warns, zero delivery afterward;
+ *   E. Scope isolation (C-042): a subscription must carry an exact scope;
+ *      it only receives envelopes of the same scope, zero cross-session
+ *      leakage; an overlong session scope and a blank scope are both refused;
+ *   F. A throwing/rejecting listener is isolated, other subscriptions keep receiving;
+ *   G. Truncation: a long summary is truncated + payload.truncated; a short
+ *      one carries no marker;
+ *   H. Unmapped events yield nothing; a session with no id is dropped; the
+ *      eventId's characters are flattened;
+ *   I. A missing schema fails closed (suppress + warn); a malformed schema drops the envelope;
+ *   J. Zero persistence (the broker writes no files of its own); the disposer is idempotent.
+ *   K. Image blocks: an attachment reference resolves through the
+ *      attachments service into a base64 image block (passes the schema);
+ *      unreadable/oversize/bad media type → dropped + truncated;
+ *   L. Ledger: a successful subscribe lands a bind, the disposer lands a
+ *      release (exactly once), a scope refusal lands no bind.
  *
- * HOME/USERPROFILE 在导入 src 前隔离。
+ * HOME/USERPROFILE are isolated before importing src.
  *
  * Run via `node --import tsx/esm scripts/verify-plugin-messages.ts`.
  */
@@ -28,11 +34,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// ── 隔离 HOME（必须先于任何 src 导入）─────────────────────────────────────
+// ── isolate HOME (must precede any src import) ──────────────────────────
 const fakeHome = mkdtempSync(join(tmpdir(), 'dsh-plugin-messages-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
-process.env.DSH_TUI_LANG = 'zh'
+process.env.DSH_TUI_LANG = 'en'
 
 const { Context, Service } = await import('@deepseek-ai/cordis')
 const pluginHostRow = await import('../src/dsh-adapter/plugin-host.js')
@@ -65,7 +71,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   if (!ok) failures.push(`${name}${detail ? `: ${detail}` : ''}`)
 }
 
-// ── 授权文件：按 manifest Component ID 与订阅 scope 授权 ──
+// ── grants file: authorize by manifest Component ID and subscription scope ──
 mkdirSync(DATA_DIR, { recursive: true })
 const componentId = (plugin: string) => `com.example.${plugin}`
 const observeGrant = (plugin: string, scope: string) => ({ name: 'messages.observe.read', scope })
@@ -145,7 +151,7 @@ const session = (id: string) => ({ id })
 
 await subscribeAs('alpha')
 
-// ── A. 双映射 + envelope 逐字段 + 独立 schema 校验 ───────────────────────
+// ── A. dual mapping + envelope field-by-field + independent schema validation ─
 {
   publish(broker, session('sess-1'), userEvent(1, '  hello broker  ', 'm-user-1'))
   publish(broker, session('sess-1'), assistantEvent(2, 'reply text', 'm-asst-2'))
@@ -177,7 +183,7 @@ await subscribeAs('alpha')
   check1('delivered envelopes pass the official validator independently', schemaError === '', schemaError)
 }
 
-// ── B. sequence 单调含 gap ────────────────────────────────────────────────
+// ── B. sequence is monotonic with gaps ───────────────────────────────────
 {
   const before = (received.get('alpha') ?? []).length
   publish(broker, session('sess-1'), { type: 'assistant/chunk', seq: 3, time: 0, data: {} })
@@ -191,7 +197,7 @@ await subscribeAs('alpha')
     list[0]?.sequence === 5 && list[1]?.sequence === 9, JSON.stringify(list.map(e => e.sequence)))
 }
 
-// ── C. 无 grant：快速失败 + 零投递 ────────────────────────────────────────
+// ── C. no grant: fails fast + zero delivery ──────────────────────────────
 {
   const warnBefore = hostWarnings.length
   await subscribeAs('spy', undefined, 'session:sess-1', {
@@ -205,10 +211,11 @@ await subscribeAs('alpha')
     hostWarnings.slice(warnBefore).some(line => line.includes('"com.example.spy"') && line.includes('statically declared')))
 }
 
-// ── D. 投递时撤销：订阅被释放 + warn ──────────────────────────────────────
+// ── D. revoked mid-delivery: the subscription is released + warns ───────
 {
-  // 可翻转的 store：先授后撤，直接测投递时复检（生产路径=改文件+重启后
-  // 新 store；这里用可变 store 精确命中复检逻辑）。
+  // A flippable store: grant then revoke, testing the deliver-time recheck
+  // directly (the production path is editing the file + a new store after
+  // restart; a mutable store here hits the recheck logic precisely).
   let granted = true
   const mutableGrants = {
     allows: (_principal: unknown, permission: string, scope: string) =>
@@ -233,14 +240,14 @@ await subscribeAs('alpha')
   check1('deliver-time: revoked subscription delivers nothing more', envelopes.length === 1)
   check1('deliver-time: revocation releases with a warning',
     hostWarnings.slice(freshWarningsBefore).some(line => line.includes('released') && line.includes('revoked')))
-  // 释放后再授予也不再投递（release 是终态，contract cleanup）。
+  // Granting again after release still delivers nothing (release is terminal, contract cleanup).
   granted = true
   publish(runtime, session('sess-1'), userEvent(3, 're-granted'))
   await sleep(20)
   check1('release is terminal (re-grant does not resurrect)', envelopes.length === 1)
 }
 
-// ── E. scope 隔离（C-042）：只收同 scope，跨会话零泄漏 ────────────────────
+// ── E. scope isolation (C-042): only same-scope receives, zero cross-session leakage ─
 {
   await subscribeAs('carol', undefined, 'session:sess-A')
   await subscribeAs('dave', undefined, 'session:sess-B')
@@ -261,7 +268,7 @@ await subscribeAs('alpha')
     !(received.get('alpha') ?? []).some(envelope => envelope.scope !== 'session:sess-1'))
 }
 
-// ── E2. 空/缺失 scope 拒绝（订阅不成立，不落 bind 记录）────────────────────
+// ── E2. a blank/missing scope is refused (subscription never forms, no bind record) ─
 {
   const warnBefore = hostWarnings.length
   let refusedDisposer: (() => boolean) | undefined
@@ -272,7 +279,7 @@ await subscribeAs('alpha')
     hostWarnings.slice(warnBefore).join(' | '))
 }
 
-// ── E3. 超长 session id 不得截断成另一个订阅 scope ─────────────────────────
+// ── E3. an overlong session id must not truncate into another subscription's scope ─
 {
   const sessionIdLimit = OBSERVE_SCOPE_MAX_CHARS - 'session:'.length
   const truncatedScope = `session:${'x'.repeat(sessionIdLimit)}`
@@ -287,7 +294,7 @@ await subscribeAs('alpha')
     hostWarnings.slice(warningsBefore).some(line => line.includes('session scope exceeds')))
 }
 
-// ── F. listener 抛错被隔离，续投不断 ──────────────────────────────────────
+// ── F. a throwing listener is isolated, delivery to others continues ────
 {
   await subscribeAs('beta', () => { throw new Error('listener exploded') })
   const warnBefore = hostWarnings.length
@@ -304,10 +311,10 @@ await subscribeAs('alpha')
     && ((received.get('beta') ?? []).some(e => e.sequence === 21)))
 }
 
-// ── G. 截断标记 ───────────────────────────────────────────────────────────
+// ── G. the truncation marker ─────────────────────────────────────────────
 {
   const before = (received.get('alpha') ?? []).length
-  const longText = '长'.repeat(OBSERVE_SUMMARY_CELLS * 4) // CJK：每字 2 cell，确保超 200 cell
+  const longText = '长'.repeat(OBSERVE_SUMMARY_CELLS * 4) // CJK: 2 cells per char, guarantees exceeding 200 cells — deliberately CJK, not a translation target
   publish(broker, session('sess-1'), userEvent(30, longText))
   await sleep(20)
   const envelope = (received.get('alpha') ?? []).slice(before)[0]
@@ -317,7 +324,7 @@ await subscribeAs('alpha')
     (envelope?.payload.content[0] as { text: string }).text === longText)
 }
 
-// ── H. 非映射事件零产出 / 无 id session / eventId 拍平 ────────────────────
+// ── H. unmapped events yield nothing / an id-less session / eventId flattening ─
 {
   const beforeAlpha = (received.get('alpha') ?? []).length
   publish(broker, session('sess-1'), { type: 'tool/call', seq: 40, time: 0, data: {} })
@@ -327,7 +334,7 @@ await subscribeAs('alpha')
   check1('non-mapped events, bad seq and id-less sessions produce nothing',
     (received.get('alpha') ?? []).length === beforeAlpha,
     `got ${(received.get('alpha') ?? []).length - beforeAlpha}`)
-  // eventId 拍平：订阅该 scope（carol 的第二订阅）后投递。
+  // eventId flattening: delivered after subscribing to that scope (carol's second subscription).
   const beforeCarol = (received.get('carol') ?? []).length
   await subscribeAs('carol', undefined, 'session:sess/unsafe id')
   publish(broker, session('sess/unsafe id'), userEvent(42, 'unsafe session id'))
@@ -338,9 +345,9 @@ await subscribeAs('alpha')
     list[0]?.eventId)
 }
 
-// ── I. schema 缺失 fail-closed / 畸形 schema 丢 envelope ──────────────────
+// ── I. a missing schema fails closed / a malformed schema drops the envelope ─
 {
-  // schema 不可用：suppress + warn once。
+  // Schema unavailable: suppress + warn once.
   const noSchemaCtx = hostCtx.isolate('tuiMessageObserver')
   const noSchemaWarningsBefore = hostWarnings.length
   const blind = new TuiMessageObserverRuntime(noSchemaCtx, {
@@ -355,7 +362,7 @@ await subscribeAs('alpha')
   check1('missing schema suppresses all envelopes (fail closed)', blindEnvelopes.length === 0)
   check1('missing schema warns once', hostWarnings.slice(noSchemaWarningsBefore).filter(line => line.includes('fail-closed')).length === 1)
 
-  // 畸形 schema（永败）：envelope 产出后被丢弃 + warn。
+  // Malformed schema (always fails): the envelope is produced then dropped + warns.
   const strictCtx = hostCtx.isolate('tuiMessageObserver')
   const strictWarningsBefore = hostWarnings.length
   const strict = new TuiMessageObserverRuntime(strictCtx, {
@@ -370,22 +377,24 @@ await subscribeAs('alpha')
   check1('self-check drop warns', hostWarnings.slice(strictWarningsBefore).some(line => line.includes('standard validator')))
 }
 
-// ── J. 零持久化 / disposer 幂等 ───────────────────────────────────────────
+// ── J. zero persistence / the disposer is idempotent ────────────────────
 {
   const files = readdirSync(DATA_DIR).sort()
-  // 批 5 起授权拒绝/撤销会落效果台账（宿主观测面，C-060）——允许台账文件，
-  // 但 broker 自身依旧零历史，且台账里绝不允许出现消息内容。
+  // Since batch 5, grant refusals/revocations land in the effect ledger
+  // (the host observability surface, C-060) — the ledger file is allowed,
+  // but the broker itself still keeps zero history, and message content
+  // must never appear in the ledger.
   check1('the broker persists nothing beyond the host effect ledger',
     JSON.stringify(files) === JSON.stringify(['effect-ledger.jsonl', 'extension-grants.json'].sort()), files.join(','))
   const ledgerText = readFileSync(join(DATA_DIR, 'effect-ledger.jsonl'), 'utf8')
   const payloads = ['hello broker', 'spy must not see this', 'text of A', 'text of B', 'beta throws on this', 'delivery continues', 'unsafe session id']
   check1('no message payload reaches the ledger file', payloads.every(text => !ledgerText.includes(text)))
-  const disposer = await subscribeAs('beta') // beta 有授权；第二个同名订阅
+  const disposer = await subscribeAs('beta') // beta is granted; a second subscription under the same name
   check1('first release returns true', disposer() === true)
   check1('second release is a harmless false', disposer() === false)
 }
 
-// ── K. 图片块：attachment 引用 → base64；失败即弃 + truncated ──────────────
+// ── K. image blocks: an attachment reference → base64; failure drops + truncated ─
 {
   class FakeAttachments extends Service {
     constructor(ctx: InstanceType<typeof Context>) {
@@ -429,18 +438,18 @@ await subscribeAs('alpha')
   }
   check1('mixed text/image envelope passes the official validator', imgSchemaError === '', imgSchemaError)
 
-  // 超大（bytes 超预算——读取前即拒）→ 丢弃 + truncated，两侧文本合一。
+  // Oversize (bytes over budget — refused before reading) → dropped + truncated, the surrounding text merges.
   publish(broker, session('sess-img'), imgEvent(2, [
     { type: 'text', text: 'before ' },
     { type: 'image', attachment: { attachmentId: 'big', mediaType: 'image/png', bytes: 192 * 1024 + 1 } },
     { type: 'text', text: ' after' },
   ]))
-  // 读取失败（attachments 服务抛错）→ 丢弃 + truncated。
+  // Read failure (the attachments service throws) → dropped + truncated.
   publish(broker, session('sess-img'), imgEvent(3, [
     { type: 'text', text: 'broken image follows' },
     { type: 'image', attachment: { attachmentId: 'broken', mediaType: 'image/png', bytes: 3 } },
   ]))
-  // 坏媒体型（不过 schema 的 mimeType 模式）→ 读取前即弃。
+  // Bad media type (fails the schema's mimeType pattern) → dropped before reading.
   publish(broker, session('sess-img'), imgEvent(4, [
     { type: 'image', attachment: { attachmentId: 'a2', mediaType: 'image/png; injected', bytes: 3 } },
   ]))
@@ -462,7 +471,7 @@ await subscribeAs('alpha')
     && (badMime.payload.content[0] as { text: string }).text === '')
 }
 
-// ── M. 台账：subscribe bind / disposer release / 拒绝路径 ──────────────────
+// ── M. ledger: subscribe bind / disposer release / the refusal path ─────
 {
   const records = readFileSync(join(DATA_DIR, 'effect-ledger.jsonl'), 'utf8')
     .split('\n')
@@ -492,7 +501,7 @@ await subscribeAs('alpha')
     `carol binds: ${subscriptionBinds.filter(record => record.pluginId === 'com.example.carol').length} (2 legitimate, refusal must add none)`)
 }
 
-// ── 汇总 ──────────────────────────────────────────────────────────────────
+// ── summary ───────────────────────────────────────────────────────────────
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true })
 if (failures.length > 0) {
   console.error(`plugin-messages battery FAILED (${failures.length}/${checks}):`)

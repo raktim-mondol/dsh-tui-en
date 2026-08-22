@@ -9,9 +9,9 @@ import { SuggestionCard, cardContentWidth, splitQueryMatch } from './SuggestionC
 
 /**
  * The `@` file-completion overlay in CC's suggestion style, wrapped in the
- * shared rounded `SuggestionCard` (与 `/` 命令菜单同一视觉语言):
+ * shared rounded `SuggestionCard` (same visual language as the `/` command menu):
  *
- *   ╭─ 文件 · 共 12 项 ──────────────────────╮
+ *   ╭─ files · 12 items ──────────────────────╮
  *   │ ❯ ▸ src/components/     directory     │
  *   │   + README.md           file          │
  *   ╰─────────────────────────────────────────╯
@@ -34,7 +34,7 @@ export function FileSuggestions({
   files: readonly FileCandidate[]
   selectedIndex: number
   columns: number
-  /** `@` 触发 token 里已输入的查询（`mention.query`），用于名字前缀高亮。 */
+  /** The query already typed in the `@` trigger token (`mention.query`), used to highlight the matching name prefix. */
   query?: string
   accent?: 'promptBorder' | 'planMode'
 }): React.ReactNode {
@@ -60,7 +60,7 @@ export function FileSuggestions({
       : file.path
 
   const NAME_COLUMN = 20
-  // 行预算：内容宽 − 前导空格 1 − 指针列 2 − 图标列 2。
+  // Row budget: content width − 1 leading space − 2 pointer columns − 2 icon columns.
   const descriptionWidth = Math.max(0, usable - 25)
 
   const title = `${t('sugg-files-title')} · ${t('sugg-count', { n: files.length })}`
@@ -98,7 +98,7 @@ export function FileSuggestions({
             {isSelected ? (
               <Text color="suggestion" bold>{`${POINTER} ${icon}${padded}`}</Text>
             ) : parts ? (
-              // 平铺兄弟 span：嵌套 Text 继承父级 dim，高亮段会被 dim 吞掉。
+              // Sibling spans: a nested Text inherits the parent's dim, which would swallow the highlighted segment.
               <>
                 <Text dimColor>{`  ${icon}${parts.before}`}</Text>
                 <Text>{parts.match}</Text>

@@ -59,7 +59,7 @@ emit({
 emit({
   type: 'assistant/chunk',
   seq: 2,
-  data: { turn: 1, step: 0, chunk: { type: 'reasoning-delta', text: '先想想' } },
+  data: { turn: 1, step: 0, chunk: { type: 'reasoning-delta', text: 'let me think' } },
 })
 emit({
   type: 'assistant/message',
@@ -74,19 +74,19 @@ check(
 )
 check(
   'reasoning row kept',
-  channel.rows.some(row => row.kind === 'reasoning' && row.text === '先想想'),
+  channel.rows.some(row => row.kind === 'reasoning' && row.text === 'let me think'),
 )
 
 // Step 2: non-streaming text message (provider without chunk deltas).
 emit({
   type: 'assistant/message',
   seq: 4,
-  data: { message: { content: [{ type: 'text', text: '答复全文' }] } },
+  data: { message: { content: [{ type: 'text', text: 'full reply text' }] } },
 })
 const settled = channel.rows.filter(row => row.kind === 'assistant').at(-1)
 check(
   'non-streaming text still lands its assistant row',
-  settled?.text === '答复全文' && settled.streaming === false,
+  settled?.text === 'full reply text' && settled.streaming === false,
   JSON.stringify(settled),
 )
 
@@ -94,22 +94,22 @@ check(
 emit({
   type: 'assistant/chunk',
   seq: 5,
-  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: '流式' } },
+  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'streamed' } },
 })
 emit({
   type: 'assistant/chunk',
   seq: 6,
-  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: '文本' } },
+  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: ' text' } },
 })
 emit({
   type: 'assistant/message',
   seq: 7,
-  data: { message: { content: [{ type: 'text', text: '流式文本' }] } },
+  data: { message: { content: [{ type: 'text', text: 'streamed text' }] } },
 })
 const streamed = channel.rows.filter(row => row.kind === 'assistant').at(-1)
 check(
   'streamed row settles with full text',
-  streamed?.text === '流式文本' && streamed.streaming === false,
+  streamed?.text === 'streamed text' && streamed.streaming === false,
   JSON.stringify(streamed),
 )
 

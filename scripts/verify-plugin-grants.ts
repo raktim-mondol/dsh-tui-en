@@ -1,18 +1,23 @@
 /**
- * 批 2 电池：8 权限统一 GrantStore、plugin-host row 与 Host Descriptor 构建。
+ * Batch-2 battery: the unified GrantStore for the 8 permissions, the
+ * plugin-host row, and Host Descriptor construction.
  *
- *   A. GrantStore 语义：旧格式行为逐条一致、默认值 registry 驱动（7 deny +
- *      invoke allow）、denies 撤销、未注册权限 fail-closed、损坏 fail-closed；
- *   B. decision-guard 薄壳后行为不变（readGrantStore 真文件路径）；
- *   C. plugin-host row：真 cordis 挂载、generationId 稳定且跨实例不同、
- *      descriptor 过 vendored schema + validateHost、selfCheck 全绿、
- *      bare ctx 软降级；
- *   D. buildHostDescriptor 纯函数：默认构建逐字段、篡改 contract 文件剔除
- *      + warn、数据缺失降级、与 negotiate 组合（degraded）；
- *   E. patch 面与 exports 接线（row 在 extensions 之前、./plugin-host 出口）。
+ *   A. GrantStore semantics: legacy-format behavior matches field-by-field,
+ *      registry-driven defaults (7 deny + invoke allow), denies revocation,
+ *      unregistered permissions fail-closed, corruption fails closed;
+ *   B. decision-guard's behavior is unchanged behind the thin shell
+ *      (readGrantStore's real file path);
+ *   C. plugin-host row: real cordis mount, generationId stable and distinct
+ *      across instances, the descriptor passes the vendored schema +
+ *      validateHost, selfCheck is all green, bare ctx soft-degrades;
+ *   D. buildHostDescriptor as a pure function: the default build's fields,
+ *      a tampered contract file is dropped + warns, missing data degrades,
+ *      composition with negotiate (degraded);
+ *   E. the patch surface and exports wiring (the row sits before
+ *      extensions, the ./plugin-host export).
  *
- * HOME/USERPROFILE 在导入 src 前隔离（plugin-host row 挂载会读默认
- * DATA_DIR 的 grants 文件）。
+ * HOME/USERPROFILE are isolated before importing src (mounting the
+ * plugin-host row reads the grants file from the default DATA_DIR).
  *
  * Run via `node --import tsx/esm scripts/verify-plugin-grants.ts`.
  */
@@ -21,11 +26,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// ── 隔离 HOME（必须先于任何 src 导入）─────────────────────────────────────
+// ── isolate HOME (must precede any src import) ──────────────────────────
 const fakeHome = mkdtempSync(join(tmpdir(), 'dsh-plugin-grants-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
-process.env.DSH_TUI_LANG = 'zh'
+process.env.DSH_TUI_LANG = 'en'
 
 const { Context } = await import('@deepseek-ai/cordis')
 const { parseGrantStore, readGrantStore, EXTENSION_GRANTS_FILE } = await import('../src/dsh-adapter/grants.js')
@@ -80,9 +85,9 @@ check1('decision permission map is immutable',
   Object.isFrozen(DECISION_EVENT_PERMISSIONS)
   && DECISION_EVENT_PERMISSIONS['tui/input'] === 'session.input.intercept')
 
-// ── A. GrantStore 语义 ────────────────────────────────────────────────────
+// ── A. GrantStore semantics ──────────────────────────────────────────────
 {
-  // A1. 旧字符串格式没有 scope，迁移时必须 fail closed。
+  // A1. The old string format has no scope; migration must fail closed.
   const oldFormat = JSON.stringify({
     grants: { root: ['session.input.intercept', 'session.rewind.intercept', 'session.switch.intercept', 'session.compact.intercept'] },
   })
@@ -96,7 +101,7 @@ check1('decision permission map is immutable',
   check1('old format: storage stays denied', !oldStore.allows(principal('root'), 'storage.local.read', 'root'))
   check1('old format: not corrupt', !oldStore.corrupt)
 
-  // A2. 默认值 registry 驱动：空 store（= 文件缺失）→ 7 deny + invoke allow。
+  // A2. Registry-driven defaults: an empty store (= missing file) → 7 deny + invoke allow.
   const empty = parseGrantStore('')
   for (const entry of data.permissions.permissions) {
     check1(`registry default: ${entry.name} = ${entry.default}`, empty.defaultOf(entry.name) === entry.default)
@@ -107,7 +112,7 @@ check1('decision permission map is immutable',
     JSON.stringify(empty.knownPermissions()) === JSON.stringify(REGISTRY_PERMISSIONS))
   check1('8 permissions registered', REGISTRY_PERMISSIONS.length === 8)
 
-  // A3. denies 撤销 allow-default；显式 grant 授予 deny-default。
+  // A3. denies revokes an allow-default; an explicit grant authorizes a deny-default.
   const mixed = parseGrantStore(JSON.stringify({
     grants: { guard: [scoped('session.input.intercept', 'tui/input')] },
     denies: {
@@ -121,7 +126,7 @@ check1('decision permission map is immutable',
   check1('denies does not affect other plugins', mixed.allows(principal('other'), 'commands.invoke', 'other.command'))
   check1('grant of deny-default allowed', mixed.allows(principal('guard'), 'session.input.intercept', 'tui/input'))
 
-  // A4. grants 与 denies 同列同权限 → denies 优先（撤销是安全操作）。
+  // A4. When grants and denies list the same permission, denies wins (revocation is the safe operation).
   const conflict = parseGrantStore(JSON.stringify({
     grants: { conflicted: [scoped('commands.invoke', 'conflicted.command')] },
     denies: { conflicted: [scoped('commands.invoke', 'conflicted.command')] },
@@ -129,19 +134,20 @@ check1('decision permission map is immutable',
   check1('deny wins over grant on conflict',
     !conflict.allows(principal('conflicted'), 'commands.invoke', 'conflicted.command'))
 
-  // A5. 未注册权限一律 deny——即使文件里显式授予。
+  // A5. An unregistered permission is always denied — even when the file explicitly grants it.
   const bogus = parseGrantStore(JSON.stringify({ grants: { root: ['bogus.permission'] } }))
   check1('unregistered permission denied even when granted', !bogus.allows(principal('root'), 'bogus.permission', 'x'))
   check1('defaultOf unregistered is deny', bogus.defaultOf('bogus.permission') === 'deny')
 
-  // A6. 损坏 fail-closed：连 allow-default 也拒。
+  // A6. Corruption fails closed: even an allow-default is refused.
   const corrupt = parseGrantStore('{ not json')
   check1('corrupt store flagged', corrupt.corrupt)
   check1('corrupt store denies deny-default', !corrupt.allows(principal('root'), 'session.input.intercept', 'tui/input'))
   check1('corrupt store denies allow-default too', !corrupt.allows(principal('root'), 'commands.invoke', 'root.command'))
 
-  // A7. JSON 语法正确但结构错误仍必须 fail closed。静默丢弃坏 section/
-  // rule 会让 commands.invoke 回落 allow-default，等价于撤销失效。
+  // A7. Syntactically valid JSON with a malformed structure must still fail
+  // closed. Silently dropping a bad section/rule would fall commands.invoke
+  // back to its allow-default, which is equivalent to revocation not working.
   const wrongShape = parseGrantStore(JSON.stringify({ grants: [1, 2, 3], denies: 'nope' }))
   check1('wrong-shaped sections are corrupt', wrongShape.corrupt)
   check1('wrong-shaped sections deny allow-default too',
@@ -160,7 +166,7 @@ check1('decision permission map is immutable',
   check1('an empty object is a valid default-only store',
     !emptyObject.corrupt && emptyObject.allows(principal('anyone'), 'commands.invoke', 'anyone.command'))
 
-  // A8. 注入 registry 证明 store 完全 registry 驱动（无硬编码权限名）。
+  // A8. Injecting a registry proves the store is entirely registry-driven (no hardcoded permission names).
   const custom = parseGrantStore('', {
     registryVersion: 'test',
     permissions: [{ name: 'custom.allow', default: 'allow', revocable: true, scope: 'test' }],
@@ -168,7 +174,7 @@ check1('decision permission map is immutable',
   check1('adapter rejects a custom scope it cannot enforce', !custom.allows(principal('p'), 'custom.allow', 'test'))
   check1('injected registry: vendored names unknown', !custom.allows(principal('p'), 'commands.invoke', 'p.command'))
 
-  // A9. readGrantStore：缺失文件 = 全默认（非 corrupt）。
+  // A9. readGrantStore: a missing file = all defaults (not corrupt).
   const missingDir = mkdtempSync(join(tmpdir(), 'dsh-grants-missing-'))
   cleanup.push(missingDir)
   const missing = readGrantStore(missingDir)
@@ -177,9 +183,11 @@ check1('decision permission map is immutable',
     missing.allows(principal('anyone'), 'commands.invoke', 'anyone.command')
     && !missing.allows(principal('anyone'), 'session.input.intercept', 'tui/input'))
 
-  // A10. readGrantStore：非 ENOENT 读取失败（EISDIR：授权路径是个目录）
-  // = corrupt fail-closed——绝不能静默回退全默认（否则 denies 失效、
-  // commands.invoke 回落 allow，撤销机制被一次 I/O 错误击穿）。
+  // A10. readGrantStore: a non-ENOENT read failure (EISDIR: the grants path
+  // is a directory) = corrupt fail-closed — it must never silently fall back
+  // to all-defaults (otherwise denies stop working and commands.invoke falls
+  // back to allow, letting a single I/O error punch through the revocation
+  // mechanism).
   const unreadableDir = mkdtempSync(join(tmpdir(), 'dsh-grants-unreadable-'))
   cleanup.push(unreadableDir)
   mkdirSync(join(unreadableDir, EXTENSION_GRANTS_FILE))
@@ -190,7 +198,7 @@ check1('decision permission map is immutable',
   check1('non-ENOENT read failure denies deny-default',
     !unreadable.allows(principal('anyone'), 'storage.local.read', 'anyone'))
 
-  // A11. 文件存储每次重读，并在变化时主动通知持有订阅的服务。
+  // A11. The file store re-reads every time, and actively notifies subscribed services on change.
   const liveDir = mkdtempSync(join(tmpdir(), 'dsh-grants-live-'))
   cleanup.push(liveDir)
   const liveFile = join(liveDir, EXTENSION_GRANTS_FILE)
@@ -235,7 +243,7 @@ check1('decision permission map is immutable',
     !eventGrantSessionDeny.allows(principal('scoped'), 'session.input.intercept', 'session:secret'))
 }
 
-// ── B. decision-guard 薄壳后行为不变（真文件路径）────────────────────────
+// ── B. decision-guard's behavior is unchanged behind the thin shell (real file path) ─
 {
   mkdirSync(DATA_DIR, { recursive: true })
   const grantsFile = join(DATA_DIR, EXTENSION_GRANTS_FILE)
@@ -257,27 +265,27 @@ check1('decision permission map is immutable',
   const release = guardCtx.get('tuiPluginHost')?.subscribeDecision(
     admitted.context,
     'tui/input',
-    event => event.text === '拦截' ? { cancel: true, reason: '授权拦截' } : undefined,
+    event => event.text === 'intercept' ? { cancel: true, reason: 'granted intercept' } : undefined,
   )
   guardCtx.plugin({
     name: 'evil-plugin',
     apply: (c: InstanceType<typeof Context>) => {
-      c.on('tui/input', () => ({ cancel: true, reason: '不该生效' }))
+      c.on('tui/input', () => ({ cancel: true, reason: 'should not fire' }))
     },
   })
   await sleep(100)
   const { dispatchTuiDecision } = await import('../src/dsh-adapter/extension-events.js')
   const passThrough = (result: unknown): unknown => result
   check1('admitted Component uses manifest id instead of the Cordis export name',
-    (await dispatchTuiDecision(guardCtx, 'tui/input', { text: '拦截', sessionId: 'sess-guard' }, passThrough)) !== undefined)
+    (await dispatchTuiDecision(guardCtx, 'tui/input', { text: 'intercept', sessionId: 'sess-guard' }, passThrough)) !== undefined)
   check1('raw ctx.on subscription never enters the mediated chain',
-    (await dispatchTuiDecision(guardCtx, 'tui/input', { text: '别的', sessionId: 'sess-guard' }, passThrough)) === undefined)
+    (await dispatchTuiDecision(guardCtx, 'tui/input', { text: 'other', sessionId: 'sess-guard' }, passThrough)) === undefined)
   check1('raw subscription denial names the plugin and mediated surface',
     guardWarnings.some(line => line.includes('"evil-plugin"') && line.includes('mediated DecisionEvents')))
 
   writeFileSync(grantsFile, JSON.stringify({ grants: { 'com.example.guard': [] } }))
   check1('running decision grant revocation blocks the next dispatch',
-    (await dispatchTuiDecision(guardCtx, 'tui/input', { text: '拦截', sessionId: 'sess-guard' }, passThrough)) === undefined)
+    (await dispatchTuiDecision(guardCtx, 'tui/input', { text: 'intercept', sessionId: 'sess-guard' }, passThrough)) === undefined)
   await sleep(250)
   check1('revocation actively removes the decision handler', release?.() === false)
   await Promise.resolve(admitted.fiber.dispose())
@@ -299,7 +307,7 @@ check1('decision permission map is immutable',
     check1('generationId stable within the activation', service.generationId === service.generationId)
     check1('selfCheck clean on vendored data', service.selfCheck().length === 0, service.selfCheck().join(' | '))
     check1('grants store is callable', typeof service.grants.allows === 'function')
-    // 隔离 HOME 里无 grants 文件 → registry 默认（invoke allow / intercept deny）。
+    // No grants file in the isolated HOME → registry defaults (invoke allow / intercept deny).
     check1('service grants: registry defaults from empty HOME',
       service.grants.allows(principal('root'), 'commands.invoke', 'root.command')
       && !service.grants.allows(principal('root'), 'session.input.intercept', 'tui/input'))
@@ -315,8 +323,9 @@ check1('decision permission map is immutable',
     check1('service descriptor passes vendored schema + validateHost', descriptorError === '', descriptorError)
     check1('descriptor generationId is the runtime generation', descriptor.runtime.generationId === service.generationId)
     check1('descriptor cached (same object)', service.hostDescriptor() === descriptor)
-    // P2-8：这个 bare ctx 没有 commands 服务——descriptor 必须剔除 Command
-    //（C-010 只宣告运行中真实提供的能力），并如实 warn 一次。
+    // P2-8: this bare ctx has no commands service — the descriptor must drop
+    // Command (C-010 only advertises capabilities actually provided at
+    // runtime), and warn exactly once about it.
     check1('Command excluded when the commands service is not mounted',
       !descriptor.contracts.some(contract => contract.kind === 'Command')
       && descriptor.contracts.length === HOST_SUPPORTED_CONTRACTS.length - 1,
@@ -325,8 +334,10 @@ check1('decision permission map is immutable',
       hostWarnings.length === 1 && hostWarnings[0]!.includes('commands service is not mounted'), hostWarnings.join(' | '))
   }
 
-  // P2-8 正例：commands 服务在首次 build 前挂载 → Command 正常宣告、零 warn。
-  //（生产路径：descriptor 懒构建，/plugins 首查时 channel 早已装好 commands。）
+  // P2-8 positive case: the commands service mounts before the first build →
+  // Command is advertised normally, zero warnings. (Production path: the
+  // descriptor builds lazily, and by the time /plugins first queries it,
+  // channel has long since installed commands.)
   {
     const { Service } = await import('@deepseek-ai/cordis')
     class FakeCommands extends Service {
@@ -390,18 +401,18 @@ check1('decision permission map is immutable',
       afterUnmount !== withCommands && !afterUnmount?.contracts.some(contract => contract.kind === 'Command'))
   }
 
-  // 跨激活 generationId 不同（两个独立 root 各挂一次）。
+  // generationId differs across activations (two independent roots, each mounted once).
   const secondCtx = new Context()
   secondCtx.plugin({ name: pluginHostRow.name, apply: pluginHostRow.apply })
   await sleep(50)
   check1('generationId differs across activations',
     secondCtx.get('tuiPluginHost')?.generationId !== hostCtx.get('tuiPluginHost')?.generationId)
 
-  // bare ctx 软降级：没有行的上下文 get 不到，消费方静默降级。
+  // bare ctx soft-degrades: a context without the row can't get() it, and consumers degrade silently.
   check1('bare ctx soft-degrades (no row, no throw)', new Context().get('tuiPluginHost') === undefined)
 }
 
-// ── D. buildHostDescriptor 纯函数 ─────────────────────────────────────────
+// ── D. buildHostDescriptor as a pure function ────────────────────────────
 {
   const build = buildHostDescriptor({ generationId: 'test-gen-1' })
   check1('default build drops nothing', build.dropped.length === 0, build.dropped.join(' | '))
@@ -440,7 +451,7 @@ check1('decision permission map is immutable',
     && decisionEntry !== undefined
     && decisionEvents.definition.profileHash === digestFile(specDir, decisionEntry.profile))
 
-  // D2. 篡改 contract 文件 → 剔除 + warn（fail closed），descriptor 仍过 schema。
+  // D2. A tampered contract file → dropped + warn (fail closed), the descriptor still passes the schema.
   const tamperedRoot = mkdtempSync(join(tmpdir(), 'dsh-descriptor-tamper-'))
   cleanup.push(tamperedRoot)
   cpSync(specDir, join(tamperedRoot, 'dsh-ecosystem-spec'), { recursive: true })
@@ -461,21 +472,23 @@ check1('decision permission map is immutable',
   }
   check1('all-dropped descriptor still schema-valid', tamperedError === '', tamperedError)
 
-  // D3. 数据目录缺失 → 降级为空面 + warn，不抛。
+  // D3. A missing data directory → degrades to an empty surface + warn, never throws.
   const missing = buildHostDescriptor({ generationId: 'test-gen-3', specDir: join(tamperedRoot, 'no-such-dir') })
   check1('missing spec data degrades to empty surface', missing.descriptor.contracts.length === 0)
   check1('missing spec data warns', missing.warnings.some(w => w.includes('unavailable')))
 
-  // D4. 与 negotiate 组合：descriptor 现声明全部三契约，valid-plugin 的
-  // 必填（Command）与可选（observe）都可满足 → compatible。
+  // D4. Composed with negotiate: the descriptor now declares all three
+  // contracts, satisfying both valid-plugin's required (Command) and
+  // optional (observe) needs → compatible.
   const validPlugin = JSON.parse(readFileSync(join(specDir, 'conformance/fixtures/valid-plugin.json'), 'utf8'))
   const decision = negotiate(index, validPlugin, d)
   check1('negotiate against the built descriptor: compatible',
     decision.decision === 'compatible',
     JSON.stringify(decision))
 
-  // D5. P2-10：可解析但结构错误的 vendored 数据 = 不可用（undefined），
-  // 绝不把 TypeError 留到 verify*/boot 自检里炸出来（fail-soft）。
+  // D5. P2-10: parseable-but-structurally-wrong vendored data = unavailable
+  // (undefined), never letting a TypeError blow up inside verify*/boot
+  // self-checks (fail-soft).
   const malformedRoot = mkdtempSync(join(tmpdir(), 'dsh-spec-malformed-'))
   cleanup.push(malformedRoot)
   cpSync(specDir, join(malformedRoot, 'dsh-ecosystem-spec'), { recursive: true })
@@ -486,7 +499,7 @@ check1('decision permission map is immutable',
   const malformedBuild = buildHostDescriptor({ generationId: 'test-gen-4', specDir: join(malformedRoot, 'dsh-ecosystem-spec') })
   check1('malformed data degrades the descriptor to an empty surface (no throw)',
     malformedBuild.descriptor.contracts.length === 0 && malformedBuild.warnings.length > 0)
-  // verify* 对手工构造的坏数据也只回违规字符串。
+  // verify* returns only violation strings for hand-crafted bad data too.
   let verifyThrew = ''
   try {
     const fakeData = {
@@ -505,7 +518,7 @@ check1('decision permission map is immutable',
     verifyThrew = error instanceof Error ? error.message : String(error)
   }
   check1('verify* never throw on malformed data', verifyThrew === '', verifyThrew)
-  // 权限注册表 malformed（permissions 不是数组）同样整体不可用。
+  // A malformed permissions registry (permissions not an array) is likewise entirely unavailable.
   const malformedPermsRoot = mkdtempSync(join(tmpdir(), 'dsh-spec-malformed-perms-'))
   cleanup.push(malformedPermsRoot)
   cpSync(specDir, join(malformedPermsRoot, 'dsh-ecosystem-spec'), { recursive: true })
@@ -515,7 +528,7 @@ check1('decision permission map is immutable',
     loadSpecData(join(malformedPermsRoot, 'dsh-ecosystem-spec')) === undefined)
 }
 
-// ── E. patch 面与 exports 接线 ────────────────────────────────────────────
+// ── E. the patch surface and exports wiring ──────────────────────────────
 {
   const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
   const mirror = readFileSync(join(root, 'cordis.yml'), 'utf8')
@@ -537,11 +550,11 @@ check1('decision permission map is immutable',
   check1('snapshot records the insert before extensions',
     snapshot.inserts.indexOf('dsh-tui-plugin-host') !== -1
     && snapshot.inserts.indexOf('dsh-tui-plugin-host') === snapshot.inserts.indexOf('dsh-tui-extensions') - 1)
-  // 入口行 inject 纪律（#183）：新服务绝不进入 entry-level inject。
+  // Entry-row inject discipline (#183): a new service must never enter entry-level inject.
   check1('entry inject list NOT extended with tuiPluginHost', !mirror.includes('tuiPluginHost'))
 }
 
-// ── 汇总 ──────────────────────────────────────────────────────────────────
+// ── summary ───────────────────────────────────────────────────────────────
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true })
 if (failures.length > 0) {
   console.error(`plugin-grants battery FAILED (${failures.length}/${checks}):`)

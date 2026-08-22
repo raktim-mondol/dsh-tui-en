@@ -301,7 +301,7 @@ export function AskUserQuestionPanel({
         {attached !== null && (
           <Text color="suggestion">{t('question-attached-label', { label: attached })}</Text>
         )}
-        <Text dimColor>：</Text>
+        <Text dimColor>: </Text>
         {customText === '' && !inputFocused ? (
           <Text ref={caretRef} dimColor>{t('question-direct-input')}</Text>
         ) : (

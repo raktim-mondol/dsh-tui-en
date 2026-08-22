@@ -1,23 +1,30 @@
 /**
- * 批 5 电池（一）：效果台账（C-060 + 生命周期三元组）。
+ * Battery 5 (part 1): the effects ledger (C-060 + the lifecycle triple).
  *
- *   A. 五种 operation（create/bind/replace/release/cleanup-failed）各一条
- *      落盘且逐条独立过 vendored ledger schema；
- *   B. 生命周期三元组：同 fiber 的 activationInstance 稳定、跨 fiber 相异；
- *      无 identity→'undeclared'；root fiber→'host'；runtimeGenerationId
- *      取 options/宿主 generation；
- *   C. sequence 启动续号：新 runtime 在同一文件上从 max+1 继续；损坏行
- *      跳过不改写；
- *   D. 拒收不落盘：额外字段（additionalProperties:false 天然执行 secret
- *      禁令）与畸形 valueDigest 的记录被丢弃；超长 kind 清洗截断后保留；
- *   E. schema 缺失 fail-closed：全部写入被抑制、文件不创建、warn 恰好一次；
- *   F. 接线端到端：storage open/deny、shortcut register/dispose、status
- *      set/overwrite/dispose 经服务真实落台账且三元组正确；
- *   G. 文件零哨兵值：全文无 undefined/NaN，逐行 JSON 可解析且过 schema；
- *   H. 接线断言：plugin-host apply 挂载序（host→ledger→storage→observer）、
- *      公共 shim 导出、四服务 identity 末参签名。
+ *   A. Each of the five operations (create/bind/replace/release/
+ *      cleanup-failed) writes one entry and each passes the vendored ledger
+ *      schema independently;
+ *   B. Lifecycle triple: activationInstance is stable within the same fiber,
+ *      distinct across fibers; no identity → 'undeclared'; root fiber →
+ *      'host'; runtimeGenerationId comes from options/the host generation;
+ *   C. sequence resumes on startup: a new runtime continues from max+1 on
+ *      the same file; corrupt lines are skipped, not rewritten;
+ *   D. Rejected records don't hit disk: records with extra fields
+ *      (additionalProperties:false naturally enforces the secret ban) or a
+ *      malformed valueDigest are discarded; an oversized kind is sanitized,
+ *      truncated, and kept;
+ *   E. schema-missing fail-closed: all writes are suppressed, the file is
+ *      never created, warn fires exactly once;
+ *   F. End-to-end wiring: storage open/deny, shortcut register/dispose,
+ *      status set/overwrite/dispose all land real ledger entries via the
+ *      service with a correct triple;
+ *   G. Zero sentinel values in the file: no undefined/NaN anywhere, every
+ *      line is parseable JSON and passes schema;
+ *   H. Wiring assertions: plugin-host apply's mount order
+ *      (host→ledger→storage→observer), the public shim exports, and the
+ *      identity trailing-arg signature across all four services.
  *
- * HOME/USERPROFILE 在导入 src 前隔离。
+ * HOME/USERPROFILE are isolated before importing src.
  *
  * Run via `node --import tsx/esm scripts/verify-plugin-ledger.ts`.
  */
@@ -26,7 +33,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// ── 隔离 HOME（必须先于任何 src 导入）─────────────────────────────────────
+// ── Isolate HOME (must happen before any src import) ───────────────────────
 const fakeHome = mkdtempSync(join(tmpdir(), 'dsh-plugin-ledger-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
@@ -75,7 +82,7 @@ interface FileRecord {
 const readRecords = (file: string): FileRecord[] =>
   readFileSync(file, 'utf8').split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as FileRecord)
 
-/** 一个已通过官方 parser/admission 的插件上下文。 */
+/** A plugin context that has passed the official parser/admission. */
 const namedCtx = async (host: InstanceType<typeof Context>, plugin: string, id = `com.example.${plugin}`,
   permissions: readonly { name: string; scope: string }[] = [],
   requires: readonly { apiVersion: string; kind: string; optional?: boolean; fallback?: string }[] = [],
@@ -88,10 +95,10 @@ const namedCtx = async (host: InstanceType<typeof Context>, plugin: string, id =
   return admitted.context
 }
 
-// ── A/B/C/D 用独立文件，避免互相干扰 ─────────────────────────────────────
+// ── A/B/C/D each use their own file, to avoid interfering with each other ──
 const fileA = join(fakeHome, 'ledger-a.jsonl')
 
-// ── A. 五种 operation 各一条且过 schema ──────────────────────────────────
+// ── A. One entry per operation, each passing schema ─────────────────────────
 {
   const ctx = new Context()
   const ledger = new TuiEffectLedgerRuntime(ctx, { file: fileA, generationId: 'gen-battery' })
@@ -125,10 +132,10 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   }
   check1('every persisted record passes the vendored schema independently', schemaPassed === records.length, `${schemaPassed}/${records.length}`)
 
-  // ── B. 三元组 ──
+  // ── B. The lifecycle triple ──
   const beta = await namedCtx(admissionRoot, 'beta')
   ledger.record({ operation: 'bind', resource: { kind: 'shortcut', id: 'ctrl+alt+b' }, result: 'applied' }, beta)
-  ledger.record({ operation: 'bind', resource: { kind: 'shortcut', id: 'ctrl+alt+c' }, result: 'applied' }) // 无 identity
+  ledger.record({ operation: 'bind', resource: { kind: 'shortcut', id: 'ctrl+alt+c' }, result: 'applied' }) // no identity
   ledger.record({ operation: 'bind', resource: { kind: 'shortcut', id: 'ctrl+alt+d' }, result: 'applied' }, ctx) // root fiber
   const all = readRecords(fileA)
   const alphaRecords = all.filter(r => r.pluginId === 'com.example.alpha')
@@ -145,14 +152,15 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   check1("root fiber records 'host'", host?.pluginId === 'host' && host?.activationInstance === 'host')
   check1('runtimeGenerationId from options', all.every(r => r.runtimeGenerationId === 'gen-battery'))
 
-  // ── D. 拒收不落盘 ──
+  // ── D. Rejected records don't hit disk ──
   const before = readRecords(fileA).length
   ledger.record({ operation: 'create', resource: { kind: 'scene', id: 'smuggle' }, result: 'applied', secret: 'payload' } as unknown as LedgerEntry)
   ledger.record({ operation: 'create', resource: { kind: 'scene', id: 'bad-digest' }, result: 'applied', valueDigest: 'not-a-digest' })
   ledger.record({ operation: 'create', resource: { kind: 'x'.repeat(100), id: 'long-kind' }, result: 'applied' }, alpha)
   const after = readRecords(fileA)
-  // smuggle 的额外字段根本到不了记录：record() 按 allowlist 逐字段构造，
-  // 与 schema 的 additionalProperties:false 构成双保险（记录本身保留）。
+  // The smuggled extra field never even reaches the record: record()
+  // constructs field-by-field from an allowlist, doubled up with the
+  // schema's additionalProperties:false (the record itself is kept).
   check1('extra field never reaches the record (allowlist construction)', after.length === before + 2, `${after.length} vs ${before}`)
   check1('record with a malformed valueDigest is dropped', !after.some(r => r.resource.id === 'bad-digest'))
   check1('no record carries the smuggled field', !after.some(r => 'secret' in r))
@@ -162,11 +170,13 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   check1('over-long kind is cleaned to the schema bound and kept', longKind !== undefined && longKind.resource.kind.length === 64)
 }
 
-// ── C. sequence 启动续号 + 损坏行跳过 ────────────────────────────────────
+// ── C. sequence resumes on startup + corrupt lines are skipped ─────────────
 {
   const file = join(fakeHome, 'ledger-c.jsonl')
-  // 每个 runtime 一个独立 Context：Service 构造即在 ctx 注册同名服务键，
-  // 同 ctx 重复 new 会撞键（生产路径每进程只挂一次，无此问题）。
+  // Each runtime gets its own Context: the Service constructor registers
+  // the same-named service key on ctx, so `new`-ing it twice on the same
+  // ctx would collide (the production path only mounts once per process,
+  // so this doesn't come up there).
   const first = new TuiEffectLedgerRuntime(new Context(), { file, generationId: 'gen-c' })
   first.record({ operation: 'create', resource: { kind: 'scene', id: 's1' }, result: 'applied' })
   first.record({ operation: 'create', resource: { kind: 'scene', id: 's2' }, result: 'applied' })
@@ -183,7 +193,7 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   check1('sequence resumes after the max valid record despite the corrupt line', last.sequence === 3, `got ${last.sequence}`)
 }
 
-// ── E. schema 缺失 fail-closed ───────────────────────────────────────────
+// ── E. schema-missing fail-closed ─────────────────────────────────────────
 {
   const file = join(fakeHome, 'ledger-e.jsonl')
   const ctx = new Context()
@@ -199,7 +209,7 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   check1('suppression warned exactly once', schemaWarns.length === 1, `${schemaWarns.length}`)
 }
 
-// ── F. 接线端到端（完整 plugin-host 行 + storage/shortcuts/status 真实服务）──
+// ── F. End-to-end wiring (the full plugin-host row + real storage/shortcuts/status services) ──
 {
   mkdirSync(DATA_DIR, { recursive: true })
   writeFileSync(join(DATA_DIR, 'extension-grants.json'), JSON.stringify({
@@ -211,8 +221,9 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
     },
   }))
   const ctx = new Context()
-  // 生产接线：整行挂载（host → ledger → storage → observer），台账的
-  // generationId 来自 tuiPluginHost 服务而非 fallback。
+  // Production wiring: the whole row mounts (host → ledger → storage →
+  // observer), and the ledger's generationId comes from the tuiPluginHost
+  // service rather than the fallback.
   ctx.plugin({ name: pluginHostRow.name, apply: pluginHostRow.apply })
   await sleep(50)
   const ledger = ctx.get('tuiEffectLedger')
@@ -232,19 +243,19 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
     failures.push('gamma.get should have been denied')
     checks += 1
   } catch {
-    checks += 1 // 拒绝成立（PERMISSION_NOT_GRANTED 由 storage 电池覆盖）
+    checks += 1 // denial confirmed (PERMISSION_NOT_GRANTED itself is covered by the storage battery)
   }
 
   new TuiShortcutRuntime(ctx)
   const shortcuts = alpha.get('tuiShortcuts') as InstanceType<typeof TuiShortcutRuntime>
-  const disposeShortcut = shortcuts.register('ctrl+shift+z', { description: '电池快捷键', handler: () => {} }, alpha)
+  const disposeShortcut = shortcuts.register('ctrl+shift+z', { description: 'battery shortcut', handler: () => {} }, alpha)
   disposeShortcut()
 
   new TuiStatusRuntime(ctx)
   const status = alpha.get('tuiStatus') as InstanceType<typeof TuiStatusRuntime>
   const disposeStatus = status.set('alpha-line', 'v1', alpha)
   status.set('alpha-line', 'v2', alpha)
-  disposeStatus() // v1 的 disposer 已被 v2 取代 → 不得再落 release
+  disposeStatus() // v1's disposer has been superseded by v2 → must not land a release anymore
 
   const records = readRecords(EFFECT_LEDGER_FILE)
   const byKind = (kind: string, id?: string) => records.filter(r => r.resource.kind === kind && (id === undefined || r.resource.id === id))
@@ -274,7 +285,7 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   check1('wired records carry the host generationId',
     alphaWired.every(r => typeof r.runtimeGenerationId === 'string' && r.runtimeGenerationId !== '' && r.runtimeGenerationId !== 'unknown-generation'))
 
-  // ── G. 文件零哨兵值 ──
+  // ── G. Zero sentinel values in the file ──
   const text = readFileSync(EFFECT_LEDGER_FILE, 'utf8')
   check1("no 'undefined' sentinel in the ledger file", !text.includes('undefined'))
   check1("no 'NaN' sentinel in the ledger file", !text.includes('NaN'))
@@ -292,7 +303,7 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
   check1('every line of the wired ledger parses and passes the schema', parseable && schemaOk === lines.length, `${schemaOk}/${lines.length}`)
 }
 
-// ── H. 接线断言 ───────────────────────────────────────────────────────────
+// ── H. Wiring assertions ────────────────────────────────────────────────────
 {
   const hostSource = readFileSync(join(root, 'src/dsh-adapter/plugin-host.ts'), 'utf8')
   const hostIdx = hostSource.indexOf('ctx.plugin(TuiPluginHostRuntime)')
@@ -335,7 +346,7 @@ const fileA = join(fakeHome, 'ledger-a.jsonl')
     identityParam('src/dsh-adapter/renderers.ts', 'renderer: TuiEntryRenderer'))
 }
 
-// ── 汇总 ──────────────────────────────────────────────────────────────────
+// ── Summary ──────────────────────────────────────────────────────────────
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true })
 if (failures.length > 0) {
   console.error(`plugin-ledger battery FAILED (${failures.length}/${checks}):`)

@@ -2344,7 +2344,7 @@ export function createChannel(
             ...LANGS.map((lang) => ({
               name: lang,
               description: `Switch the UI language to ${lang}`,
-              descriptionKey: lang === 'zh' ? 'sugg-lang-zh-desc' : 'sugg-lang-en-desc',
+              descriptionKey: 'sugg-lang-en-desc' as const,
               ...(getLang() === lang ? { tag: 'current' } : {}),
             })),
           ]
@@ -4136,7 +4136,7 @@ export function createChannel(
         return children.map((child) => {
           const id =
             typeof child.id === 'string' ? child.id : (child.id.value ?? '')
-          const label = child.label ? `「${child.label}」` : ''
+          const label = child.label ? `[${child.label}]` : ''
           const mode = child.mode === 'continuable' ? t('subagent-resumable') : t('subagent-oneshot')
           return `${t('subagent-row', { mode, label, activity: child.activity === 'running' ? t('subagent-running') : t('subagent-archived'), id: id.slice(0, 8) })}`
         })

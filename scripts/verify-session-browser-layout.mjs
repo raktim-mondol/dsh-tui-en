@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Layout regression for the session browser, across terminal geometries and
- * BOTH interface languages.
+ * Layout regression for the session browser, across terminal geometries,
+ * with both a `zh`-pinned pass and an `en` pass.
  *
  * The oracle is the emulator's own wrap flag. A terminal marks a line as
  * wrapped when the previous one overflowed its width, so "no line in the
@@ -12,10 +12,17 @@
  * pushes every region below it down a line and shoves the hint row off the
  * bottom.
  *
- * Running both languages is the point of the file. Every string here is
- * localized and the default language is Chinese, where a character is two
- * columns wide; a layout measured in characters passes in English and wraps
- * in Chinese. An English-only test cannot see that class of bug at all.
+ * This build's UI chrome is English-only (`zh` is accepted as a persisted
+ * preference for compatibility but always resolves to the same English
+ * text), so the `zh`-pinned pass here is a compat regression check rather
+ * than a translated-copy check. The CJK content that actually stresses the
+ * layout math comes from elsewhere: session titles and preview text are
+ * arbitrary user-generated content — a prompt can be in any language
+ * regardless of UI language — and a CJK character is two columns wide. A
+ * layout measured in characters passes on ASCII titles and wraps on CJK
+ * ones, a bug class an ASCII-only fixture set can't see at all. The `SESSIONS`
+ * fixtures below are deliberately CJK-heavy for exactly this reason — they
+ * are not a translation target.
  *
  * Run: `node scripts/verify-session-browser-layout.mjs`
  * Exits 1 on any failed assertion (CI gate).

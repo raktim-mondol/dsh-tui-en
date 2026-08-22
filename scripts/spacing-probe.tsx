@@ -204,11 +204,11 @@ check(
   'Bash(...) · 8s',
 )
 
-// 6. Thinking duration on the folded label (zh locale: 思考).
+// 6. Thinking duration on the folded label.
 check(
   'thinking duration on folded label',
-  contentLines.some(l => l.includes('⚓ 思考') && l.includes('12s')),
-  '⚓ 思考 · 12s (ctrl+o expand)',
+  contentLines.some(l => l.includes('⚓ Thinking') && l.includes('12s')),
+  '⚓ Thinking · 12s (ctrl+o expand)',
 )
 
 // 7. Terminal tab title carries the ✦ prefix + DeepSeek whale (win32 path
@@ -244,16 +244,16 @@ check(
 )
 check(
   'header tip line',
-  contentLines.some(l => l.includes('提示：') && l.includes('/tips')),
+  contentLines.some(l => l.includes('Tip:') && l.includes('/tips')),
   'tip under the cwd row',
 )
 
 // 8. Status line metrics (pi-bar style): pressure percent/window, think
 //    level, cache hits, tps gauge/sparkline. The footer row also carries
-//    the cwd, so pin it by the model id + cache label (zh locale: 缓存).
-const statusLine = contentLines.find(l => l.includes('deepseek-v4-flash') && l.includes('缓存')) ?? ''
+//    the cwd, so pin it by the model id + cache label.
+const statusLine = contentLines.find(l => l.includes('deepseek-v4-flash') && l.includes('cache')) ?? ''
 check('statusline think level', statusLine.includes('max') && !statusLine.includes('think:max'), 'bare effort level (no think: prefix)')
-check('statusline cache', statusLine.includes('缓存 20.5%'), 'cache hit rate, one decimal (3400/16600)')
+check('statusline cache', statusLine.includes('cache 20.5%'), 'cache hit rate, one decimal (3400/16600)')
 check('statusline tps single value', statusLine.includes('tps') && !statusLine.includes('μ') && !statusLine.includes('p95'), `sparkline + one tps number (got: ${statusLine})`)
 check('statusline sparkline blocks', /[▁▂▃▄▅▆▇█]/.test(cursorMoved), 'sparkline glyphs present')
 check('statusline speed color', cursorMoved.includes('\x1b[38;2;202;138;4m') || cursorMoved.includes('\x1b[38;2;78;186;101m'), 'warning/success tps color')

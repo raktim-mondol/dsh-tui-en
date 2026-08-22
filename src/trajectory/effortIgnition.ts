@@ -1,4 +1,4 @@
-/** 三幕时间轴（ms）：扫光全长、字样启动（波至中段）、字样渐亮、渐隐起止。边框扫光与输入行字样徽标共用。 */
+/** The three-act timeline (ms): full sweep length, label start (wave reaches the middle), label brighten, fade start/end. Shared by the border sweep and the input-row label badge. */
 export const IGNITION_TIMELINE = {
   sweepMs: 1000,
   labelStartMs: 600,
@@ -24,18 +24,20 @@ export const IGNITION_TIMELINE = {
 import type { RGBColor } from '../components/Spinner/spinnerUtils.js'
 import { rgbString } from './motion.js'
 
-/** 扫光全长（ms），仅用于把墙钟时间折算成动画秒数，不创建任何定时器。 */
+/** Full sweep length (ms), used only to convert wall-clock time into animation seconds — creates no timer. */
 export const SWEEP_TOTAL_MS = 1000
 
-/** 波形宽度参数（列）。 */
+/** Wave-shape width parameter (columns). */
 const WAVE_HALF_WIDTH = 14
 
-/** 波形参数：`[launch, travel]`（秒）——扫光在何时启动、多久行至右缘。 */
+/** Wave-shape parameters: `[launch, travel]` (seconds) — when the sweep starts, and how long it takes to reach the right edge. */
 const BAND: readonly [number, number] = [0.1, 0.75]
 
 /**
- * 高亮彩色色板：亮蓝/亮青/亮紫三 hue（浅色背景用加深变体——浅底上
- * 亮色没有对比度）。波只点亮 hues[0]，前两个 hue 留给未来的多带风格。
+ * The bright color palette: three hues — bright blue/cyan/purple (a
+ * darkened variant on light backgrounds, since bright colors have no
+ * contrast on a light background). The wave only lights up hues[0]; the
+ * first two hues are reserved for a future multi-band style.
  */
 const HUES_DARK: readonly [RGBColor, RGBColor, RGBColor] = [
   { r: 130, g: 185, b: 255 },
@@ -49,8 +51,11 @@ const HUES_LIGHT: readonly [RGBColor, RGBColor, RGBColor] = [
 ]
 
 /**
- * 带底色（波向终端本底淡入的目标色）。近似值：取主题深/浅背景的典
- * 型值而非逐主题读取——波只存活一秒，色差在低 alpha 下不可辨。
+ * The band's base color (the target color the wave fades toward the
+ * terminal's resting background). An approximation: a representative
+ * value for the theme's dark/light background rather than reading each
+ * theme individually — the wave lives for only one second, and the color
+ * difference is imperceptible at low alpha.
  */
 const BAND_DARK: RGBColor = { r: 27, g: 30, b: 40 }
 const BAND_LIGHT: RGBColor = { r: 240, g: 240, b: 242 }
@@ -60,28 +65,31 @@ export function ignitionHues(onLight: boolean): readonly [RGBColor, RGBColor, RG
 }
 
 /**
- * 充能色对（前缀强调用）：从带底色调暗端到全值，与波共用 hues[0]。
+ * The charge color pair (used for prefix emphasis): from the band's base
+ * color's dim end to full value, sharing hues[0] with the wave.
  */
 export function accentRamp(onLight: boolean): { dim: RGBColor; full: RGBColor } {
   const band = onLight ? BAND_LIGHT : BAND_DARK
   return { dim: blend(band, ignitionHues(onLight)[0], 0.45), full: ignitionHues(onLight)[0] }
 }
 
-/** 余弦钟形：`crest(0)=1`、`crest(±1)=0`、之外为 0（负距离同样静默——
- * 现有调用方都传 `Math.abs`，这里兜底防未来调用方拿到全强度）。 */
+/** Cosine bell: `crest(0)=1`, `crest(±1)=0`, 0 outside that range (a
+ * negative distance is silenced the same way — existing callers all pass
+ * `Math.abs`, this is a guard against a future caller getting full
+ * intensity by accident). */
 export function crest(distance: number): number {
   if (distance >= 1 || distance <= -1) return 0
   return 0.5 * (1 + Math.cos(Math.PI * distance))
 }
 
-/** ease-out cubic：`1-(1-p)³`，两端 clamp。 */
+/** ease-out cubic: `1-(1-p)³`, clamped at both ends. */
 export function easeOutCubic(progress: number): number {
   const p = Math.min(1, Math.max(0, progress))
   const inverse = 1 - p
   return 1 - inverse * inverse * inverse
 }
 
-/** ease-in-out cubic：前半 `4p³`、后半镜像，两端 clamp。 */
+/** ease-in-out cubic: `4p³` for the first half, mirrored for the second, clamped at both ends. */
 export function easeInOutCubic(progress: number): number {
   const p = Math.min(1, Math.max(0, progress))
   if (p < 0.5) return 4 * p * p * p
@@ -89,7 +97,7 @@ export function easeInOutCubic(progress: number): number {
   return 1 - (inverse * inverse * inverse) / 2
 }
 
-/** 单列对波带的采样：三 hue 权重（未归一；单波形只点亮 hue[0]）。 */
+/** Samples a single column against the wave band: three hue weights (unnormalized; a single wave only lights up hue[0]). */
 function sampleColumn(elapsed: number, column: number, width: number): [number, number, number] {
   const weights: [number, number, number] = [0, 0, 0]
   const [launch, travel] = BAND
@@ -100,7 +108,7 @@ function sampleColumn(elapsed: number, column: number, width: number): [number, 
   return weights
 }
 
-/** 线性混色（t=0 → a，t=1 → b，不 clamp）。 */
+/** Linear color blend (t=0 → a, t=1 → b, not clamped). */
 export function blend(a: RGBColor, b: RGBColor, t: number): RGBColor {
   return {
     r: Math.round(a.r + (b.r - a.r) * t),
@@ -110,14 +118,17 @@ export function blend(a: RGBColor, b: RGBColor, t: number): RGBColor {
 }
 
 /**
- * 扫光某一时刻的整行颜色。
+ * The whole row's colors at a given instant of the sweep.
  *
- * @param options.elapsedMs - 距触发的时间；达到 {@link SWEEP_TOTAL_MS}
- *   后整行返回空数组（无波，行恢复本底）。
- * @param options.width - 行列数（终端宽）。
- * @param options.onLight - 浅色主题时用浅底色板与浅带底色。
- * @returns 逐列颜色（`rgb(r,g,b)` 字符串）；无波的列为 `undefined`，
- *   渲染层应输出本底色，保持行宽恒定。
+ * @param options.elapsedMs - Time since trigger; once it reaches
+ *   {@link SWEEP_TOTAL_MS}, the whole row returns an empty array (no wave,
+ *   the row is back to its resting state).
+ * @param options.width - The row's column count (terminal width).
+ * @param options.onLight - Use the light-background palette and band base
+ *   color on a light theme.
+ * @returns Per-column colors (`rgb(r,g,b)` strings); a column with no wave
+ *   is `undefined`, and the renderer should output the resting color there
+ *   to keep the row width constant.
  */
 export function ignitionLineColors(options: {
   elapsedMs: number
@@ -137,10 +148,13 @@ export function ignitionLineColors(options: {
       colors[column] = undefined
       continue
     }
-    // 波按强度淡入带底色：alpha=1 是纯 hue，alpha→0 收敛回本底；高亮
-    // 度档满强度纯 hue 直出。输出前通道量化到 8 步长——渐变列因此能
-    // 合并成长段（渲染层 RLE 段数降一个数量级），8/256 的色差在终端
-    // cell 分辨率下不可辨。
+    // The wave fades into the band's base color by intensity: alpha=1 is
+    // pure hue, alpha→0 converges back to the resting color; at the top
+    // tier, full intensity outputs pure hue directly. Channels are
+    // quantized to steps of 8 before output — gradient columns can then
+    // merge into longer runs (dropping the renderer's RLE segment count by
+    // an order of magnitude), and an 8/256 color difference is
+    // imperceptible at terminal-cell resolution.
     const tinted = blend(band, hue, Math.min(weight, 1))
     colors[column] = rgbString({
       r: Math.round(tinted.r / 8) * 8,
@@ -152,8 +166,11 @@ export function ignitionLineColors(options: {
 }
 
 /**
- * 顶档切入判定：从「已有档位」变为「另一档位」且新档位是档位表末位
- * 最高档。冷启动恢复偏好、单档表、档位表未知都不触发。
+ * Determines whether the current change enters the top tier: switching
+ * from "already on some tier" to "a different tier", where the new tier
+ * is the last (top) entry in the tier table. A cold mount restoring a
+ * preference, a single-tier table, or an unknown tier table never
+ * triggers this.
  */
 export function entersTopTier(
   previous: string | undefined,
@@ -170,7 +187,7 @@ export function entersTopTier(
   )
 }
 
-/** 充能时长（ms）与充能进度（钳 [0,1]，负 elapsed 钳 0）。 */
+/** Charge duration (ms) and charge progress (clamped to [0,1]; a negative elapsed clamps to 0). */
 export const CHARGE_MS = 150
 
 export function chargeProgress(elapsedMs: number): number {

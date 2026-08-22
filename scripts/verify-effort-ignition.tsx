@@ -177,7 +177,7 @@ function SweepDriver(): React.ReactNode {
     const spacedName = tierLetters.join(' ')
     check('act 2 label: letters settled at one-space gap',
       settled.includes(spacedName), settled.trim().slice(0, 24))
-    // 终态精确居中：字样中点字母落在终端几何中心列上。
+    // Settled state is precisely centered: the label's midpoint letter lands on the terminal's geometric center column.
     const midLetter = tierLetters[Math.floor(tierLetters.length / 2)]!
     const midAt = settled.indexOf(spacedName) + spacedName.indexOf(midLetter)
     const terminalCenter = Math.round((COLS - 1) / 2)

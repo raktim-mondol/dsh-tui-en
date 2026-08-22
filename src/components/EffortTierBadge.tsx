@@ -1,14 +1,22 @@
 /**
- * EffortTierBadge — 输入行尾的档位字样徽标：三幕点焰的第二幕载体
- * （与 EffortInputBorder 的双框扫光同一时间轴、同一触发），切到最高
- * 思考强度档时光带行至中段，输入行居中浮现档名（当前档名大写，字母间距从
- * 10 个空格减速聚拢到 1 个——连续位置逐字母取整保证帧帧有移动，
- * 明亮蓝加粗，由暗渐亮），随后随图层整体渐隐让位——行数恒定，静
- * 止时完全不渲染；输入行有文字时不显示（绝不遮挡内容）。
+ * EffortTierBadge — the tier-name badge at the end of the input row: the
+ * carrier for act two of the three-act ignition (on the same timeline and
+ * trigger as EffortInputBorder's dual-border sweep). When switching to
+ * the top reasoning-effort tier, as the light band reaches the middle,
+ * the input row's center surfaces the tier name (uppercase, letter
+ * spacing decelerating from 10 spaces down to 1 — rounding the continuous
+ * position per letter guarantees movement every frame, bright blue bold,
+ * fading in from dim), then fades out and yields along with the rest of
+ * the overlay — the row count stays constant, and at rest it renders
+ * nothing at all; it's hidden whenever the input row has text (never
+ * covers content).
  *
- * 触发判定在渲染期做（props-变化-调整模式，与边框/充能组件同模
- * 式）；冷启动恢复偏好/单档表/无档位表/无共享时钟均不触发。时钟
- * 复用 Ink core 共享时钟，仅动画窗口订阅（keepAlive），播完归零。
+ * The trigger check runs at render time (the props-change-adjustment
+ * pattern, the same one the border/charge components use); a cold mount
+ * restoring a preference, a single-tier table, no tier table, or no
+ * shared clock all skip it. The clock reuses Ink core's shared clock,
+ * subscribing only during the animation window (keepAlive), resetting to
+ * zero once it ends.
  */
 import React, { useContext, useEffect, useReducer, useState } from 'react'
 import { Text } from '../ui.js'
@@ -19,7 +27,7 @@ import { IGNITION_TIMELINE, ignitionHues } from '../trajectory/effortIgnition.js
 
 type Overlay = { label: string; startedAtMs: number }
 
-/** 字母间距聚拢：从 10 个空格减速收敛到 1 个（ease-out，快收慢停）。 */
+/** Letter-spacing convergence: decelerates from 10 spaces down to 1 (ease-out, fast start, slow settle). */
 const GAP_START = 10
 const GAP_END = 1
 const CONVERGE_MS = 500
@@ -31,15 +39,17 @@ export function EffortTierBadge({
   columns,
   leadingColumns,
 }: {
-  /** 当前思考强度档 id；`undefined` 表示路线未声明。 */
+  /** The current reasoning-effort tier id; `undefined` means the route declares none. */
   effort: string | undefined
-  /** 当前路线的档位表（低→高，末位为最高档）；未知时传 `undefined`。 */
+  /** The current route's tier table (low → high, last entry is the top tier); pass `undefined` when unknown. */
   levels: readonly string[] | undefined
   onLight: boolean
-  /** 终端列数——居中锚点按终端几何中心计算（纯文本流，不引入嵌套 Box）。 */
+  /** Terminal column count — the centering anchor is computed from the terminal's geometric center (a plain text flow, no nested Box). */
   columns: number
-  /** badge 文本流之前该行已被占据的列数（❯ 与块光标等）——居中换算成
-   *  badge 流内列时要扣掉，否则整体偏右一个前缀宽。 */
+  /** Columns already occupied on this row before the badge's text flow
+   *  (the ❯ prefix, block cursor, etc.) — must be subtracted when
+   *  converting the center into a column within the badge's own flow,
+   *  otherwise the whole thing shifts right by one prefix width. */
   leadingColumns: number
 }): React.ReactNode {
   const clock = useContext(ClockContext)
@@ -47,7 +57,7 @@ export function EffortTierBadge({
   const [prevEffort, setPrevEffort] = useState(effort)
   const [, forceRender] = useReducer((tick: number) => tick + 1, 0)
 
-  // 渲染期触发（与边框/充能同模式）：effort 变化的首帧就以新状态渲染。
+  // Render-time trigger (same pattern as the border/charge components): the first frame of an effort change renders in the new state.
   if (effort !== prevEffort) {
     setPrevEffort(effort)
     if (
@@ -80,32 +90,46 @@ export function EffortTierBadge({
   const alpha = brighten * fade
   if (alpha <= 0) return null
   const band: RGBColor = onLight ? { r: 240, g: 240, b: 242 } : { r: 27, g: 30, b: 40 }
-  // 明亮蓝：accent 混白 35% 提亮（用户拍板的高亮观感）。
+  // Bright blue: the accent mixed with 35% white to brighten it (the highlight look the user signed off on).
   const hue = ignitionHues(onLight)[0]
   const whiten = (x: number): number => Math.round(x + (255 - x) * 0.35)
   const bright: RGBColor = { r: whiten(hue.r), g: whiten(hue.g), b: whiten(hue.b) }
   const mix = (x: number, y: number): number => Math.round(x + (y - x) * alpha)
   const color = rgbString({ r: mix(band.r, bright.r), g: mix(band.g, bright.g), b: mix(band.b, bright.b) })
-  // 字母间距聚拢（Codex 的 converge 语义）：间距是连续浮点，字母位置
-  // 以**行中心为锚**对称收缩——pos_i = center + (i-(n-1)/2)·(1+gap)，
-  // 左右字母各向中心移动一半（奇数档名的居中字母原位不动），两侧速
-  // 度天然均衡；每字母独立按连续位置取整落列，不同字母在不同帧跨
-  // 格，每帧至少一个在动（把间距整体取整会让 ease-out 慢末段上百毫
-  // 秒才跨一格，看起来就是卡顿）。曲线混入 15% 线性做末段保底速度。
+  // Letter-spacing convergence (Codex's converge semantics): the spacing
+  // is a continuous float, and letter positions shrink symmetrically
+  // **anchored on the row's center** — pos_i = center + (i-(n-1)/2)·(1+gap),
+  // so left/right letters each move half the distance toward the center
+  // (an odd-length tier name's middle letter stays put), and the two
+  // sides naturally move at the same speed; each letter independently
+  // rounds its continuous position to a column, so different letters
+  // cross a grid cell on different frames and at least one is always
+  // moving (rounding the spacing as a whole would make the ease-out's
+  // slow tail sit for hundreds of milliseconds between grid crossings,
+  // which reads as stutter). The curve blends in 15% linear to keep a
+  // floor speed in the tail.
   const progress = Math.min(1, Math.max(0, (elapsedMs - IGNITION_TIMELINE.labelStartMs) / CONVERGE_MS))
-  // 跳变间隔均匀化：离散格子上「减速」若靠曲线导数趋零实现，末段会
-  // 出现几十帧不动一格的长停顿再突跳（卡感来源）。改为 90% 线性 +
-  // 10% easeOutQuad 的轻缓收尾——跳变间隔全程近似恒定（约 55ms/格），
-  // 仅末端轻微放慢，终端上的观感是均匀顺滑的聚拢。
+  // Evening out the jump interval: if "deceleration" on a discrete grid
+  // were implemented by letting the curve's derivative approach zero, the
+  // tail would sit for dozens of frames without crossing a cell and then
+  // suddenly jump (the source of the stutter feel). Using 90% linear +
+  // 10% easeOutQuad for a gentle tail instead — the jump interval stays
+  // roughly constant throughout (~55ms/cell), with only a slight slowdown
+  // at the very end, so the terminal reads as a smooth, even convergence.
   const eased = 1 - progress
   const easedWithFloor = 0.9 * eased + 0.1 * (1 - progress * progress)
   const gapF = GAP_END + (GAP_START - GAP_END) * easedWithFloor
   const letterCount = overlay.label.length
-  // 锚点是**终端几何中心**（不是 ❯/光标之后可用区的中心——那会整体
-  // 偏右约 1.5 格；可用区起点在左，其"中点"不含左部占位）。左右字母
-  // 严格镜像——Math.round 对 .5 恒向上，正负方向舍入不对称会让跨格
-  // 时刻错开；左字母的落列由右字母的舍入结果镜像得出（2C − col），
-  // M/X 每次同帧反向同跳，全程对称于终端中心。
+  // The anchor is the **terminal's geometric center** (not the center of
+  // the available area after the ❯/cursor — that would shift everything
+  // right by about 1.5 cells; the available area starts on the left, and
+  // its "midpoint" doesn't account for the left-side occupancy). Left and
+  // right letters are strictly mirrored — Math.round always rounds .5 up,
+  // and asymmetric rounding between the positive/negative directions
+  // would desync the moments they cross a grid cell; a left letter's
+  // column is derived by mirroring the right letter's rounded result
+  // (2C − col), so an M/X pair jumps in opposite directions on the same
+  // frame, staying symmetric around the terminal center throughout.
   const C = Math.round((columns - 1) / 2) - leadingColumns
   let spaced = ''
   let column = 0

@@ -58,7 +58,7 @@ await healthy.unmount()
 frames.length = 0
 const reports: Array<{ id: string; message: string }> = []
 function Thrower(): React.ReactNode {
-  throw new Error('boom-场景炸了')
+  throw new Error('boom-scene-exploded')
 }
 const crashed = await render(
   <PluginSceneBoundary
@@ -72,7 +72,7 @@ const crashed = await render(
 await sleep(150)
 check('boundary reports the crash exactly once', reports.length === 1, `reports=${reports.length}`)
 check('report carries scene id and error message',
-  reports[0]?.id === 'demo' && reports[0]?.message.includes('boom-场景炸了'),
+  reports[0]?.id === 'demo' && reports[0]?.message.includes('boom-scene-exploded'),
   JSON.stringify(reports[0]))
 check('crashed scene paints nothing afterwards', !frames.join('').includes('boom-'))
 await crashed.unmount()

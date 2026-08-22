@@ -1,15 +1,21 @@
 /**
- * plugin-spec 库的 fixtures 全矩阵电池——TS 移植与上游参考实现
- * （conformance/tests/run.js）等价的证明，兼作 vendored 数据漂移报警器：
+ * The full fixture-matrix battery for the plugin-spec library — proof that
+ * the TS port is equivalent to the upstream reference implementation
+ * (conformance/tests/run.js), and doubles as a vendored-data drift alarm:
  *
- *   1. verifyRegistry / verifyContractProfiles 全绿（schemaHash 钉死 +
- *      十点完备 + 坐标/权限 parity + securityBoundary:false）；
- *   2. 26 个 validate fixture 逐一过 schema check + 语义校验，pass/fail 与
- *      run.js 期望逐条相等；
- *   3. 8 个 negotiate 场景与 run.js 期望逐字段 deepEqual；
- *   4. 篡改任一 contract 文件后 verifyRegistry 必败（fail-closed 自检）。
+ *   1. verifyRegistry / verifyContractProfiles all green (schemaHash pinned +
+ *      the ten-point checklist complete + coordinate/permission parity +
+ *      securityBoundary:false);
+ *   2. all 26 validate fixtures individually pass schema check + semantic
+ *      validation, with pass/fail matching run.js's expectations entry by
+ *      entry;
+ *   3. all 8 negotiate scenarios deepEqual run.js's expectations field by
+ *      field;
+ *   4. tampering with any one contract file makes verifyRegistry fail
+ *      (a fail-closed self-check).
  *
- * 上游 dsh-ecosystem-spec 更新整目录覆盖后，本电池即漂移报警器。
+ * After the upstream dsh-ecosystem-spec updates and the whole directory is
+ * overwritten, this battery becomes the drift alarm.
  *
  * Run via `node --import tsx/esm scripts/verify-plugin-spec.ts`.
  */
@@ -46,12 +52,12 @@ const expect = (name: string, ok: boolean, detail?: string) => {
   if (!ok) failures.push(`${name}${detail ? `: ${detail}` : ''}`)
 }
 
-// --- 1. vendored 数据自检 -------------------------------------------------
+// --- 1. vendored data self-check ------------------------------------------
 expect('verifyRegistry clean', verifyRegistry(data).length === 0, verifyRegistry(data).join(' | '))
 expect('verifyContractProfiles clean', verifyContractProfiles(data).length === 0, verifyContractProfiles(data).join(' | '))
 expect('admission error code table has 7 entries', NEGOTIATION_ERROR_CODES.length === 7)
 
-// --- 2. validate fixture 矩阵（官方 parser/validator + TUI semantic layer）
+// --- 2. validate fixture matrix (official parser/validator + TUI semantic layer)
 interface ValidateCase {
   name: string
   value: unknown
@@ -103,17 +109,17 @@ const CASES: ValidateCase[] = [
   { name: 'host hash mismatch rejected', value: fixture('invalid-host-hash-mismatch.json'), kind: 'host', schema: 'host', pass: false },
   { name: 'host unknown permission rejected', value: fixture('invalid-host-unknown-permission.json'), kind: 'host', schema: 'host', pass: false },
   { name: 'host duplicate contract rejected', value: fixture('invalid-host-duplicate-contract.json'), kind: 'host', schema: 'host', pass: false },
-  // C-030: optional 引用必须带 fallback，未注册版本不豁免（F3 红队修复）。
+  // C-030: an optional reference must carry a fallback; an unregistered version is not exempt (F3 red-team fix).
   { name: 'optional without fallback rejected', value: fixture('invalid-plugin-optional-no-fallback.json'), kind: 'plugin', pass: false },
-  // C-002: v0.15 直接拒绝 provides（服务在 RFC 0003）。
+  // C-002: v0.15 rejects provides outright (services are in RFC 0003).
   { name: 'provides rejected', value: fixture('invalid-plugin-provides.json'), kind: 'plugin', pass: false },
-  // C-030: 已知 group+kind 的未注册版本是合法 manifest，由协商器回答 unknown。
+  // C-030: an unregistered version of a known group+kind is a legal manifest; the negotiator answers unknown.
   { name: 'unregistered version is a valid manifest', value: fixture('unknown-version-plugin.json'), kind: 'plugin', pass: true },
   { name: 'compound unknown+rejected manifest is valid', value: fixture('plugin-compound-unknown.json'), kind: 'plugin', pass: true },
 ]
 for (const validateEntry of CASES) validateCase(validateEntry)
 
-// --- 3. negotiate 八场景（期望与 run.js 断言逐字段 deepEqual） -------------
+// --- 3. eight negotiate scenarios (expectations deepEqual run.js's assertions field by field) ---
 const hostTui = load('registry/host-descriptor.tui.example.json')
 const hostNoObserve = fixture('host-no-observe.example.json')
 const parsedFixture = (name: string) => parseManifest(JSON.stringify(fixture(name)), { source: name })
@@ -146,7 +152,7 @@ negotiateCase(
   negotiate(index, parsedFixture('waiting-authorization-plugin.json'), hostTui, [{ name: 'messages.observe.read', scope: 'session:*' }]),
   { decision: 'compatible' },
 )
-// C-030: 必填契约宿主缺失 → rejected（先于权限判定）。
+// C-030: a missing required-contract host → rejected (before the permission check).
 negotiateCase(
   'rejected missing required',
   negotiate(index, parsedFixture('waiting-authorization-plugin.json'), hostNoObserve),
@@ -156,7 +162,7 @@ negotiateCase(
     missingRequired: ['messages.dsh/v1alpha1#MessageObserver'],
   },
 )
-// C-030: optional 缺失 + 声明 fallback → compatible_degraded。
+// C-030: optional missing + a declared fallback → compatible_degraded.
 negotiateCase(
   'compatible_degraded',
   negotiate(index, parsedFixture('valid-plugin.json'), hostNoObserve),
@@ -165,7 +171,7 @@ negotiateCase(
     missingOptional: ['messages.dsh/v1alpha1#MessageObserver'],
   },
 )
-// C-030: 引用版本在注册表之外 → unknown（非 rejected）。
+// C-030: a referenced version outside the registry → unknown (not rejected).
 negotiateCase(
   'unknown unregistered version',
   negotiate(index, parsedFixture('unknown-version-plugin.json'), hostTui),
@@ -175,7 +181,7 @@ negotiateCase(
     unknownContracts: ['storage.dsh/v2beta1#LocalStorage'],
   },
 )
-// C-030 优先级：未注册版本 + 必填缺失 → unknown 压过 rejected。
+// C-030 priority: an unregistered version + a missing required contract → unknown outranks rejected.
 negotiateCase(
   'unknown outranks rejected',
   negotiate(index, parsedFixture('plugin-compound-unknown.json'), hostNoObserve),
@@ -185,7 +191,7 @@ negotiateCase(
     unknownContracts: ['storage.dsh/v2beta1#LocalStorage'],
   },
 )
-// C-010/C-003: facet apiVersion 不在宿主声明面 → rejected。
+// C-010/C-003: a facet apiVersion outside the host's declared surface → rejected.
 negotiateCase(
   'facet apiVersion mismatch rejected',
   negotiate(index, parsedFixture('valid-plugin.json'), fixture('invalid-host-facet-version.json')),
@@ -197,7 +203,7 @@ negotiateCase(
   },
 )
 
-// --- 4. 篡改必败（fail-closed 自检） ---------------------------------------
+// --- 4. tampering must fail (a fail-closed self-check) ---------------------
 const tamperedRoot = mkdtempSync(join(tmpdir(), 'dsh-plugin-spec-tamper-'))
 try {
   cpSync(specDir, join(tamperedRoot, 'dsh-ecosystem-spec'), { recursive: true })
@@ -211,7 +217,7 @@ try {
   rmSync(tamperedRoot, { recursive: true, force: true })
 }
 
-// --- 5. 可解析但错误形状的数据也必须 soft-fail -------------------------------
+// --- 5. parseable-but-wrong-shape data must also soft-fail -----------------
 const malformedRoot = mkdtempSync(join(tmpdir(), 'dsh-plugin-spec-malformed-'))
 try {
   const malformedSpecDir = join(malformedRoot, 'dsh-ecosystem-spec')
@@ -242,7 +248,7 @@ try {
   rmSync(policyTamperRoot, { recursive: true, force: true })
 }
 
-// --- 汇总 ------------------------------------------------------------------
+// --- Summary -----------------------------------------------------------------
 if (failures.length > 0) {
   console.error(`plugin-spec battery FAILED (${failures.length}/${checks}):`)
   for (const failure of failures) console.error(`  - ${failure}`)

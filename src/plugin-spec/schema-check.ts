@@ -1,11 +1,13 @@
 /**
- * 零依赖 JSON Schema 校验器——上游 `conformance/tests/run.js` 的 check()
- * 的保真 TS 移植。刻意只实现 vendored schemas 用到的子集：本地 $ref、
- * oneOf（恰好一个匹配）、const/enum、object（required/additionalProperties:
- * false/patternProperties）、array（min/maxItems/items/uniqueItems）、
- * string（min/maxLength/pattern/format uri|date-time）、integer（minimum）、
- * boolean。遇到子集之外的构件不静默放行——schema 更新引入新构件时这里
- * 必须显式扩展（fixtures 矩阵会当场抓住）。
+ * A zero-dependency JSON Schema validator — a faithful TS port of upstream
+ * `conformance/tests/run.js`'s check(). Deliberately implements only the
+ * subset the vendored schemas actually use: local $ref, oneOf (exactly one
+ * match), const/enum, object (required/additionalProperties: false/
+ * patternProperties), array (min/maxItems/items/uniqueItems), string
+ * (min/maxLength/pattern/format uri|date-time), integer (minimum),
+ * boolean. Constructs outside this subset are never silently let through —
+ * when a schema update introduces a new construct, this must be extended
+ * explicitly (the fixtures matrix will catch it on the spot).
  */
 
 type JsonSchema = Record<string, unknown>

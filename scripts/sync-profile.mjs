@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
- * sync-profile.mjs — 把当前工作区产物同步到活动 dsh-tui profile，让
- * `dsh-tui` 直接跑的就是本仓库这份代码（改完即测）。
+ * sync-profile.mjs — syncs the current worktree's build output into the
+ * active dsh-tui profile, so running `dsh-tui` directly runs this repo's
+ * code (edit, then test).
  *
- * 同步范围 = package.json `files` 列表（bin/、lib/、cordis.patch.yml、
- * dsh-ecosystem-spec/{registry,protocols,schemas}、presets、skills），
- * 与发布包完全一致。逐文件比较 hash，只复制有差异的文件；不删除 profile
- * 里多余的依赖文件（node_modules 等由 dsh plugin 管理）。
+ * Sync scope = package.json's `files` list (bin/, lib/, cordis.patch.yml,
+ * dsh-ecosystem-spec/{registry,protocols,schemas}, presets, skills),
+ * identical to the published package. Compares each file's hash and copies
+ * only the ones that differ; does not remove extra dependency files already
+ * in the profile (node_modules etc. are managed by dsh plugin).
  *
- * 用法：
- *   node scripts/sync-profile.mjs            # 对比并同步（打印变更清单）
- *   node scripts/sync-profile.mjs --check    # 只对比，不改动（退出码 2 = 有差异）
+ * Usage:
+ *   node scripts/sync-profile.mjs            # compare and sync (prints the change list)
+ *   node scripts/sync-profile.mjs --check    # compare only, no changes (exit code 2 = differences found)
  *
- * profile 定位：$DSH_HOME/profiles/dsh-tui（未设置时按平台默认：
- *   Windows %USERPROFILE%/.dsh-cc，其它 ~/.dsh）——与 bin/dsh-tui.js 一致。
+ * Profile location: $DSH_HOME/profiles/dsh-tui (platform default when unset:
+ *   Windows %USERPROFILE%/.dsh-cc, elsewhere ~/.dsh) — matches bin/dsh-tui.js.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -34,7 +36,7 @@ function sha256(file) {
   return hash.digest('hex')
 }
 
-/** 收集 files 条目下的全部相对文件路径。 */
+/** Collect every relative file path under a `files` entry. */
 function collectFiles(entry, base, out = []) {
   const full = join(base, entry)
   if (!existsSync(full)) return out
@@ -57,20 +59,21 @@ const profileDir = join(dshHome, 'profiles', PROFILE)
 const installed = join(profileDir, 'node_modules', PACKAGE)
 
 if (!existsSync(join(installed, 'package.json'))) {
-  console.error(`[sync-profile] profile 未安装：${installed}`)
-  console.error(`  （首次请先运行 dsh-tui 让它自举，或手工：`)
-  console.error(`   dsh plugin --profile ${PROFILE} add ${PACKAGE}@${pkg.version}）`)
+  console.error(`[sync-profile] profile not installed: ${installed}`)
+  console.error(`  (first run: launch dsh-tui to let it bootstrap, or manually:`)
+  console.error(`   dsh plugin --profile ${PROFILE} add ${PACKAGE}@${pkg.version})`)
   process.exit(1)
 }
 
 const profileVersion = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')).version
 if (profileVersion !== pkg.version) {
-  console.log(`[sync-profile] 版本不一致：worktree=${pkg.version} profile=${profileVersion}（文件仍按 worktree 同步；launcher 会打印对齐提示）`)
+  console.log(`[sync-profile] version mismatch: worktree=${pkg.version} profile=${profileVersion} (files still sync from the worktree; the launcher will print an alignment hint)`)
 }
 
 const rels = (pkg.files ?? []).flatMap(entry => collectFiles(entry, root))
-// package.json 不在 files 里，但版本号必须跟随 worktree——否则 launcher
-// 每次启动都打印 profile 对齐提示（profile 旧于启动器）。
+// package.json isn't in `files`, but its version must track the worktree —
+// otherwise the launcher prints an alignment hint on every startup
+// (profile older than the launcher).
 if (!rels.includes('package.json')) rels.push('package.json')
 const changed = []
 for (const rel of rels) {
@@ -83,16 +86,16 @@ for (const rel of rels) {
 console.log(`[sync-profile] ${PACKAGE}@${pkg.version}`)
 console.log(`[sync-profile] worktree: ${root}`)
 console.log(`[sync-profile] profile:  ${installed}`)
-console.log(`[sync-profile] 对比 ${rels.length} 个发布文件，${changed.length} 个有差异`)
+console.log(`[sync-profile] compared ${rels.length} published files, ${changed.length} differ`)
 
 if (changed.length === 0) {
-  console.log('[sync-profile] profile 已与 worktree 一致 ✅')
+  console.log('[sync-profile] profile already matches the worktree ✅')
   process.exit(0)
 }
 
 if (checkOnly) {
   for (const rel of changed) console.log(`  ! ${rel}`)
-  console.error('[sync-profile] 存在差异（--check）')
+  console.error('[sync-profile] differences found (--check)')
   process.exit(2)
 }
 
@@ -103,4 +106,4 @@ for (const rel of changed) {
   copyFileSync(src, dst)
   console.log(`  → ${rel}`)
 }
-console.log('[sync-profile] 同步完成。重启 dsh-tui 即可生效。')
+console.log('[sync-profile] Sync complete. Restart dsh-tui to pick it up.')

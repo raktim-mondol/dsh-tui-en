@@ -3,24 +3,28 @@ import { Box, Text } from '../ui.js'
 import { stringWidth } from '../ink/stringWidth.js'
 
 /**
- * `/` 命令菜单与 `@` 文件菜单共用的圆角卡片外壳（与输入框 EffortInputBorder
- * 同款 ╭╮╰╯ 视觉语言）：
+ * The rounded card shell shared by the `/` command menu and the `@` file
+ * menu (the same ╭╮╰╯ visual language as the input box's EffortInputBorder):
  *
- *   ╭─ 标题 ─────────────────────╮
- *   │ ❯ 行内容 …                 │
- *   │   行内容 …                 │
- *   │ ↑2 · ↓3                    │  ← 仅当列表被裁剪
+ *   ╭─ title ─────────────────────╮
+ *   │ ❯ row content …             │
+ *   │   row content …             │
+ *   │ ↑2 · ↓3                     │  ← only when the list is clipped
  *   ╰────────────────────────────╯
  *
- * 底边 ╰╯ 直接坐在输入框顶边 ╭╮ 的上一行（PromptInput 的浮层包装去掉了
- * 底部留白），卡片与输入框连成一体，读作"挂在输入框上的下拉"。边框色
- * 跟随输入框 idle 色（plan 模式下整套面板一起变 sage 绿）。
+ * The bottom edge ╰╯ sits directly on the row above the input box's top
+ * edge ╭╮ (PromptInput's floater wrapper removes the bottom padding), so
+ * the card and the input box read as one connected "dropdown hanging off
+ * the input box". The border color follows the input box's idle color
+ * (in plan mode the whole panel set turns sage green together).
  *
- * 每一行的左右 │ 由本组件包在行外——侧边框若是内容列旁的单行 Text，只
- * 会画在自己那一行（行高的首行），多行列表的中段行会裸奔无边框。
- * 卡片左右各占 2 列（│ + 1 空格），行内容的可用宽度由
- * {@link cardContentWidth} 统一计算，CJK 截断契约（verify-cjk-truncate）
- * 按该宽度钉住。
+ * Each row's left/right │ is wrapped around it by this component — a side
+ * border on a single-line Text next to the content column would only draw
+ * on its own row (the first row of the row height), leaving a multi-line
+ * list's middle rows without a border. The card reserves 2 columns on each
+ * side (│ + 1 space); the available width for row content is computed
+ * uniformly by {@link cardContentWidth}, and the CJK-truncation contract
+ * (verify-cjk-truncate) is pinned to that width.
  */
 export function SuggestionCard({
   title,
@@ -29,19 +33,19 @@ export function SuggestionCard({
   footer,
   rows,
 }: {
-  /** 嵌在顶边框里的标题（已本地化、含计数）。 */
+  /** The title embedded in the top border (already localized, includes the count). */
   title: string
   columns: number
-  /** 边框色（主题 token）；缺省 promptBorder。 */
+  /** Border color (a theme token); defaults to promptBorder. */
   accent?: 'promptBorder' | 'planMode'
-  /** 底部 dim 提示行（滚动指示）；null/undefined 时不渲染。 */
+  /** The dim hint row at the bottom (scroll indicator); not rendered when null/undefined. */
   footer?: string | null
-  /** 已渲染的行内容（每行一个节点），本组件为各行补上左右边框。 */
+  /** Already-rendered row content (one node per row); this component adds the left/right border to each row. */
   rows: readonly React.ReactNode[]
 }): React.ReactNode {
   const inner = Math.max(0, columns - 2)
   const lead = `─ ${title} `
-  // 标题放不下（极窄终端）时退化为素边框，不做半截标题。
+  // When the title doesn't fit (an extremely narrow terminal), fall back to a plain border rather than a half-cut title.
   const titleFits = stringWidth(lead) + 1 <= inner
   const top = titleFits
     ? `╭${lead}${'─'.repeat(inner - stringWidth(lead))}╮`
@@ -53,7 +57,7 @@ export function SuggestionCard({
       {rows.map((row, index) => (
         <Box key={index} flexDirection="row" width="100%">
           <Text color={borderColor}>│</Text>
-          {/* flexGrow 钉住右侧 │ 在最后一列；行内容自行按 cardContentWidth 截断。 */}
+          {/* flexGrow pins the right-side │ to the last column; row content truncates itself per cardContentWidth. */}
           <Box flexDirection="column" flexGrow={1} minWidth={0}>
             {row}
           </Box>
@@ -75,22 +79,29 @@ export function SuggestionCard({
 }
 
 /**
- * 卡片内一行内容的可用显示宽度：总宽减去两侧 │ + 各 1 空格的内边距。
- * CommandSuggestions / FileSuggestions 的截断数学共用这一口径。
+ * The available display width for a row's content inside the card: total
+ * width minus the │ on each side plus 1 space of inner padding each.
+ * CommandSuggestions / FileSuggestions share this figure for their
+ * truncation math.
  */
 export function cardContentWidth(columns: number): number {
   return Math.max(0, columns - 4)
 }
 
 /**
- * 把补全名按「命中的查询前缀」拆成三段（用于前缀高亮）。三级尝试，
- * 均大小写不敏感，与 completeCommands / 文件候选的过滤语义对齐：
- *   1. 整名前缀（文件查询是路径前缀，`src/re` 命中 `src/render`）；
- *   2. 最后一个空格 token 的前缀（嵌套命令 `model deepseek/…` 的
- *      `deepseek/` 查询——补全名带 `model ` 路径前缀）；
- *   3. 最后一个 `/` 段的前缀（`/model deepseek-v` 命中段
- *      `deepseek-v4-flash` 的开头）。
- * 查询为空、或都不命中（别名命中、过期候选）返回 null——渲染方整体 dim。
+ * Splits a completion name into three segments around the "matched query
+ * prefix" (used for prefix highlighting). Tries three levels, all
+ * case-insensitive, matching completeCommands / file-candidate filtering
+ * semantics:
+ *   1. Whole-name prefix (a file query is a path prefix — `src/re` matches
+ *      `src/render`);
+ *   2. The prefix of the last space-delimited token (a nested command's
+ *      `deepseek/` query for `model deepseek/…` — the completion name
+ *      carries the `model ` path prefix);
+ *   3. The prefix of the last `/`-delimited segment (`/model deepseek-v`
+ *      matches the start of the segment `deepseek-v4-flash`).
+ * Returns null when the query is empty, or when none match (an alias hit,
+ * a stale candidate) — the caller renders the whole thing dim.
  */
 export function splitQueryMatch(
   name: string,

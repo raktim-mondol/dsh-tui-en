@@ -384,6 +384,9 @@ async function promptRouteId(
 /** Merge multi-select picks with comma/space-separated custom input, deduped. */
 function mergeModelIds(selected: readonly string[], custom: string): string[] {
   const ids = [...selected]
+  // Splits on both the ASCII and fullwidth comma — an IME can easily land a
+  // fullwidth `，` in a text field, and rejecting it here would silently
+  // merge two ids into one bad token instead of two valid ones.
   for (const piece of custom.split(/[,，\s]+/)) {
     const id = piece.trim()
     if (id !== '' && !ids.includes(id)) ids.push(id)

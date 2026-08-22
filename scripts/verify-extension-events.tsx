@@ -48,12 +48,15 @@
  * sessions/agents services, plainText ANSI wash over stdout frames.
  */
 process.env.FORCE_COLOR = '3'
-// 断言针对中文 i18n 文案（toast/标题），与运行环境的 locale 无关。
-process.env.DSH_TUI_LANG = 'zh'
+// Pinned for deterministic toast/title text; the shipped UI is
+// English-only regardless (`zh` is accepted for compat and still
+// resolves to English strings), so every assertion below matches English copy.
+process.env.DSH_TUI_LANG = 'en'
 
-// 家目录隔离：touchSession/clearResumeTarget（/new 与 rewind 都会走）写
-// ~/.dsh-tui 的真实文件，必须先切到临时目录再 import src。HOME 与
-// USERPROFILE 必须成对设置（POSIX 读 HOME、Windows 读 USERPROFILE）。
+// Home-directory isolation: touchSession/clearResumeTarget (hit by both
+// /new and rewind) write real files under ~/.dsh-tui, so the temp directory
+// must be switched to before importing src. HOME and USERPROFILE must be set
+// as a pair (POSIX reads HOME, Windows reads USERPROFILE).
 const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
 const { tmpdir } = await import('node:os')
 const { join: joinPath } = await import('node:path')
@@ -155,7 +158,7 @@ function makeEvents() {
         seq: i * 3 + 1,
         time: NOW + i * 30 + 5,
         type: 'user/message',
-        data: { source: { kind: 'user' }, content: [{ type: 'text', text: `消息 ${String(i).padStart(2, '0')}` }] },
+        data: { source: { kind: 'user' }, content: [{ type: 'text', text: `message ${String(i).padStart(2, '0')}` }] },
       },
       { seq: i * 3 + 2, time: NOW + i * 30 + 10, type: 'turn/end', data: { turn: i, reason: { kind: 'completed' } } },
     )
@@ -307,26 +310,26 @@ await sleep(800)
     },
   })
   await sleep(150)
-  channel.submit('穿透检查')
+  channel.submit('pass-through check')
   await sleep(400)
   check('decision guard (no extensions row): ungranted plugin subscription denied',
-    captured.followupTexts.some(text => text.includes('穿透检查')),
+    captured.followupTexts.some(text => text.includes('pass-through check')),
     JSON.stringify(captured.followupTexts))
 }
 
 // ── 1. tui/input transform ──────────────────────────────────────────────
 {
   const dispose = decisionCtx.on('tui/input', event => {
-    if (event.text === '原始输入') return { text: '改写后的输入' }
+    if (event.text === 'original input') return { text: 'rewritten input' }
     return undefined
   })
-  channel.submit('原始输入')
+  channel.submit('original input')
   await sleep(300)
   check('tui/input transform: delivered text is the plugin substitute',
-    captured.followupTexts.some(text => text.includes('改写后的输入')),
+    captured.followupTexts.some(text => text.includes('rewritten input')),
     JSON.stringify(captured.followupTexts))
   check('tui/input transform: the typed text never reached the agent',
-    !captured.followupTexts.some(text => text.includes('原始输入')))
+    !captured.followupTexts.some(text => text.includes('original input')))
   dispose()
 }
 
@@ -334,12 +337,12 @@ await sleep(800)
 {
   const before = captured.followupTexts.length
   const dispose = decisionCtx.on('tui/input', event =>
-    event.text === '别发这个' ? { cancel: true, reason: '插件拦截了这条输入' } : undefined)
-  channel.submit('别发这个')
+    event.text === 'do not send this' ? { cancel: true, reason: 'plugin intercepted this input' } : undefined)
+  channel.submit('do not send this')
   await sleep(300)
   check('tui/input cancel: nothing delivered', captured.followupTexts.length === before)
   check('tui/input cancel: reason toasted',
-    plainText(stdout.frames).includes('插件拦截了这条输入'))
+    plainText(stdout.frames).includes('plugin intercepted this input'))
   dispose()
 }
 
@@ -348,11 +351,11 @@ await sleep(800)
   // A veto reason is toast-bound plugin text: control chars are stripped
   // before it reaches the notification queue.
   const dispose = decisionCtx.on('tui/input', event =>
-    event.text === '消毒检查' ? { cancel: true, reason: '拦截\x1b[31m\x07原因' } : undefined)
-  channel.submit('消毒检查')
+    event.text === 'sanitize check' ? { cancel: true, reason: 'intercept\x1b[31m\x07reason' } : undefined)
+  channel.submit('sanitize check')
   await sleep(300)
   check('tui/input cancel: reason sanitized before toasting',
-    notified('拦截 [31m 原因')
+    notified('intercept [31m reason')
     && !(channel as unknown as { notifications: readonly { text: string }[] }).notifications
       .some(item => item.text.includes('\x1b')))
   dispose()
@@ -360,57 +363,57 @@ await sleep(800)
   // D-8: a decision still pending past 400ms surfaces a parked indicator.
   // The listener resolves at ~600ms — deterministically beyond the threshold.
   const disposeSlow = decisionCtx.on('tui/input', async event => {
-    if (event.text !== '慢决定') return undefined
+    if (event.text !== 'slow decision') return undefined
     await sleep(600)
-    return { cancel: true, reason: '慢否决落地' } as const
+    return { cancel: true, reason: 'slow veto lands' } as const
   })
-  channel.submit('慢决定')
+  channel.submit('slow decision')
   await sleep(550)
   check('pending decision: parked indicator toasted past 400ms',
-    notified('正在等待插件决定（tui/input）'))
+    notified('Waiting for a plugin decision (tui/input)\u2026'))
   await sleep(400)
   check('pending decision: the slow veto still lands',
-    notified('慢否决落地') && !captured.followupTexts.some(text => text.includes('慢决定')))
+    notified('slow veto lands') && !captured.followupTexts.some(text => text.includes('slow decision')))
   // …and the indicator is dismissed the moment the decision lands — it must
   // not linger for its 4s timeout after the flow already continued.
   check('pending decision: the parked indicator is dismissed on resolution',
     !(channel as unknown as { notifications: readonly { text: string }[] }).notifications
-      .some(item => item.text.includes('正在等待插件决定')))
+      .some(item => item.text.includes('Waiting for a plugin decision')))
   disposeSlow()
 }
 
 // ── 2c. bare intercepts toast the host-localized fallback ───────────────
 {
   const disposeCancel = decisionCtx.on('tui/input', event =>
-    event.text === '无声拦截' ? { cancel: true } : undefined)
-  channel.submit('无声拦截')
+    event.text === 'silent intercept' ? { cancel: true } : undefined)
+  channel.submit('silent intercept')
   await sleep(400)
   check('tui/input cancel without reason: host fallback toasted',
-    notified('操作已被插件取消')
-    && !captured.followupTexts.some(text => text.includes('无声拦截')))
+    notified('Action cancelled by a plugin')
+    && !captured.followupTexts.some(text => text.includes('silent intercept')))
   disposeCancel()
 
   const disposeHandled = decisionCtx.on('tui/input', event =>
-    event.text === '无声接管' ? { handled: true } : undefined)
-  channel.submit('无声接管')
+    event.text === 'silent takeover' ? { handled: true } : undefined)
+  channel.submit('silent takeover')
   await sleep(400)
   check('tui/input handled without notice: host fallback toasted',
-    notified('输入已由插件处理')
-    && !captured.followupTexts.some(text => text.includes('无声接管')))
+    notified('Input handled by a plugin')
+    && !captured.followupTexts.some(text => text.includes('silent takeover')))
   disposeHandled()
 }
 
 // ── 2d. decision+delivery FIFO: a slow A never lets B overtake ──────────
 {
   const dispose = decisionCtx.on('tui/input', async event => {
-    if (event.text === '慢条甲') await sleep(400)
+    if (event.text === 'slow item A') await sleep(400)
     return undefined
   })
-  channel.submit('慢条甲')
-  channel.submit('快条乙')
+  channel.submit('slow item A')
+  channel.submit('fast item B')
   await sleep(900)
-  const indexA = captured.followupTexts.findIndex(text => text.includes('慢条甲'))
-  const indexB = captured.followupTexts.findIndex(text => text.includes('快条乙'))
+  const indexA = captured.followupTexts.findIndex(text => text.includes('slow item A'))
+  const indexB = captured.followupTexts.findIndex(text => text.includes('fast item B'))
   check('fifo: a slow decision on A does not let B overtake',
     indexA !== -1 && indexB !== -1 && indexA < indexB, JSON.stringify(captured.followupTexts))
   dispose()
@@ -419,19 +422,19 @@ await sleep(800)
 // ── 2e. Ctrl+Enter re-queue passes through tui/input ─────────────────────
 {
   const dispose = decisionCtx.on('tui/input', event =>
-    event.text === '插队文本' ? { cancel: true, reason: '插队被拦截' } : undefined)
+    event.text === 'cut-in text' ? { cancel: true, reason: 'cut-in intercepted' } : undefined)
   const before = captured.followupTexts.length
   const cancelBefore = captured.cancelCalls
-  channel.interruptAndDeliver(['插队文本'])
+  channel.interruptAndDeliver(['cut-in text'])
   await sleep(700) // the fake has no whenIdle → 200ms fallback timer + decision
   check('interruptAndDeliver: the tui/input veto applies to the Ctrl+Enter path',
-    captured.followupTexts.length === before && notified('插队被拦截'))
+    captured.followupTexts.length === before && notified('cut-in intercepted'))
   dispose()
 
-  channel.interruptAndDeliver(['插队放行'])
+  channel.interruptAndDeliver(['cut-in allowed'])
   await sleep(700)
   check('interruptAndDeliver: the re-queue delivers without a veto',
-    captured.followupTexts.some(text => text.includes('插队放行')))
+    captured.followupTexts.some(text => text.includes('cut-in allowed')))
   check('interruptAndDeliver: a vetoed retry remains deliverable and cancel runs once',
     captured.cancelCalls === cancelBefore + 1, String(captured.cancelCalls))
 
@@ -442,10 +445,10 @@ await sleep(800)
     liveAgent.session,
     { type: 'turn/end', data: { turn: 99, reason: { kind: 'completed' } } },
   )
-  channel.interruptAndDeliver(['终止后新插队'])
+  channel.interruptAndDeliver(['new cut-in after abort'])
   await sleep(700)
   check('interruptAndDeliver: turn/end permits a fresh cancel',
-    captured.cancelCalls === cancelBefore + 2 && captured.followupTexts.some(text => text.includes('终止后新插队')),
+    captured.cancelCalls === cancelBefore + 2 && captured.followupTexts.some(text => text.includes('new cut-in after abort')),
     JSON.stringify({ cancelCalls: captured.cancelCalls, followups: captured.followupTexts }))
 }
 
@@ -454,10 +457,10 @@ await sleep(800)
   const dispose = decisionCtx.on('tui/input', () => {
     throw new Error('plugin exploded')
   })
-  channel.submit('照常发送')
+  channel.submit('send as usual')
   await sleep(300)
   check('tui/input crash: a throwing listener degrades to no-opinion',
-    captured.followupTexts.some(text => text.includes('照常发送')))
+    captured.followupTexts.some(text => text.includes('send as usual')))
   dispose()
 }
 
@@ -468,41 +471,41 @@ await sleep(800)
   // Blank rewrite first, veto second: the blank {text} is ignored and the
   // chain continues to the veto.
   const disposeBlank = decisionCtx.on('tui/input', event =>
-    event.text === '空白改写' ? { text: '   ' } : undefined)
+    event.text === 'blank rewrite' ? { text: '   ' } : undefined)
   const disposeVeto = decisionCtx.on('tui/input', event =>
-    event.text === '空白改写' ? { cancel: true, reason: '安全否决生效' } : undefined)
+    event.text === 'blank rewrite' ? { cancel: true, reason: 'safety veto applied' } : undefined)
   const before = captured.followupTexts.length
-  channel.submit('空白改写')
+  channel.submit('blank rewrite')
   await sleep(300)
   check('serial chain: blank rewrite does NOT bail the chain (veto still runs)',
-    captured.followupTexts.length === before && notified('安全否决生效'))
+    captured.followupTexts.length === before && notified('safety veto applied'))
   disposeBlank()
   disposeVeto()
 
   // Throwing listener first, veto second: the crash is isolated, the veto
   // still runs.
   const disposeThrow = decisionCtx.on('tui/input', event => {
-    if (event.text === '崩溃在前') throw new Error('exploded')
+    if (event.text === 'crash first') throw new Error('exploded')
     return undefined
   })
   const disposeVeto2 = decisionCtx.on('tui/input', event =>
-    event.text === '崩溃在前' ? { cancel: true, reason: '崩溃后的否决生效' } : undefined)
-  channel.submit('崩溃在前')
+    event.text === 'crash first' ? { cancel: true, reason: 'veto after crash applied' } : undefined)
+  channel.submit('crash first')
   await sleep(300)
   check('serial chain: a throwing listener does NOT skip the later veto',
-    !captured.followupTexts.some(text => text.includes('崩溃在前')) && notified('崩溃后的否决生效'))
+    !captured.followupTexts.some(text => text.includes('crash first')) && notified('veto after crash applied'))
   disposeThrow()
   disposeVeto2()
 
   // Junk primitive return first, transform second: junk is ignored.
   const disposeJunk = decisionCtx.on('tui/input', event =>
-    event.text === '垃圾返回' ? (true as never) : undefined)
+    event.text === 'junk return' ? (true as never) : undefined)
   const disposeTransform = decisionCtx.on('tui/input', event =>
-    event.text === '垃圾返回' ? { text: '垃圾已被改写' } : undefined)
-  channel.submit('垃圾返回')
+    event.text === 'junk return' ? { text: 'junk was rewritten' } : undefined)
+  channel.submit('junk return')
   await sleep(300)
   check('serial chain: junk primitive return is skipped, later transform wins',
-    captured.followupTexts.some(text => text.includes('垃圾已被改写')))
+    captured.followupTexts.some(text => text.includes('junk was rewritten')))
   disposeJunk()
   disposeTransform()
 
@@ -511,7 +514,7 @@ await sleep(800)
   // throw is logged and the chain still reaches the later veto — it must not
   // reject the whole dispatch.
   const disposeHostile = decisionCtx.on('tui/input', event => {
-    if (event.text !== '敌意返回') return undefined
+    if (event.text !== 'hostile return') return undefined
     const hostile = {}
     Object.defineProperty(hostile, 'text', {
       get() { throw new Error('hostile getter') },
@@ -519,11 +522,11 @@ await sleep(800)
     return hostile as never
   })
   const disposeVeto3 = decisionCtx.on('tui/input', event =>
-    event.text === '敌意返回' ? { cancel: true, reason: '敌意后的否决生效' } : undefined)
-  channel.submit('敌意返回')
+    event.text === 'hostile return' ? { cancel: true, reason: 'veto after hostile applied' } : undefined)
+  channel.submit('hostile return')
   await sleep(300)
   check('serial chain: a throwing-getter return is skipped, later veto still runs',
-    !captured.followupTexts.some(text => text.includes('敌意返回')) && notified('敌意后的否决生效'))
+    !captured.followupTexts.some(text => text.includes('hostile return')) && notified('veto after hostile applied'))
   disposeHostile()
   disposeVeto3()
 }
@@ -535,20 +538,22 @@ await sleep(800)
     seen.promptSeq = event.seq
     return {
       modes: [
-        { id: 'files', label: '回退会话 + 恢复文件', description: '撤销此后的文件修改' },
-        { id: 'branch', label: '回退并打标记' },
-        // 畸形字段必须被剥离后复制，原始对象不得进入渲染路径:description
-        // 非字符串 → 丢弃该字段但保留条目(id/label 合规);label 非字符串
-        // → 整个条目丢弃。修复前 description:{} 会在 ListItem 的 .replace
-        // 处直接崩掉确认面板。
-        { id: 'junk-desc', label: '坏描述模式', description: {} as never },
+        { id: 'files', label: 'Rewind session + restore files', description: 'Undo file edits made since then' },
+        { id: 'branch', label: 'Rewind and tag' },
+        // Malformed fields must be stripped from a copy — the original object
+        // must never enter the render path: a non-string description → the
+        // field is dropped but the entry kept (id/label are compliant); a
+        // non-string label → the whole entry is dropped. Before the fix,
+        // description:{} crashed the confirm panel outright at ListItem's
+        // .replace call.
+        { id: 'junk-desc', label: 'bad-description mode', description: {} as never },
         { id: 'junk-label', label: 42 as never },
       ],
     }
   })
   const disposeDone = decisionCtx.on('tui/rewind-done', event => {
     seen.doneMode = event.mode
-    return event.mode === 'files' ? '已恢复 2 个文件' : undefined
+    return event.mode === 'files' ? 'Restored 2 files' : undefined
   })
   const disposeSwitched = decisionCtx.on('tui/session-switched', event => {
     seen.switchedKind = event.kind
@@ -559,7 +564,7 @@ await sleep(800)
   await sleep(120)
   stdin.write('\x1b')
   await sleep(400)
-  const listShown = plainText(stdout.frames.slice(-30)).includes('消息 09')
+  const listShown = plainText(stdout.frames.slice(-30)).includes('message 09')
   check('rewind picker opens on double-Esc', listShown)
 
   // Enter on the newest message → the plugin decision resolves → mode list.
@@ -567,10 +572,10 @@ await sleep(800)
   await sleep(400)
   const afterEnter = plainText(stdout.frames.slice(-40))
   check('rewind confirm renders plugin modes',
-    afterEnter.includes('回退会话 + 恢复文件') && afterEnter.includes('仅回退会话'),
+    afterEnter.includes('Rewind session + restore files') && afterEnter.includes('Conversation only'),
     afterEnter.slice(-200))
   check('rewind confirm: malformed description stripped, entry kept (no render crash)',
-    afterEnter.includes('坏描述模式'))
+    afterEnter.includes('bad-description mode'))
   check('tui/rewind-prompt received the picked message seq', seen.promptSeq !== undefined)
 
   // ↓ once moves to the first plugin mode; Enter rewinds with it.
@@ -579,7 +584,7 @@ await sleep(800)
   stdin.write('\r')
   await sleep(600)
   check('picked mode id threaded to tui/rewind-done', seen.doneMode === 'files', String(seen.doneMode))
-  check('tui/rewind-done summary toasted', notified('已恢复 2 个文件'))
+  check('tui/rewind-done summary toasted', notified('Restored 2 files'))
   check("tui/session-switched fired with kind 'rewind'", seen.switchedKind === 'rewind')
   disposePrompt()
   disposeDone()
@@ -588,7 +593,7 @@ await sleep(800)
 
 // ── 5. rewind veto: picker stays open, no fork ───────────────────────────
 {
-  const disposePrompt = decisionCtx.on('tui/rewind-prompt', () => ({ cancel: true, reason: '该消息不可回退' }))
+  const disposePrompt = decisionCtx.on('tui/rewind-prompt', () => ({ cancel: true, reason: 'this message cannot be rewound' }))
   const forkCountBefore = captured.followupTexts.length // proxy for "nothing happened"
   // The section-4 rewind restored the picked message into the input for
   // re-editing: the first Esc clears it, then the double-Esc opens the
@@ -602,8 +607,8 @@ await sleep(800)
   stdin.write('\r') // Enter on the newest message → veto
   await sleep(400)
   const tail = plainText(stdout.frames.slice(-40))
-  check('tui/rewind-prompt cancel: reason toasted', notified('该消息不可回退'))
-  check('tui/rewind-prompt cancel: picker still open (list visible)', tail.includes('消息 09'))
+  check('tui/rewind-prompt cancel: reason toasted', notified('this message cannot be rewound'))
+  check('tui/rewind-prompt cancel: picker still open (list visible)', tail.includes('message 09'))
   check('tui/rewind-prompt cancel: no delivery side effects', captured.followupTexts.length === forkCountBefore)
   stdin.write('\x1b') // close the picker
   await sleep(200)
@@ -615,11 +620,11 @@ await sleep(800)
   const seen: string[] = []
   const disposeSwitch = decisionCtx.on('tui/session-switch', event => {
     seen.push(`veto:${event.kind}`)
-    return { cancel: true, reason: '本工作区禁止开会话' }
+    return { cancel: true, reason: 'this workspace forbids opening a session' }
   })
   const vetoed = await channel.newSession()
   check('tui/session-switch veto: /new refused', vetoed === false)
-  check('tui/session-switch veto: reason toasted', notified('本工作区禁止开会话'))
+  check('tui/session-switch veto: reason toasted', notified('this workspace forbids opening a session'))
   disposeSwitch()
 
   const disposeSwitched = decisionCtx.on('tui/session-switched', event => {
@@ -634,11 +639,11 @@ await sleep(800)
 
 // ── 7. tui/compact veto + execution through the real channel ─────────────
 {
-  const dispose = decisionCtx.on('tui/compact', () => ({ cancel: true, reason: '禁止压缩' }))
+  const dispose = decisionCtx.on('tui/compact', () => ({ cancel: true, reason: 'compaction forbidden' }))
   channel.compact()
   await sleep(300)
   check('tui/compact veto: compaction never ran', captured.compactCalls.length === 0)
-  check('tui/compact veto: reason toasted', notified('禁止压缩'))
+  check('tui/compact veto: reason toasted', notified('compaction forbidden'))
   dispose()
 
   channel.compact()
@@ -660,7 +665,7 @@ await sleep(800)
   await sleep(400)
   check('compact stale-drop: the old session’s compaction never ran',
     captured.compactCalls.length === 1, JSON.stringify(captured.compactCalls))
-  check('compact stale-drop: stale notice toasted', notified('压缩已取消'))
+  check('compact stale-drop: stale notice toasted', notified('Session switched while a plugin decided \u2014 compaction abandoned'))
   dispose()
 }
 
@@ -704,7 +709,7 @@ await sleep(800)
   release(undefined)
   const resumed = await resumePromise
   check('session-switch stale: the parked /resume is dropped', !resumed.ok && resumed.reason === 'cancelled')
-  check('session-switch stale: stale notice toasted', notified('等待插件期间会话已切换'))
+  check('session-switch stale: stale notice toasted', notified('Session switched while a plugin decided \u2014 the input was dropped'))
   dispose()
 }
 
@@ -715,19 +720,19 @@ await sleep(800)
   let release: (value: undefined) => void = () => {}
   const gate = new Promise<undefined>(resolve => { release = resolve })
   const dispose = decisionCtx.on('tui/input', async event => {
-    if (event.text === '旧会话首条') await gate
+    if (event.text === 'old-session item one') await gate
     return undefined
   })
   const before = captured.followupTexts.length
-  channel.submit('旧会话首条')
-  channel.submit('旧会话次条')
+  channel.submit('old-session item one')
+  channel.submit('old-session item two')
   await sleep(300) // the predecessor's decision is parked on the gate
   const switched = await channel.newSession()
   check('enqueue origin setup: /new succeeded while the predecessor parked', switched === true)
   release(undefined)
   await sleep(500)
   check('enqueue-time origin: the parked predecessor is dropped as stale',
-    !captured.followupTexts.some(text => text.includes('旧会话首条')),
+    !captured.followupTexts.some(text => text.includes('old-session item one')),
     JSON.stringify(captured.followupTexts.slice(before)))
   check('enqueue-time origin: the queued follower never reaches the new session',
     captured.followupTexts.length === before, JSON.stringify(captured.followupTexts.slice(before)))
@@ -740,7 +745,7 @@ await sleep(800)
   let release: (value: undefined) => void = () => {}
   const gate = new Promise<undefined>(resolve => { release = resolve })
   const dispose = decisionCtx.on('tui/rewind-prompt', () => gate)
-  const promptPromise = channel.promptRewind({ seq: 1, text: '消息 00' } as never)
+  const promptPromise = channel.promptRewind({ seq: 1, text: 'message 00' } as never)
   await sleep(300)
   const switched = await channel.newSession()
   check('rewind stale setup: /new succeeded while the rewind decision parked', switched === true)
@@ -748,7 +753,7 @@ await sleep(800)
   const result = await promptPromise
   check('rewind-prompt stale: the parked decision resolves to cancel',
     result === 'cancel', JSON.stringify(result))
-  check('rewind-prompt stale: stale notice toasted', notified('等待插件期间会话已切换'))
+  check('rewind-prompt stale: stale notice toasted', notified('Session switched while a plugin decided \u2014 the input was dropped'))
   dispose()
 }
 
@@ -767,16 +772,16 @@ await sleep(800)
   const disposeSwitched = decisionCtx.on('tui/session-switched', event => {
     switchedKinds.push(event.kind)
   })
-  const rewindPromise = channel.rewindTo({ seq: 4, text: '回退恢复文本' } as never, null)
+  const rewindPromise = channel.rewindTo({ seq: 4, text: 'rewind restore text' } as never, null)
   const text = await Promise.race([rewindPromise, sleep(900).then(() => 'TIMEOUT' as const)])
   check('rewind-done decoupled: rewindTo returns the picked text without waiting for the listener',
-    text === '回退恢复文本', String(text))
+    text === 'rewind restore text', String(text))
   check('rewind-done decoupled: the summary listener was still dispatched', doneStarted)
   check('rewind-done decoupled: session-switched did not wait for the listener',
     switchedKinds.includes('rewind'), switchedKinds.join(','))
-  release('迟到摘要')
+  release('late summary')
   await sleep(300)
-  check('rewind-done decoupled: the late summary still toasts', notified('迟到摘要'))
+  check('rewind-done decoupled: the late summary still toasts', notified('late summary'))
   disposeDone()
   disposeSwitched()
 }
@@ -786,23 +791,23 @@ await sleep(800)
 {
   let release: (value: undefined) => void = () => {}
   const gate = new Promise<undefined>(resolve => { release = resolve })
-  const dispose = decisionCtx.on('tui/input', event => (event.text === '超长等待' ? gate : undefined))
-  channel.submit('超长等待')
+  const dispose = decisionCtx.on('tui/input', event => (event.text === 'overlong wait' ? gate : undefined))
+  channel.submit('overlong wait')
   await sleep(600) // past the 400ms threshold: the indicator is up
-  check('pending indicator: raised past the threshold', notified('正在等待插件决定（tui/input）'))
+  check('pending indicator: raised past the threshold', notified('Waiting for a plugin decision (tui/input)\u2026'))
   // The standard single-handler deadline is 1s. The indicator must remain
   // visible until that deadline resolves the never-settling callback; it is
   // not allowed to disappear on the ordinary 4s notification timer first.
   await sleep(250)
   check('pending indicator: still up while the bounded decision is parked',
-    notified('正在等待插件决定（tui/input）'))
+    notified('Waiting for a plugin decision (tui/input)\u2026'))
   release(undefined)
   await sleep(500)
   check('pending indicator: dismissed when the deadline settles the decision',
     !(channel as unknown as { notifications: readonly { text: string }[] }).notifications
-      .some(item => item.text.includes('正在等待插件决定')))
+      .some(item => item.text.includes('Waiting for a plugin decision')))
   check('pending indicator: the settled input is delivered',
-    captured.followupTexts.some(text => text.includes('超长等待')))
+    captured.followupTexts.some(text => text.includes('overlong wait')))
   dispose()
 }
 

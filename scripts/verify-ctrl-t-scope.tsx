@@ -13,9 +13,12 @@
  * Run: node --import tsx/esm scripts/verify-ctrl-t-scope.tsx
  */
 process.env.FORCE_COLOR = '3'
-// Asserts Chinese UI copy, so it pins the language rather than inheriting the
-// ambient one — `activeLang` resolves at import from env → persisted pref → OS
-// locale, none of which a runner is obliged to agree with.
+// Pins the language rather than inheriting the ambient one — `activeLang`
+// resolves at import from env → persisted pref → OS locale, none of which a
+// runner is obliged to agree with. This build's i18n dict is English-only;
+// `zh` is still a valid persisted code for compatibility, but every string
+// resolves to the same English text regardless — pinning it here doubles as
+// a regression check for that compat contract.
 process.env.DSH_TUI_LANG = 'zh'
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }] =
@@ -59,15 +62,15 @@ const EVENTS = events()
 /** Shapes match the LoadedContext contract in dsh-adapter/channel.ts. */
 const LOADED_CONTEXT = {
   sections: [
-    { name: 'harness:identity', text: '你是 dsh。' },
-    { name: 'deployment:persona', text: '简洁作答。' },
+    { name: 'harness:identity', text: 'You are dsh.' },
+    { name: 'deployment:persona', text: 'Answer concisely.' },
   ],
   contexts: [{ name: 'runtime:cwd', text: 'C:/code/x' }],
   files: [{ displayPath: './AGENTS.md' }],
-  skills: [{ name: 'audit', description: '代码审计' }],
+  skills: [{ name: 'audit', description: 'Code audit' }],
   tools: [
-    { name: 'read', description: '读文件' },
-    { name: 'bash', description: '执行命令' },
+    { name: 'read', description: 'Read file' },
+    { name: 'bash', description: 'Execute command' },
   ],
 }
 
@@ -94,10 +97,10 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     turnStart: T0,
     lastUserText: '',
     pending: [],
-    commandList: [{ name: 'context', description: '查看上下文' }],
+    commandList: [{ name: 'context', description: 'Show loaded context details' }],
     commandCompletions: () => [{
       name: 'context',
-      description: '查看上下文',
+      description: 'Show loaded context details',
       replacement: '/context',
       commandLine: '/context',
     }],
@@ -188,9 +191,9 @@ async function mount(harness: ReturnType<typeof makeHarness>, channel: Record<st
 
 const CTRL_T = '\x14'
 const CTRL_P = '\x10'
-const isScene = (text: string): boolean => /✦\s*轨迹/.test(text)
+const isScene = (text: string): boolean => /✦\s*Trajectory/.test(text)
 const panelHeader = (text: string): string =>
-  text.split('\n').find(line => line.includes('已加载上下文')) ?? ''
+  text.split('\n').find(line => line.includes('Context loaded')) ?? ''
 
 // ── empty transcript: the panel is collapsed; Ctrl+P toggles it, Ctrl+T
 //    still opens the trajectory ────────────────────────────────────────────
@@ -204,20 +207,20 @@ const panelHeader = (text: string): string =>
   await sleep(500)
 
   const summary = harness.screen()
-  check('the startup context panel is on screen', /已加载上下文/.test(summary))
+  check('the startup context panel is on screen', /Context loaded/.test(summary))
   check('the collapsed panel claims Ctrl+P', panelHeader(summary).includes('Ctrl+P'), panelHeader(summary).trim())
 
   harness.stdin.write(CTRL_P)
   await sleep(500)
   const expanded = harness.screen()
-  check('Ctrl+P expands the panel before the first message', expanded.includes('你是 dsh'),
+  check('Ctrl+P expands the panel before the first message', expanded.includes('You are dsh'),
     expanded.split('\n')[0]?.trim() ?? '')
   check('the expanded details still point to /context', expanded.includes('/context'),
     expanded.split('\n').filter(line => line.includes('/context')).join(' | '))
 
   harness.stdin.write(CTRL_P)
   await sleep(500)
-  check('Ctrl+P collapses the panel again', !harness.screen().includes('你是 dsh'),
+  check('Ctrl+P collapses the panel again', !harness.screen().includes('You are dsh'),
     panelHeader(harness.screen()).trim())
 
   harness.stdin.write(CTRL_T)
@@ -227,7 +230,7 @@ const panelHeader = (text: string): string =>
 
   harness.stdin.write('q')
   await sleep(400)
-  check('q returns to the context summary', /已加载上下文/.test(harness.screen()))
+  check('q returns to the context summary', /Context loaded/.test(harness.screen()))
 
   harness.stdin.write('/context\r')
   await sleep(400)
@@ -247,12 +250,12 @@ const panelHeader = (text: string): string =>
   const harness = makeHarness(100, 30)
   const instance = await mount(
     harness,
-    makeChannel({ rows: [{ id: 1, kind: 'user', text: '第一条消息' }] }),
+    makeChannel({ rows: [{ id: 1, kind: 'user', text: 'first message' }] }),
   )
   await sleep(500)
 
   const before = harness.screen()
-  check('the startup panel is gone once a row exists', !/已加载上下文/.test(before))
+  check('the startup panel is gone once a row exists', !/Context loaded/.test(before))
 
   harness.stdin.write(CTRL_T)
   await sleep(500)

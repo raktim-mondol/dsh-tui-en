@@ -9,7 +9,7 @@
  *   4. terminal resize storm (grow, then jitter-shrink)
  * Run: node --import tsx/esm scripts/verify-askpanel-layout.tsx
  */
-export {} // 模块边界：避免顶层 await/全局名与其他 verify 脚本冲突
+export {} // Module boundary: avoids top-level await/globals clashing with other verify scripts
 
 process.env.FORCE_COLOR = '3'
 
@@ -48,9 +48,10 @@ const REQUIRED = [
 ]
 
 function makeHarness(cols: number, rows: number) {
-  // scrollback 必须 >0：xterm/headless 6.x 在 scrollback=0 时对 CSI n S
-  // （全屏滚动清空，resize 全量重绘会用）会把同一行内容复制到整个视口，
-  // 是纯 harness 假象——真实终端与 scrollback>0 的重放均无此现象。
+  // scrollback must be >0: xterm/headless 6.x, at scrollback=0, has CSI n S
+  // (full-screen scroll-clear, used by resize's full redraw) copy the same
+  // row's content across the whole viewport — a pure harness artifact; a
+  // real terminal, or a replay with scrollback>0, never shows this.
   const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true })
   class FakeStdout extends Writable {
     columns = cols
@@ -68,7 +69,7 @@ function makeHarness(cols: number, rows: number) {
   const stdin = new FakeStdin() as FakeStdin & NodeJS.ReadStream
   const screen = (): string => {
     const buf = term.buffer.active
-    // 有 scrollback 时 getLine(0) 指向滚动历史顶部，视口从 viewportY 开始。
+    // With scrollback, getLine(0) points at the top of scroll history; the viewport starts at viewportY.
     const vy = buf.viewportY
     return Array.from({ length: rows }, (_, y) => buf.getLine(vy + y)?.translateToString(true) ?? '').join('\n')
   }
@@ -163,7 +164,7 @@ for (const [name, rows] of [['short session', shortRows], ['tall transcript', ta
 {
   const { stdout, stdin, screen } = makeHarness(160, 45)
   const listeners = new Set<() => void>()
-  // 通道桩：字段在场景推进时被直接改写，类型上视为任意记录。
+  // Channel stub: fields are mutated directly as the scenario advances, so it's typed as an arbitrary record.
   // oxlint-disable-next-line no-explicit-any -- test stub
   const channel: any = makeChannel(tallRows, listeners)
   const store = new QuestionStore()

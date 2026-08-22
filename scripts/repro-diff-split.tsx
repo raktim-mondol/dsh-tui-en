@@ -81,39 +81,39 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
 {
   const { lines, screen, bgAt, fgAt } = await renderAt(120, editTool)
   const s = screen()
-  check('宽屏不出现统一式 - /+ 行', !lines.some(line => line.startsWith(' ⎿ - ') || line.startsWith(' ⎿ + ')))
+  check('wide terminal shows no unified - /+ rows', !lines.some(line => line.startsWith(' ⎿ - ') || line.startsWith(' ⎿ + ')))
   const pairRow = lines.findIndex(line => line.includes('def shout(text):') && line.includes('def shout(text, mark="!"):'))
-  check('改动对在同行双栏呈现', pairRow >= 0)
-  check('双栏以 │ 分隔', pairRow >= 0 && lines[pairRow]!.includes('│'))
+  check('a changed pair renders side by side on one row', pairRow >= 0)
+  check('the two panes are separated by │', pairRow >= 0 && lines[pairRow]!.includes('│'))
   const ctxRow = lines.findIndex(line => line.includes('# tail'))
-  check('上下文行双栏都有内容', ctxRow >= 0 && lines[ctxRow]!.split('│').length === 2)
+  check('a context row has content in both panes', ctxRow >= 0 && lines[ctxRow]!.split('│').length === 2)
   if (pairRow >= 0) {
     const dividerX = lines[pairRow]!.indexOf('│')
-    check('左栏（old）改动行底色为暗红系', bgAt(6, pairRow) === 0x362b2c, `bg=${bgAt(6, pairRow).toString(16)}`)
-    check('右栏（new）改动行底色为暗绿系', bgAt(dividerX + 2, pairRow) === 0x2b352c, `bg=${bgAt(dividerX + 2, pairRow).toString(16)}`)
+    check('left pane (old) changed row has a dark-red background', bgAt(6, pairRow) === 0x362b2c, `bg=${bgAt(6, pairRow).toString(16)}`)
+    check('right pane (new) changed row has a dark-green background', bgAt(dividerX + 2, pairRow) === 0x2b352c, `bg=${bgAt(dividerX + 2, pairRow).toString(16)}`)
     const markX = lines[pairRow]!.indexOf('mark="!"')
-    check('右栏改动词组使用亮绿词色', markX > 0 && fgAt(markX, pairRow) === 0x57956b, `fg=${fgAt(Math.max(markX, 0), pairRow).toString(16)}`)
+    check('right-pane changed phrase uses the bright green word color', markX > 0 && fgAt(markX, pairRow) === 0x57956b, `fg=${fgAt(Math.max(markX, 0), pairRow).toString(16)}`)
     const defX = lines[pairRow]!.indexOf('def')
-    check('关键字使用语法色（syntaxKeyword）', defX > 0 && fgAt(defX, pairRow) === 0x78a0d6, `fg=${fgAt(Math.max(defX, 0), pairRow).toString(16)}`)
+    check('keyword uses the syntax color (syntaxKeyword)', defX > 0 && fgAt(defX, pairRow) === 0x78a0d6, `fg=${fgAt(Math.max(defX, 0), pairRow).toString(16)}`)
   }
   if (ctxRow >= 0) {
-    check('默认 none 档：上下文行无卡片底色', bgAt(6, ctxRow) === 0xffffff, `bg=${bgAt(6, ctxRow).toString(16)}`)
+    check('default none tier: context row has no card background', bgAt(6, ctxRow) === 0xffffff, `bg=${bgAt(6, ctxRow).toString(16)}`)
   }
 }
 
-// ---- 1b. toolBackground 档位：subtle/strong 给上下文行上浅/深卡片底色
+// ---- 1b. toolBackground tiers: subtle/strong give context rows a light/dark card background
 {
   const { lines, bgAt } = await renderAt(120, editTool, 'auto', 'subtle')
   const row = lines.findIndex(line => line.includes('# tail'))
   if (row >= 0) {
-    check('subtle 档：上下文行为浅档卡片底色', bgAt(6, row) === 0x1c2330, `bg=${bgAt(6, row).toString(16)}`)
+    check('subtle tier: context row has the light card background', bgAt(6, row) === 0x1c2330, `bg=${bgAt(6, row).toString(16)}`)
   }
 }
 {
   const { lines, bgAt } = await renderAt(120, editTool, 'auto', 'strong')
   const row = lines.findIndex(line => line.includes('# tail'))
   if (row >= 0) {
-    check('strong 档：上下文行为深档卡片底色', bgAt(6, row) === 0x242b3a, `bg=${bgAt(6, row).toString(16)}`)
+    check('strong tier: context row has the dark card background', bgAt(6, row) === 0x242b3a, `bg=${bgAt(6, row).toString(16)}`)
   }
 }
 
@@ -121,14 +121,14 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
 {
   const { lines, screen, bgAt } = await renderAt(70, editTool)
   const s = screen()
-  check('窄屏回退统一式 - 行', s.includes('- def shout(text):'))
-  check('窄屏回退统一式 + 行', s.includes('+ def shout(text, mark="!"):'))
-  check('窄屏不出现 │ 分隔', !s.includes('│'))
+  check('narrow terminal falls back to a unified - row', s.includes('- def shout(text):'))
+  check('narrow terminal falls back to a unified + row', s.includes('+ def shout(text, mark="!"):'))
+  check('narrow terminal shows no │ separator', !s.includes('│'))
   const bodyRow = lines.findIndex(line => line.includes('# tail'))
   if (bodyRow >= 0) {
-    check('默认 none 档：统一式卡体无底色（文本处）', bgAt(lines[bodyRow]!.indexOf('# tail'), bodyRow) === 0xffffff,
+    check('default none tier: unified card body has no background (text)', bgAt(lines[bodyRow]!.indexOf('# tail'), bodyRow) === 0xffffff,
       `bg=${bgAt(lines[bodyRow]!.indexOf('# tail'), bodyRow).toString(16)}`)
-    check('默认 none 档：统一式卡体无底色（行尾）', bgAt(69, bodyRow) === 0xffffff,
+    check('default none tier: unified card body has no background (row end)', bgAt(69, bodyRow) === 0xffffff,
       `bg=${bgAt(69, bodyRow).toString(16)}`)
   }
 }
@@ -147,30 +147,30 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
   }
   const { lines } = await renderAt(120, writeTool)
   const helloRow = lines.findIndex(line => line.includes('hello'))
-  check('新建文件的行落在右栏', helloRow >= 0 && lines[helloRow]!.includes('│') && lines[helloRow]!.indexOf('hello') > lines[helloRow]!.indexOf('│'))
-  check('新建文件左栏留空', helloRow >= 0 && lines[helloRow]!.slice(5, lines[helloRow]!.indexOf('│')).trim() !== 'hello')
+  check('a new file\'s rows land in the right pane', helloRow >= 0 && lines[helloRow]!.includes('│') && lines[helloRow]!.indexOf('hello') > lines[helloRow]!.indexOf('│'))
+  check('a new file leaves the left pane blank', helloRow >= 0 && lines[helloRow]!.slice(5, lines[helloRow]!.indexOf('│')).trim() !== 'hello')
 }
 
 // ---- 5. diffLayout preference overrides the width heuristic
 {
   const { screen } = await renderAt(120, editTool, 'unified')
-  check('unified 偏好下 120 列也是统一式', screen().includes('- def shout(text):'))
+  check('the unified preference stays unified even at 120 cols', screen().includes('- def shout(text):'))
 }
 {
   const { screen } = await renderAt(90, editTool, 'split')
-  check('split 偏好下 90 列也强制双栏', screen().includes('│'))
+  check('the split preference forces two panes even at 90 cols', screen().includes('│'))
 }
 
 // ---- 6. issue #250 regression assertions
 {
   // P1-1: 256-color SGR (tmux / FORCE_COLOR=2) must parse, not drop.
   const runs256 = parseAnsiRuns('\x1b[38;5;147mdef\x1b[39m')
-  check('256 色 SGR 解析出 ansi256 run', runs256.some(run => run.color === 'ansi256(147)' && run.text === 'def'))
+  check('256-color SGR parses into an ansi256 run', runs256.some(run => run.color === 'ansi256(147)' && run.text === 'def'))
 
   // P2-5: every documented color form produces a styling function.
   for (const token of ['#abc', '#AABBCCDD', 'rgb( 1, 2, 3 )', 'ansi256(123)']) {
     const styled = chalkFromToken(token)('x')
-    check(`颜色格式 ${token} 产出 SGR`, styled.includes('\x1b[') && styled !== 'x', JSON.stringify(styled))
+    check(`color format ${token} produces SGR`, styled.includes('\x1b[') && styled !== 'x', JSON.stringify(styled))
   }
 
   // P2-4: unequal replacement block pairs via ci-LCS, not index zip.
@@ -186,8 +186,8 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
   const { lines: lcsLines } = await renderAt(120, lcsTool)
   const insertRow = lcsLines.findIndex(line => line.includes('insert'))
   const pairRow = lcsLines.findIndex(line => line.includes('foo') && line.includes('FOO'))
-  check('不等长块：insert 为独立新增行', insertRow >= 0 && !lcsLines[insertRow]!.includes('foo'))
-  check('不等长块：foo ↔ FOO 成对', pairRow >= 0 && pairRow > insertRow)
+  check('unequal-length blocks: insert is its own added row', insertRow >= 0 && !lcsLines[insertRow]!.includes('foo'))
+  check('unequal-length blocks: foo ↔ FOO are paired', pairRow >= 0 && pairRow > insertRow)
 
   // P2-7: multi-line string keeps the lexer state on later lines.
   const mlTool = {
@@ -202,17 +202,17 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
   const { lines: mlLines, fgAt: mlFg } = await renderAt(120, mlTool)
   const worldRow = mlLines.findIndex(line => line.includes('world'))
   const worldX = worldRow >= 0 ? mlLines[worldRow]!.indexOf('world') : -1
-  check('多行字符串后续行带字符串色', worldX > 0 && mlFg(worldX, worldRow) === 0x79ad91, `fg=${worldX > 0 ? mlFg(worldX, worldRow).toString(16) : 'n/a'}`)
+  check('later lines of a multi-line string keep the string color', worldX > 0 && mlFg(worldX, worldRow) === 0x79ad91, `fg=${worldX > 0 ? mlFg(worldX, worldRow).toString(16) : 'n/a'}`)
 
   // Shared helper regressions: JSON args, multiline TS state, and safe unknown fallback.
   const hl = await getCliHighlightPromise()
   const jsonRuns = highlightLines('{"file_path":"src/a.ts","line":2}', 'json', hl, {
     string: chalkFromToken('#82B89D'), number: chalkFromToken('#D19A66'),
   }, 'json-dark')
-  check('JSON 参数产生字符串/数字 token', jsonRuns?.flat().some(run => run.color === 'rgb(130,184,157)') === true && jsonRuns.flat().some(run => run.color === 'rgb(209,154,102)') === true)
+  check('JSON args produce string/number tokens', jsonRuns?.flat().some(run => run.color === 'rgb(130,184,157)') === true && jsonRuns.flat().some(run => run.color === 'rgb(209,154,102)') === true)
   const tsRuns = highlightLines('const value = `first\nsecond`', 'ts', hl, { string: chalkFromToken('#82B89D') }, 'ts-dark')
-  check('TypeScript 多行字符串保持 lexer 状态', tsRuns?.[1]?.some(run => run.color === 'rgb(130,184,157)') === true)
-  check('未知语言安全回退', highlightLines('plain output', 'future-agent-language', hl, {}, 'unknown') === undefined)
+  check('TypeScript multi-line string keeps the lexer state', tsRuns?.[1]?.some(run => run.color === 'rgb(130,184,157)') === true)
+  check('unknown language falls back safely', highlightLines('plain output', 'future-agent-language', hl, {}, 'unknown') === undefined)
 
   // P1-2: the syntax cache keys on the theme signature — a palette change
   // must not serve stale colors.
@@ -222,7 +222,7 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
   const lightRuns = highlightLines('def f():', 'py', hl, chLight, 'sig-light')
   const darkColor = darkRuns?.[0]?.find(run => run.text === 'def')?.color
   const lightColor = lightRuns?.[0]?.find(run => run.text === 'def')?.color
-  check('主题签名不同缓存不串色', darkColor !== undefined && lightColor !== undefined && darkColor !== lightColor,
+  check('different theme signatures do not cross-contaminate the cache', darkColor !== undefined && lightColor !== undefined && darkColor !== lightColor,
     `dark=${darkColor} light=${lightColor}`)
 }
 

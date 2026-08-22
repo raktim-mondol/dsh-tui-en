@@ -13,15 +13,17 @@ import { SuggestionCard, cardContentWidth, splitQueryMatch } from './SuggestionC
  * `PromptInputFooterSuggestions.tsx` (command layout only) wrapped in the
  * shared rounded `SuggestionCard`:
  *
- *   ╭─ 命令 · 共 12 项 ──────────────────────╮
- *   │ ❯ compact  Compact the conversation …  │   ← 选中：❯ + 加粗 + suggestion 色
- *   │   compare  Compare selected messages … │   ← 名字里命中输入的段提亮
- *   │ ↑2 · ↓3                                 │   ← 仅当列表被窗口裁剪
+ *   ╭─ commands · 12 items ────────────────────╮
+ *   │ ❯ compact  Compact the conversation …  │   ← selected: ❯ + bold + suggestion color
+ *   │   compare  Compare selected messages … │   ← the segment matching the input is lit up
+ *   │ ↑2 · ↓3                                 │   ← only when the list is window-clipped
  *   ╰─────────────────────────────────────────╯
  *
- * 未选中行整体 dim，唯独名字里匹配当前查询 token 的前缀以正常亮度提亮
- * （bold 与 dim 在终端互斥，故提亮用非 dim 而非加粗）；选中行整行
- * suggestion 色、名字加粗、前置 ❯ 指针。
+ * An unselected row is dim overall, except the prefix in the name that
+ * matches the current query token lights up to normal brightness (bold and
+ * dim are mutually exclusive in a terminal, so lighting up uses non-dim
+ * rather than bold); a selected row is fully in the suggestion color, name
+ * bold, with a leading ❯ pointer.
  */
 export function CommandSuggestions({
   commands,
@@ -33,7 +35,7 @@ export function CommandSuggestions({
   commands: readonly (LocalCommand & { descriptionKey?: string })[]
   selectedIndex: number
   columns: number
-  /** 原始 `/…` 输入；其最后一段 token 用于名字前缀高亮。 */
+  /** Raw `/…` input; its last token is used to highlight the matching name prefix. */
   query?: string
   accent?: 'promptBorder' | 'planMode'
 }): React.ReactNode {
@@ -59,7 +61,7 @@ export function CommandSuggestions({
   const visible = commands.slice(startIndex, startIndex + maxVisible)
   const above = startIndex
   const below = commands.length - (startIndex + visible.length)
-  // 前缀高亮取查询的最后一段 token（`/plan of` 高亮 `of` 命中的段）。
+  // Prefix highlight uses the query's last token (`/plan of` highlights the segment matching `of`).
   const queryToken = query.replace(/^\//, '').match(/[^ \t]*$/)?.[0] ?? ''
 
   const title = `${t('sugg-commands-title')} · ${t('sugg-count', { n: commands.length })}`
@@ -83,7 +85,7 @@ export function CommandSuggestions({
         const isSelected = command.name === commands[selectedIndex]?.name
         const tagText = command.tag ? `[${command.tag}] ` : ''
         const tagWidth = stringWidth(tagText)
-        // 行预算：内容宽 − 前导空格 1 − 指针列 2。
+        // Row budget: content width − 1 leading space − 2 pointer columns.
         const descriptionWidth = Math.max(0, usable - 3 - nameWidth - tagWidth)
         const rawDescription = localizedDescription(command)
         const description =
@@ -98,8 +100,10 @@ export function CommandSuggestions({
             {isSelected ? (
               <Text color="suggestion" bold>{`${POINTER} ${command.name}${' '.repeat(padAfter)}`}</Text>
             ) : parts ? (
-              // 嵌套 Text 会继承父级 dim（本 fork 的 dimColor 是颜色替换，
-              // dim={false} 盖不掉），故高亮段必须与 dim 段平铺为兄弟。
+              // A nested Text inherits the parent's dim (this fork's dimColor
+              // is a color swap, not overridable by dim={false}), so the
+              // highlighted segment must be a sibling of the dim segments,
+              // not nested inside them.
               <>
                 <Text dimColor>{`  ${parts.before}`}</Text>
                 <Text>{parts.match}</Text>

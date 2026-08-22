@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
- * prepare 前置守卫：git tarball / 未递归克隆时 vendor 子模块不存在，
- * 编译必然全线 TS2307——与其让 prepare 深处爆栈，不如在这里快速失败
- * 并给出正确指引（装 registry 包，或递归克隆后自举）。
+ * prepare pre-flight guard: a git tarball or a non-recursive clone leaves
+ * the vendor submodule missing, so compilation is guaranteed to fail with
+ * TS2307 across the board — better to fail fast here with the right
+ * guidance (install the registry package, or clone recursively and
+ * bootstrap) than let prepare blow up deep in the stack.
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'

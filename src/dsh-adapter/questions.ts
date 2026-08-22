@@ -88,9 +88,9 @@ function buildSummary(pending: PendingQuestion): QuestionSummary {
     const text = pending.redact
       ? '••••••'
       : (() => {
-          const labels = answer.selected.join('、')
+          const labels = answer.selected.join(', ')
           return answer.custom !== undefined && answer.custom !== ''
-            ? labels === '' ? answer.custom : `${labels}：${answer.custom}`
+            ? labels === '' ? answer.custom : `${labels}: ${answer.custom}`
             : labels
         })()
     return `· ${question?.question ?? answer.id} → ${clip(text)}`

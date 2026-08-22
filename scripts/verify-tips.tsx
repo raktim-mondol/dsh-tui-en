@@ -67,8 +67,7 @@ const ids = new Set<string>()
 for (const tip of TIPS) {
   if (ids.has(tip.id)) throw new Error(`tips: duplicate id ${tip.id}`)
   ids.add(tip.id)
-  if (!tip.zh || !tip.en) throw new Error(`tips: empty copy for ${tip.id}`)
-  if ([...tip.zh].length > 60) throw new Error(`tips: zh too long (${tip.id}): ${tip.zh}`)
+  if (!tip.en) throw new Error(`tips: empty copy for ${tip.id}`)
   if (tip.en.length > 100) throw new Error(`tips: en too long (${tip.id}): ${tip.en}`)
   if (!groups.includes(tip.group)) throw new Error(`tips: unknown group ${tip.group} on ${tip.id}`)
 }
@@ -84,7 +83,9 @@ if (pickRandomTip(() => 0.1) === pickRandomTip(() => 0.2)) {
 }
 console.log(`tips data OK (${TIPS.length} tips, ${groups.length} groups)`)
 
-// ── 2. TipsPanel renders all group headers and tip rows (zh + en) ─────
+// ── 2. TipsPanel renders all group headers and tip rows in English,
+// regardless of the pinned lang (English-only compat: `zh` still resolves
+// to English text) ──────────────────────────────────────────────────────
 for (const lang of ['zh', 'en'] as const) {
   i18nModule.setLang(lang)
   const { TipsPanel } = await import('../src/components/TipsPanel.js')
@@ -98,19 +99,17 @@ for (const lang of ['zh', 'en'] as const) {
   })
   await new Promise(resolve => setTimeout(resolve, 150))
   const plain = plainText(stdout.frames)
-  const groupLabel = TIP_GROUP_LABELS[groups[0] as never]
-  const expectedHeader = lang === 'zh' ? groupLabel.zh : groupLabel.en
+  const expectedHeader = TIP_GROUP_LABELS[groups[0] as never]
   if (!plain.includes(expectedHeader)) throw new Error(`tips panel (${lang}): group header "${expectedHeader}" missing`)
   const sample = TIPS[0]!
-  const expectedTip = lang === 'zh' ? sample.zh : sample.en
-  if (!plain.includes(expectedTip)) throw new Error(`tips panel (${lang}): tip row "${expectedTip}" missing`)
-  const hint = lang === 'zh' ? 'Esc 关闭' : 'Esc to close'
-  if (!plain.includes(hint)) throw new Error(`tips panel (${lang}): hint line missing`)
+  if (!plain.includes(sample.en)) throw new Error(`tips panel (${lang}): tip row "${sample.en}" missing`)
+  if (!plain.includes('Esc to close')) throw new Error(`tips panel (${lang}): hint line missing`)
   instance.unmount()
   console.log(`tips panel (${lang}) OK`)
 }
 
-// ── 3. LogoV2 settled header shows the daily tip + /tips pointer ──────
+// ── 3. LogoV2 settled header shows the daily tip + /tips pointer, in
+// English regardless of the pinned lang ───────────────────────────────
 for (const lang of ['zh', 'en'] as const) {
   i18nModule.setLang(lang)
   const { LogoV2 } = await import('../src/components/LogoV2.js')
@@ -128,8 +127,7 @@ for (const lang of ['zh', 'en'] as const) {
   await new Promise(resolve => setTimeout(resolve, 150))
   const plain = plainText(stdout.frames)
   const tip = pickRandomTip(() => 0)
-  const expectedTip = lang === 'zh' ? tip.zh : tip.en
-  if (!plain.includes(expectedTip)) throw new Error(`logo (${lang}): random tip "${expectedTip}" missing`)
+  if (!plain.includes(tip.en)) throw new Error(`logo (${lang}): random tip "${tip.en}" missing`)
   if (!plain.includes('/tips')) throw new Error(`logo (${lang}): /tips pointer missing`)
   if (!plain.includes('dsh-TUI')) throw new Error(`logo (${lang}): wordmark missing`)
   // This repo's tree is coherent (CI gate verify:contract), so the drift
@@ -146,32 +144,28 @@ for (const lang of ['zh', 'en'] as const) {
 const { UPSTREAM_VALIDATED_VERSION } = await import('../src/dsh-adapter/contract.js')
 type UpstreamDriftSummary = import('../src/dsh-adapter/contract.js').UpstreamDriftSummary
 const V = UPSTREAM_VALIDATED_VERSION
-const driftCases: Array<{ summary: UpstreamDriftSummary; zh: string; en: string }> = [
+const driftCases: Array<{ summary: UpstreamDriftSummary; en: string }> = [
   {
     summary: { kind: 'newer', versions: ['0.1.1-rc.2'] },
-    zh: `比本界面验证过的 ${V} 新`,
     en: `newer than the ${V} this UI is validated against`,
   },
   {
     summary: { kind: 'older', versions: ['0.1.0-rc.5'] },
-    zh: `低于本界面验证过的 ${V}`,
     en: `older than the ${V} this UI is validated against`,
   },
   {
     summary: { kind: 'mixed', versions: ['0.1.0-rc.8', '0.1.1-rc.2'] },
-    zh: '多版本混装（0.1.0-rc.8 / 0.1.1-rc.2）',
     en: 'Mixed dsh engine versions detected (0.1.0-rc.8 / 0.1.1-rc.2)',
   },
   {
     summary: { kind: 'broken', versions: ['missing'] },
-    zh: '版本异常（missing）',
     en: 'Unexpected dsh engine versions (missing)',
   },
 ]
 for (const lang of ['zh', 'en'] as const) {
   i18nModule.setLang(lang)
   const { LogoV2 } = await import('../src/components/LogoV2.js')
-  for (const { summary, zh, en } of driftCases) {
+  for (const { summary, en } of driftCases) {
     const stdout = new FakeStdout()
     const instance = await render(
       <LogoV2
@@ -191,7 +185,7 @@ for (const lang of ['zh', 'en'] as const) {
     const squash = (text: string): string => text.replace(/\s+/g, '')
     const flat = squash(plainText(stdout.frames))
     if (!plainText(stdout.frames).includes('⚠')) throw new Error(`logo drift ${summary.kind} (${lang}): notice missing`)
-    const expected = squash(lang === 'zh' ? zh : en)
+    const expected = squash(en)
     if (!flat.includes(expected)) throw new Error(`logo drift ${summary.kind} (${lang}): copy "${expected}" missing`)
     const fix = squash(`npm i -g @deepseek-ai/dsh@${UPSTREAM_VALIDATED_VERSION}`)
     if (!flat.includes(fix)) throw new Error(`logo drift ${summary.kind} (${lang}): fix command missing`)

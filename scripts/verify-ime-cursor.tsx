@@ -1,20 +1,32 @@
 /**
- * IME 光标锚定回归（fix/ime-cursor-position）：终端 IME 的拼音预编辑跟物理
- * 光标走，useDeclaredCursor 必须把原生光标停到输入框 caret 上。本脚本用
- * xterm/headless 读取真实硬件光标落点，断言：
- *   1. 问答面板：选项行上打字（文本进输入行），光标锚在输入行 ▏ caret 上
- *   2. 聚焦输入行 + 英文输入：光标在反色 caret 格上
- *   3. CJK 宽字符输入：光标仍在反色 caret 格上
- *   4. 窄宽长回答换行 + Home：字符齐全且光标贴合反色 caret 格（首字符）
- *   5. 历史搜索浮层：光标归 SearchBox 的 caret 格，不被结果行 ListItem 抢走
- *   6. 窄宽 + 超长查询：SearchBox 单行窗口化（不折行），光标精确落在框内
- *      反色 caret 格，且可见文本是查询尾部（头部已滚出）
- *   7. emoji surrogate 对中间的非法 cursorOffset：归一化到码点边界，
- *      光标停在 emoji 首格
- *   8. 极窄 SearchBox（内容区 0 列）：光标钳制在框内不越界
- * 运行：node --import tsx/esm scripts/verify-ime-cursor.tsx
+ * IME cursor-anchoring regression (fix/ime-cursor-position): a terminal
+ * IME's pinyin preedit follows the physical cursor, so useDeclaredCursor
+ * must park the native cursor right on the input box's caret. This script
+ * uses xterm/headless to read the real hardware cursor position and
+ * asserts:
+ *   1. Ask panel: typing on an option row (text goes into the input row),
+ *      the cursor anchors on the input row's ▏ caret
+ *   2. Focused input row + ASCII input: the cursor sits on the
+ *      inverse-video caret cell
+ *   3. CJK wide-character input: the cursor still sits on the
+ *      inverse-video caret cell
+ *   4. Narrow terminal, long answer wraps + Home: every character is
+ *      intact and the cursor lines up with the inverse-video caret cell
+ *      (first character)
+ *   5. History-search overlay: the cursor belongs to SearchBox's caret
+ *      cell, not stolen by a result row's ListItem
+ *   6. Narrow terminal + an overlong query: SearchBox windows to a single
+ *      line (no wrap), the cursor lands exactly on the inverse-video
+ *      caret cell inside the box, and the visible text is the query's
+ *      tail (the head has scrolled off)
+ *   7. An illegal cursorOffset landing mid-surrogate-pair for an emoji:
+ *      normalizes to the code-point boundary, the cursor sits on the
+ *      emoji's first cell
+ *   8. An extremely narrow SearchBox (0 content columns): the cursor
+ *      clamps inside the box without overflowing
+ * Run: node --import tsx/esm scripts/verify-ime-cursor.tsx
  */
-export {} // 模块边界：避免顶层 await/全局名与其他 verify 脚本冲突
+export {} // Module boundary: avoids top-level await/global names colliding with other verify scripts
 
 process.env.FORCE_COLOR = '3'
 
@@ -44,16 +56,16 @@ function makeHarness(cols: number, rows: number) {
     ref() { return this }
     unref() { return this }
   }
-  // 交叉类型：既满足 render() 的 tty 流类型，又保留测试写入/行列访问。
+  // Intersection type: satisfies render()'s tty stream type while retaining test write/row-column access.
   const stdout = new FakeStdout() as FakeStdout & NodeJS.WriteStream
   const stdin = new FakeStdin() as FakeStdin & NodeJS.ReadStream
   const lines = (): string[] => {
     const buf = term.buffer.active
     return Array.from({ length: rows }, (_, y) => buf.getLine(y)?.translateToString(true) ?? '')
   }
-  /** 硬件光标（IME 预编辑锚点）落点。 */
+  /** Where the hardware cursor (the IME preedit anchor) lands. */
   const cursor = () => ({ x: term.buffer.active.cursorX, y: term.buffer.active.cursorY })
-  /** 屏幕上第一个反色格（聚焦 caret 的渲染形态）的坐标，可限定行范围。 */
+  /** Coordinates of the first inverse-video cell on screen (how a focused caret renders), optionally scoped to a row range. */
   const findInverseCell = (yFrom = 0, yTo = rows - 1): { x: number; y: number } | undefined => {
     const buf = term.buffer.active
     for (let y = yFrom; y <= yTo; y++) {
@@ -66,8 +78,8 @@ function makeHarness(cols: number, rows: number) {
     }
     return undefined
   }
-  /** 指定字符（如 '▏'）在某行的单元格列号 —— 走 buffer 单元格，避开 CJK
-   *  宽度与 JS 字符串下标的错位。 */
+  /** The column of a given character (e.g. '▏') on some row — walks buffer
+   *  cells to avoid the mismatch between CJK width and JS string indices. */
   const findCharCell = (ch: string, yFrom = 0, yTo = rows - 1): { x: number; y: number } | undefined => {
     const buf = term.buffer.active
     for (let y = yFrom; y <= yTo; y++) {
@@ -90,8 +102,8 @@ const panelProps = {
   onCancel: () => {},
 }
 const QUESTION = {
-  question: '输入法光标落点测试：随便回答点什么？',
-  options: [{ label: '选项一' }, { label: '选项二' }],
+  question: 'IME cursor position test: answer with anything?',
+  options: [{ label: 'Option one' }, { label: 'Option two' }],
 }
 
 let failures = 0
@@ -100,7 +112,7 @@ const report = (name: string, ok: boolean, detail: string) => {
   else { failures++; console.log(`FAIL  ${name} — ${detail}`) }
 }
 
-/** 场景 1-3：问答面板（80 列宽松宽度）。 */
+/** Scenarios 1-3: the ask panel (80 columns, plenty of width). */
 {
   const { stdout, stdin, lines, cursor, findInverseCell, findCharCell } = makeHarness(80, 24)
   const app = await render(
@@ -113,21 +125,22 @@ const report = (name: string, ok: boolean, detail: string) => {
   )
   await sleep(400)
 
-  // 场景 1：焦点在选项行时直接打字 —— 文本进输入行，非聚焦 caret 是 ▏，
-  // 光标应停在 ▏ 那一格（输入行最后一个可见字符）。
+  // Scenario 1: typing directly while an option row is focused — the text
+  // goes into the input row, the unfocused caret is ▏, and the cursor
+  // should sit on that ▏ cell (the input row's last visible character).
   stdin.write('hello')
   await sleep(400)
   {
     const ls = lines()
-    const row = ls.findIndex(l => l.includes('自定义回答') && l.includes('hello'))
+    const row = ls.findIndex(l => l.includes('Custom answer') && l.includes('hello'))
     const cur = cursor()
     const bar = row >= 0 ? findCharCell('▏', row, row) : undefined
     const ok = row >= 0 && bar !== undefined && cur.y === bar.y && cur.x === bar.x
-    report('选项行打字：光标锚在输入行 ▏ caret', ok,
+    report('typing on an option row: cursor anchors on the input row\'s ▏ caret', ok,
       `row=${row} bar=${JSON.stringify(bar)} cursor=${JSON.stringify(cur)}`)
   }
 
-  // 场景 2：↓↓ 聚焦输入行（key 重挂载清掉上一段文本），输英文。
+  // Scenario 2: ↓↓ to focus the input row (the key remount clears the previous text), then type ASCII.
   app.rerender(
     React.createElement(AskUserQuestionPanel, {
       ...panelProps,
@@ -143,31 +156,31 @@ const report = (name: string, ok: boolean, detail: string) => {
   await sleep(400)
   {
     const ls = lines()
-    const row = ls.findIndex(l => l.includes('自定义回答') && l.includes('hello'))
+    const row = ls.findIndex(l => l.includes('Custom answer') && l.includes('hello'))
     const caret = findInverseCell(Math.max(row, 0), row + 2)
     const cur = cursor()
     const ok = row >= 0 && caret !== undefined && cur.x === caret.x && cur.y === caret.y
-    report('聚焦输入行 + 英文输入：光标在 caret 格', ok,
+    report('focused input row + ASCII input: cursor on the caret cell', ok,
       `row=${row} caret=${JSON.stringify(caret)} cursor=${JSON.stringify(cur)}`)
   }
 
-  // 场景 3：CJK 宽字符。
+  // Scenario 3: CJK wide characters.
   stdin.write('你好')
   await sleep(400)
   {
     const ls = lines()
-    const row = ls.findIndex(l => l.includes('自定义回答') && l.includes('你好'))
+    const row = ls.findIndex(l => l.includes('Custom answer') && l.includes('你好'))
     const caret = findInverseCell(Math.max(row, 0), row + 2)
     const cur = cursor()
     const ok = row >= 0 && caret !== undefined && cur.x === caret.x && cur.y === caret.y
-    report('CJK 输入：光标在 caret 格', ok,
+    report('CJK input: cursor on the caret cell', ok,
       `row=${row} caret=${JSON.stringify(caret)} cursor=${JSON.stringify(cur)}`)
   }
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 4：窄宽 + 长回答换行 + Home —— 光标贴合 caret。 */
+/** Scenario 4: narrow terminal + a long answer wraps + Home — the cursor lines up with the caret. */
 {
   const { stdout, stdin, lines, cursor, findInverseCell, findCharCell } = makeHarness(40, 24)
   const app = await render(
@@ -182,16 +195,19 @@ const report = (name: string, ok: boolean, detail: string) => {
   stdin.write('\x1b[B')
   stdin.write('\x1b[B')
   await sleep(200)
-  stdin.write('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij') // 46 字符，必换行
+  stdin.write('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghij') // 46 characters, must wrap
   await sleep(400)
-  stdin.write('\x1b[H') // Home：caret 回到文本开头，反色格是 'A'
+  stdin.write('\x1b[H') // Home: the caret returns to the start of the text, the inverse cell is 'A'
   await sleep(400)
   {
     const ls = lines()
-    // 40 列下「自定义回答」标签自身会被换行拆断（如「自定义 / 答」），用
-    // ✎ 单元格定位输入行。注意：换行边界存在丢字/重影（未改动的基线
-    // 1ea67ed 实测同样如此），属于移植渲染器的既有问题，不在本修复范围；
-    // 这里断言的是光标与 caret 格重合 + 文本主体上屏。
+    // At 40 columns the "Custom answer" label itself gets split by the
+    // wrap (e.g. "Custom ans / wer"), so locate the input row via the ✎
+    // cell instead. Note: there is dropped/duplicated text at wrap
+    // boundaries (the unchanged baseline 1ea67ed shows the same thing in
+    // practice) — that's a pre-existing issue in the ported renderer, out
+    // of scope for this fix; what's asserted here is that the cursor lines
+    // up with the caret cell + the bulk of the text is on screen.
     const pencil = findCharCell('✎')
     const row = pencil?.y ?? -1
     const caret = findInverseCell(Math.max(row, 0), row + 6)
@@ -199,14 +215,14 @@ const report = (name: string, ok: boolean, detail: string) => {
     const text = ls.join('\n')
     const ok = row >= 0 && text.includes('ABCDEF') && text.includes('defghij')
       && caret !== undefined && cur.x === caret.x && cur.y === caret.y
-    report('窄宽长回答换行 + Home：光标贴合 caret', ok,
+    report('narrow long answer wraps + Home: cursor lines up with the caret', ok,
       `row=${row} caret=${JSON.stringify(caret)} cursor=${JSON.stringify(cur)}`)
   }
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 5：历史搜索浮层 —— 光标归 SearchBox caret，不被结果行抢走。 */
+/** Scenario 5: the history-search overlay — the cursor belongs to the SearchBox caret, not stolen by a result row. */
 {
   const { stdout, stdin, lines, cursor, findInverseCell } = makeHarness(80, 24)
   const matches = [
@@ -226,17 +242,17 @@ const report = (name: string, ok: boolean, detail: string) => {
     const cur = cursor()
     const ok = boxRow >= 0 && itemRow >= 0 && caret !== undefined
       && cur.x === caret.x && cur.y === caret.y && cur.y !== itemRow
-    report('历史搜索：光标在 SearchBox caret 格而非结果行', ok,
+    report('history search: cursor on the SearchBox caret cell, not a result row', ok,
       `boxRow=${boxRow} itemRow=${itemRow} caret=${JSON.stringify(caret)} cursor=${JSON.stringify(cur)}`)
   }
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 6：窄宽 + 超长查询 —— SearchBox 单行窗口化，光标不出框。 */
+/** Scenario 6: narrow terminal + an overlong query — SearchBox windows to a single line, the cursor stays inside the box. */
 {
   const { stdout, stdin, lines, cursor, findInverseCell, findCharCell } = makeHarness(40, 24)
-  // 50 字符查询，caret 在末尾：40 列下框内容区只有 ~30 格，必须水平滚动。
+  // A 50-character query with the caret at the end: at 40 columns the box's content area is only ~30 cells, so it must scroll horizontally.
   const query = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0123456789'
   const app = await render(
     React.createElement(HistorySearchDialog, {
@@ -256,23 +272,27 @@ const report = (name: string, ok: boolean, detail: string) => {
     const caret = boxRow >= 0 ? findInverseCell(boxRow, boxRow) : undefined
     const cur = cursor()
     const aRun = (boxLine.match(/a/g) ?? []).length
-    // 窗口化证据：尾部 '0123456789' 可见；头部 a 串大部分滚出（可见 a
-    // 远少于 40 个）；光标与反色 caret 格重合，天然落在框内。
+    // Evidence of windowing: the tail '0123456789' is visible; most of the
+    // leading run of a's has scrolled off (visible a's are far fewer than
+    // 40); the cursor coincides with the inverse-video caret cell, landing
+    // inside the box naturally.
     const ok = boxRow >= 0 && boxLine.includes('0123456789') && aRun > 0 && aRun <= 30
       && caret !== undefined && cur.x === caret.x && cur.y === caret.y
-    report('窄宽超长查询：光标在框内 caret 格且尾部可见', ok,
+    report('narrow overlong query: cursor on the in-box caret cell with the tail visible', ok,
       `boxRow=${boxRow} aRun=${aRun} caret=${JSON.stringify(caret)} cursor=${JSON.stringify(cur)}`)
   }
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 7：emoji surrogate 对中间的非法 cursorOffset —— 归一化到码点边界。 */
+/** Scenario 7: an illegal cursorOffset landing mid-surrogate-pair for an emoji — normalizes to the code-point boundary. */
 {
   const { stdout, stdin, cursor, findInverseCell, findCharCell } = makeHarness(80, 24)
-  // 'a😀b'：😀 占 UTF-16 下标 1-2，offset=2 落在 surrogate 对正中间
-  // （Chat 历史搜索按 code unit 移光标就可能产生这种值）。归一化后 caret
-  // 应吸附到 😀 起点，反色块覆盖整个 emoji（2 格），光标停在首格。
+  // 'a😀b': 😀 occupies UTF-16 indices 1-2, offset=2 lands right in the
+  // middle of the surrogate pair (moving the cursor by code unit in Chat's
+  // history search can produce a value like this). After normalizing, the
+  // caret should snap to 😀's start, the inverse-video block covers the
+  // whole emoji (2 cells), and the cursor sits on the first cell.
   const app = await render(
     React.createElement(HistorySearchDialog, {
       query: 'a😀b',
@@ -289,14 +309,14 @@ const report = (name: string, ok: boolean, detail: string) => {
     const cur = cursor()
     const ok = emoji !== undefined && caret !== undefined
       && caret.x === emoji.x && cur.x === emoji.x && cur.y === emoji.y
-    report('emoji surrogate 中间 offset：归一化到码点边界', ok,
+    report('emoji surrogate mid-pair offset: normalizes to the code-point boundary', ok,
       `emoji=${JSON.stringify(emoji)} caret=${JSON.stringify(caret)} cursor=${JSON.stringify(cur)}`)
   }
   app.unmount()
   await sleep(100)
 }
 
-/** 场景 8：极窄 SearchBox（width=4，内容区为 0）—— 光标钳制在框内。 */
+/** Scenario 8: an extremely narrow SearchBox (width=4, 0 content columns) — the cursor clamps inside the box. */
 {
   const { stdout, stdin, cursor } = makeHarness(80, 24)
   const app = await render(
@@ -311,11 +331,12 @@ const report = (name: string, ok: boolean, detail: string) => {
   )
   await sleep(500)
   {
-    // 框在 x=0..3（width 4 圆角边框），内容区为 0 列：prefix 都放不下，
-    // 光标仍不得越出框体右缘。
+    // The box spans x=0..3 (a width-4 rounded border), 0 content columns:
+    // not even the prefix fits, but the cursor still must not overflow the
+    // box's right edge.
     const cur = cursor()
     const ok = cur.x >= 0 && cur.x <= 3
-    report('极窄 SearchBox：光标钳制在框内', ok, `cursor=${JSON.stringify(cur)}`)
+    report('extremely narrow SearchBox: cursor clamps inside the box', ok, `cursor=${JSON.stringify(cur)}`)
   }
   app.unmount()
   await sleep(100)

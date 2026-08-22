@@ -308,14 +308,14 @@ await tick()
       return undefined
     }
     agent.followups.length = 0
-    const outcome = await descriptor.handler({ agent, rawInput: ' 做年终总结', signal: undefined })
+    const outcome = await descriptor.handler({ agent, rawInput: ' write the year-end summary', signal: undefined })
     check('kernel path reports success', outcome?.kind === 'success', JSON.stringify(outcome))
     await tick()
     const gesture = agent.followups[0]
     check('kernel path delivers exactly one message', agent.followups.length === 1)
     check(
       'kernel path submits the gesture as a plain user message with args',
-      gesture?.source?.kind === 'user' && gesture.content?.[0]?.text === '/i-h 做年终总结',
+      gesture?.source?.kind === 'user' && gesture.content?.[0]?.text === '/i-h write the year-end summary',
       JSON.stringify({ source: gesture?.source, text: gesture?.content?.[0]?.text }),
     )
 

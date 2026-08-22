@@ -45,23 +45,23 @@ emit({
   type: 'assistant/chunk',
   seq: 1,
   time: 1,
-  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: '前两个成功了，glob' } },
+  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'The first two passed, glob' } },
 })
 emit({
   type: 'assistant/chunk',
   seq: 2,
   time: 2,
-  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'glob 那个超时了' } },
+  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'glob timed out' } },
 })
 // Exact redelivery of the same durable event.
 emit({
   type: 'assistant/chunk',
   seq: 2,
   time: 2,
-  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'glob 那个超时了' } },
+  data: { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'glob timed out' } },
 })
 
-const expected = '前两个成功了，glob 那个超时了'
+const expected = 'The first two passed, glob timed out'
 let assistantRows = channel.rows.filter(row => row.kind === 'assistant')
 check('overlapping/repeated deltas keep one assistant row', assistantRows.length === 1, `rows=${assistantRows.length}`)
 check('overlapping delta prefix appears once', assistantRows[0]?.text === expected, assistantRows[0]?.text ?? '<missing>')

@@ -340,7 +340,6 @@ const dict = {
   'sugg-more-below': '↓{{n}}',
   // Second-tier completion child descriptions (/lang /theme /effort /preset /activity children)
   'sugg-status-desc': 'Show the current choice',
-  'sugg-lang-zh-desc': 'Switch the UI language to Chinese',
   'sugg-lang-en-desc': 'Switch the UI language to English',
   'sugg-theme-auto-desc': 'Follow the terminal background',
   'sugg-theme-builtin-desc': 'Built-in theme',

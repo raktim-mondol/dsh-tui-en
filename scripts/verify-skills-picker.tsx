@@ -1,11 +1,14 @@
 /**
- * `/skills` SkillsPicker 冒烟（xterm-headless，mock 技能数据，不碰注册表）：
- *   1. zh 下渲染：标题、可直调技能 /name 形态、来源标签、简述截断、焦点 ❯；
- *   2. en 热切换（标题/页脚/来源标签）；
- *   3. 空目录显示「当前会话没有可用技能」；
- *   4. 窄终端每行宽度不超限；
- *   5. Loading 态渲染不炸。
- * 运行：node --import tsx/esm scripts/verify-skills-picker.tsx
+ * `/skills` SkillsPicker smoke test (xterm-headless, mock skill data, never
+ * touches the registry):
+ *   1. Rendering: title, the /name form for directly-invocable skills,
+ *      source labels, description truncation, the focus ❯ pointer — and
+ *      that a persisted `zh` language pref still resolves to the same
+ *      English UI (compat regression);
+ *   2. Empty catalog shows "No skills available in this session";
+ *   3. Every row stays within the terminal width on a narrow terminal;
+ *   4. The loading state renders without crashing.
+ * Run: node --import tsx/esm scripts/verify-skills-picker.tsx
  */
 process.env.FORCE_COLOR = '3'
 
@@ -58,14 +61,14 @@ function screenText(term: InstanceType<typeof XTerm>, rows: number): string {
 }
 
 const skills = [
-  { name: 'audit', description: '对当前项目做全面代码审计，找出安全与质量问题', userInvocable: true, source: 'bundled' },
+  { name: 'audit', description: 'Do a thorough code audit of the current project, finding security and quality issues', userInvocable: true, source: 'bundled' },
   { name: 'my-helper', description: 'Personal helper skill', userInvocable: true, source: 'user-dsh' },
   { name: 'internal-router', description: 'Model-only routing skill', userInvocable: false, source: 'runtime' },
 ]
 
-// --- 1. zh 列表渲染 -----------------------------------------------------------
+// --- 1. List rendering (and the zh→English compat regression) -----------------
 
-console.log('zh 列表渲染:')
+console.log('list rendering:')
 
 {
   const COLS = 90
@@ -79,40 +82,40 @@ console.log('zh 列表渲染:')
   await sleep(300)
 
   const text = screenText(term, ROWS)
-  assert(text.includes('技能'), '标题显示「技能」')
-  assert(text.includes('/audit'), '可直调技能显示 /name 形态')
-  assert(text.includes('internal-router'), '模型专用技能显示裸名（不带斜杠）')
-  assert(!text.includes('/internal-router'), '模型专用技能不带 / 前缀')
-  assert(text.includes('内置'), 'bundled 来源显示「内置」')
-  assert(text.includes('用户'), 'user-dsh 来源显示「用户」')
-  assert(text.includes('运行时'), 'runtime 来源显示「运行时」')
-  assert(text.includes('对当前项目做全面代码审计'), '渲染简述')
-  assert(text.includes('❯'), '渲染焦点指针')
-  assert(text.includes('填入命令'), '页脚显示 Enter 填入提示')
+  assert(text.includes('Skills'), 'title shows "Skills" even with zh pinned (compat)')
+  assert(text.includes('/audit'), 'directly-invocable skill shows the /name form')
+  assert(text.includes('internal-router'), 'model-only skill shows the bare name (no slash)')
+  assert(!text.includes('/internal-router'), 'model-only skill has no / prefix')
+  assert(text.includes('built-in'), 'bundled source shows "built-in"')
+  assert(text.includes('user'), 'user-dsh source shows "user"')
+  assert(text.includes('runtime'), 'runtime source shows "runtime"')
+  assert(text.includes('Do a thorough code audit'), 'description renders')
+  assert(text.includes('❯'), 'focus pointer renders')
+  assert(text.includes('to insert'), 'footer shows the Enter-to-insert hint')
 
-  // --- 2. en 热切换 -------------------------------------------------------------
+  // --- 2. Explicit en selection renders the same UI ----------------------------
   setLang('en')
   app.rerender(React.createElement(SkillsPicker, { skills, focusIndex: 1 }))
   await sleep(200)
   const en = screenText(term, ROWS)
-  assert(en.includes('Skills'), 'en：标题显示 Skills')
-  assert(en.includes('built-in'), 'en：来源标签英文')
-  assert(en.includes('Esc to exit'), 'en：页脚英文提示')
+  assert(en.includes('Skills'), 'en: title shows Skills')
+  assert(en.includes('built-in'), 'en: source label in English')
+  assert(en.includes('Esc to exit'), 'en: footer hint in English')
 
-  // --- 3. 空目录态 --------------------------------------------------------------
+  // --- 3. Empty catalog ---------------------------------------------------------
   app.rerender(React.createElement(SkillsPicker, { skills: [], focusIndex: 0 }))
   await sleep(200)
   const empty = screenText(term, ROWS)
-  assert(empty.includes('No skills available'), '空目录显示 No skills available')
+  assert(empty.includes('No skills available'), 'empty catalog shows No skills available')
 
   setLang('zh')
   app.unmount()
   await sleep(100)
 }
 
-// --- 4. 窄终端宽度不超限 -------------------------------------------------------
+// --- 4. Narrow terminal: no row exceeds the width ------------------------------
 
-console.log('窄终端截断:')
+console.log('narrow-terminal truncation:')
 
 {
   const COLS = 32
@@ -132,13 +135,13 @@ console.log('窄终端截断:')
     const line = buf.getLine(y)?.translateToString(true) ?? ''
     if (line.trim() === '') continue
     const w = stringWidth(line)
-    assert(w <= COLS, `第 ${y} 行宽 ${w} ≤ 终端宽 ${COLS}：'${line.trimEnd()}'`)
+    assert(w <= COLS, `row ${y} width ${w} ≤ terminal width ${COLS}: '${line.trimEnd()}'`)
   }
 }
 
-// --- 5. Loading 态 -------------------------------------------------------------
+// --- 5. Loading state -----------------------------------------------------------
 
-console.log('Loading 态:')
+console.log('loading state:')
 
 {
   const COLS = 60
@@ -152,17 +155,17 @@ console.log('Loading 态:')
   })
   await sleep(300)
   const text = screenText(term, ROWS)
-  assert(text.includes('技能'), 'Loading：标题渲染')
-  assert(text.includes('正在加载技能') || text.includes('正在查询技能注册表'), 'Loading：加载文案渲染')
+  assert(text.includes('Skills'), 'loading: title renders')
+  assert(text.includes('Loading skills') || text.includes('Querying the skill registry'), 'loading: loading text renders')
   app.unmount()
   await sleep(100)
 }
 
-// --- 结果 -------------------------------------------------------------------
+// --- Results ----------------------------------------------------------------
 
 if (failures > 0) {
-  console.error(`\n${failures} 项断言失败`)
+  console.error(`\n${failures} assertion(s) failed`)
   process.exit(1)
 }
-console.log('\n全部断言通过')
+console.log('\nall assertions passed')
 process.exit(0)

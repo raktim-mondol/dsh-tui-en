@@ -8,7 +8,7 @@ import { HintLine } from './design-system/HintLine.js'
 import { LoadingState } from './design-system/LoadingState.js'
 import { listWindow } from './listWindow.js'
 
-/** 来源桶 → 本地化标签（未知桶原样显示，SkillSource 对自定义桶开放）。 */
+/** Source bucket → localized label (an unknown bucket is shown as-is; SkillSource is open to custom buckets). */
 function sourceLabel(source: string): string {
   switch (source) {
     case 'bundled':
@@ -31,11 +31,14 @@ function sourceLabel(source: string): string {
 /**
  * `/skills` picker (issue #204) in the ModelPicker style: a
  * permission-colored Pane listing the live agent's skill catalog —
- * user-invocable skills lead with `/name`（它们在 / 菜单里也是这个形态），
- * 描述行是「来源 · 简述」。Enter 由 Chat 填回 `/name `，Esc 关闭。
+ * user-invocable skills lead with `/name` (the same form they take in the
+ * `/` menu), and the description row reads "source · summary". Enter has
+ * Chat fill back `/name `, Esc closes.
  *
- * 长列表按焦点窗口化（ModelPicker 同款）：picker 经 OverlayAbove 浮层挂载后
- * 有 maxHeight 裁剪，全量渲染会让焦点行被裁掉（看不到焦点按 Enter）。
+ * Long lists window around the focus (same treatment as ModelPicker):
+ * once the picker mounts through the OverlayAbove floater it's clipped to
+ * maxHeight, and a full render would clip the focused row out of view
+ * (invisible, but Enter would still act on it).
  */
 export function SkillsPicker({
   skills,
@@ -45,8 +48,8 @@ export function SkillsPicker({
   focusIndex: number
 }): React.ReactNode {
   const { rows: terminalRows } = useTerminalSize()
-  // 每项恒占 2 行（正文 + 来源/简述描述行，均 truncate 成单行）。
-  // 框架行：浮层预留 8 + Pane 2 + 标题 2 + 页脚 1 + 挂载包裹 marginTop 1 = 14（ModelPicker 同款）。
+  // Each item always takes 2 rows (body + source/summary description row, both truncated to a single line).
+  // Frame rows: floater reserves 8 + Pane 2 + title 2 + footer 1 + mount-wrapper marginTop 1 = 14 (same as ModelPicker).
   const { start, end } = listWindow(
     skills.map(() => 2),
     focusIndex,
@@ -86,7 +89,7 @@ export function SkillsPicker({
   )
 }
 
-/** `/skills` while the registry snapshot is still in flight (ModelPickerLoading 同款). */
+/** `/skills` while the registry snapshot is still in flight (same treatment as ModelPickerLoading). */
 export function SkillsPickerLoading(): React.ReactNode {
   return (
     <Pane color="permission">

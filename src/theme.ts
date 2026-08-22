@@ -535,8 +535,6 @@ export function isLightThemeActive(themeName: ThemeName): boolean {
   const theme = getTheme(themeName)
   if (theme === lightTheme) return true
   if (theme === darkTheme || theme === darkAnsiTheme) return false
-  // 自定义主题：按文本墨色亮度判定——浅底配深墨（ink）、深底配亮墨。
-  // 调色板的 background 字段是徽标填充色而非终端背景，不能作判据。
   const ink = theme.text
   const rgb = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(ink)
   if (rgb === null) return false

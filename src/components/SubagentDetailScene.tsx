@@ -111,7 +111,7 @@ export interface SubagentDetailSceneProps {
 /**
  * SubagentDetailScene — full-screen paged detail view for one subagent.
  * Header block (identity + stats) stays fixed; the body pages through
- * 摘要 / 输出 / 工具 with ←/→. Follow-up delivery was removed: the official
+ * Summary / Output / Tools with ←/→. Follow-up delivery was removed: the official
  * seam only accepts continuable children, and one-shot spawn children are
  * disposed at settlement, so the affordance would be a dead control.
  */

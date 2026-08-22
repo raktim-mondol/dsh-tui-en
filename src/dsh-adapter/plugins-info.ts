@@ -251,7 +251,7 @@ export function pluginsInfoLines(args: string, deps: PluginsInfoDeps): string[] 
     }
   }
 
-  // ── 授权矩阵 ──
+  // ── grant matrix ──
   const plugins = footprintPlugins(deps, dataDir, ledgerFile, storageDir)
   lines.push(t('plugins-matrix-note'))
   const permissions = deps.grants.knownPermissions()
@@ -279,7 +279,7 @@ export function pluginsInfoLines(args: string, deps: PluginsInfoDeps): string[] 
     }
   }
 
-  // ── 台账尾 ──
+  // ── ledger tail ──
   const records = readLedgerRecords(ledgerFile)
   if (records.length === 0) {
     lines.push(t('plugins-ledger-empty'))

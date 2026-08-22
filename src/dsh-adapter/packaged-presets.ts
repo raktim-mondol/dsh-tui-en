@@ -89,7 +89,7 @@ export function ensurePackagedPresets(options: PackagedPresetOptions = {}): Pack
       mkdirSync(targetRoot, { recursive: true })
       // `filter` forces the JS copy path (see src/utils/paths.ts): the native
       // cpSync fast path fails with EIO or crashes under a non-ASCII home
-      // directory such as `C:\Users\米`.
+      // directory such as `C:\Users\Ø`.
       cpSync(source, target, { recursive: true, force: false, errorOnExist: true, filter: () => true })
       results.push({ id, status: 'installed' })
       continue

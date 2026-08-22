@@ -1,8 +1,10 @@
 /**
  * verify-wheel-selection — regression test for issue #438.
  *
- * 选中文字后滚轮滚动，选区必须跟随内容平移而不是钉在屏幕行上；
- * 滚出视口的行经 captureScrolledRows 进入累加器，复制结果仍完整。
+ * After selecting text and scrolling the wheel, the selection must translate
+ * with the content instead of staying pinned to the screen row; rows that
+ * scroll out of the viewport go through captureScrolledRows into the
+ * accumulator, so the copy result stays complete.
  *
  * Exercises the pure selection primitives the wheel-drain translate path
  * drives (render-node-to-output.ts records a SIGNED followScroll delta for

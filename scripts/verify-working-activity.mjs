@@ -195,7 +195,7 @@ sessionEvent()(agent.session, {
   type: 'assistant/chunk', seq: 1, time: Date.now(),
   data: { turn: 'minimal-turn', step: 'step-1', chunk: { type: 'text-delta', text: 'hi' } },
 })
-assert.match(minimalChannel.workingActivity.line, /思考中|Thinking/)
+assert.match(minimalChannel.workingActivity.line, /Thinking/)
 
 for (const dispose of effects.reverse()) dispose()
 rmSync(testHome, { recursive: true, force: true })

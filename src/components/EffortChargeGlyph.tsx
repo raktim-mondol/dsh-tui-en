@@ -1,18 +1,26 @@
 /**
- * EffortChargeGlyph — 输入提示前缀 `❯ ` 的最高档强调与充能。
+ * EffortChargeGlyph — top-tier emphasis and charge animation for the
+ * input-prompt prefix `❯ `.
  *
- * 思考强度处于当前路线最高档期间，前缀换为点火强调色（加粗，与点焰波
- * 共用 hues[0]——同一瞬间前缀与波是同一种橙）；切到最高档的瞬间做一次
- * 150ms「充能」渐变（accentRamp 的暗端 → 全值）。冷启动已在最高档时
- * 不充能（充能只属于切换瞬间），离开最高档恢复原样的 dim 行为。
+ * While the reasoning-effort tier sits at the current route's top tier, the
+ * prefix switches to the ignition accent color (bold, sharing hues[0] with
+ * the ignition wave — at any given instant the prefix and the wave are the
+ * same orange); the instant it switches onto the top tier, it plays a
+ * 150ms "charge" gradient (accentRamp's dim end → full value). A cold
+ * mount that's already at the top tier does not charge (charging only
+ * happens on the switch itself); leaving the top tier restores the
+ * ordinary dim behavior.
  *
- * 触发判定在渲染期做（React 官方的「props 变化即调整 state」模式，
- * 与 EffortInputBorder 同一模式）——放 effect 会晚一帧，effort 变化
- * 的首帧以全亮闪现、下一帧才跌回暗端重来。充能只动颜色，glyph 恒为
- * `❯ `，SGR-only 规则天然成立。
+ * The trigger check runs at render time (React's official "adjust state
+ * from prop changes" pattern, the same one EffortInputBorder uses) —
+ * putting it in an effect would land a frame late, so the first frame of
+ * an effort change would flash fully lit and only fall back to the dim
+ * end on the next frame. Charging only animates color, the glyph is
+ * always `❯ `, so the SGR-only rule holds naturally.
  *
- * 时钟复用 Ink core 共享时钟，且只在充能未满的那 150ms 内订阅；稳态
- * 零定时器、零重渲染，前缀色取记忆化常量。
+ * The clock reuses Ink core's shared clock, and only subscribes during
+ * that 150ms while the charge is incomplete; the steady state has zero
+ * timers and zero re-renders, and the prefix color is a memoized constant.
  */
 import React, { useContext, useEffect, useReducer, useState } from 'react'
 import { Text, useTheme } from '../ui.js'
@@ -22,7 +30,7 @@ import { rgbString } from '../trajectory/motion.js'
 import { interpolateColor } from './Spinner/spinnerUtils.js'
 import { isLightThemeActive } from '../theme.js'
 
-/** 充能时长（ms）。 */
+/** Charge duration (ms). */
 const CHARGE_MS = 150
 
 export function EffortChargeGlyph({
@@ -30,11 +38,11 @@ export function EffortChargeGlyph({
   levels,
   working,
 }: {
-  /** 当前思考强度档 id；`undefined` 表示路线未声明。 */
+  /** The current reasoning-effort tier id; `undefined` means the route declares none. */
   effort: string | undefined
-  /** 当前路线的档位表（低→高，末位为最高档）。 */
+  /** The current route's tier table (low → high, last entry is the top tier). */
   levels: readonly string[] | undefined
-  /** 模型工作中时前缀照旧压暗（既有语义）。 */
+  /** While the model is working, the prefix stays dimmed as before (existing behavior). */
   working: boolean
 }): React.ReactNode {
   const clock = useContext(ClockContext)

@@ -73,9 +73,9 @@ function makeChannel() {
   const setEffortCalls: string[] = []
   const notifications: string[] = []
   const rows = [
-    { id: 1, kind: 'user', text: '检查这个问题' },
+    { id: 1, kind: 'user', text: 'Check this issue' },
     { id: 2, kind: 'reasoning', text: 'SECRET_REASONING_TRACE', streaming: true, durationMs: 1200 },
-    { id: 3, kind: 'assistant', text: '已经检查。', streaming: false },
+    { id: 3, kind: 'assistant', text: 'Already checked.', streaming: false },
   ]
   const channel: any = {
     version: 0,
@@ -191,17 +191,22 @@ const instance = await render(
 )
 await sleep(500)
 
-check('切换前流式思考行可见', screenText().includes('SECRET_REASONING_TRACE'))
+check('streaming thinking row is visible before any toggle', screenText().includes('SECRET_REASONING_TRACE'))
 
 stdin.write('/thinking')
 await sleep(150)
 stdin.write('\r')
 await sleep(300)
 
+// This build's i18n dict is English-only; `zh` is still a valid persisted
+// code for compatibility, but every string resolves to the same English
+// text regardless — pinning it to `zh` here doubles as a regression check
+// for that compat contract (see the `setLang('en')` block below for the
+// explicit-English control case).
 let screen = screenText()
-check('对话框明确这是思考过程显示设置', screen.includes('思考过程显示'))
-check('对话框明确不改变模型思考行为', screen.includes('不改变模型的思考行为'))
-check('隐藏项说明模型仍会照常思考', screen.includes('模型仍会照常思考'))
+check('dialog states this is the thinking-display setting', screen.includes('Thinking display'))
+check('dialog states it does not change model behavior', screen.includes('does not change model behavior'))
+check('the hidden option explains the model will still think as usual', screen.includes('will still think as usual'))
 
 stdin.write('\x1b[B')
 await sleep(120)
@@ -209,11 +214,11 @@ stdin.write('\r')
 await sleep(300)
 
 screen = screenText()
-check('隐藏立即生效，不出现质量警告', !screen.includes('可能降低质量'))
-check('隐藏后思考行不可见', !screen.includes('SECRET_REASONING_TRACE'))
-check('隐藏后模型 effort 保持不变', channel.reasoningEffort === 'max', channel.reasoningEffort)
-check('隐藏不调用 setEffort', channel.setEffortCalls.length === 0, JSON.stringify(channel.setEffortCalls))
-check('通知准确说明思考过程已隐藏', channel.notifications.includes('思考过程：隐藏'), JSON.stringify(channel.notifications))
+check('hiding takes effect immediately, no quality warning appears', !screen.includes('may reduce quality'))
+check('thinking row is not visible once hidden', !screen.includes('SECRET_REASONING_TRACE'))
+check('hiding leaves model effort unchanged', channel.reasoningEffort === 'max', channel.reasoningEffort)
+check('hiding does not call setEffort', channel.setEffortCalls.length === 0, JSON.stringify(channel.setEffortCalls))
+check('notification accurately states thinking display is hidden', channel.notifications.includes('Thinking display: hidden'), JSON.stringify(channel.notifications))
 
 setLang('en')
 stdin.write('/thinking')

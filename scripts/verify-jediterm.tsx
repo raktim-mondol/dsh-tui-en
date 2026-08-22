@@ -122,8 +122,8 @@ const listeners = new Set<() => void>()
 const channel: any = {
   version: 0,
   rows: [
-    { id: 1, kind: 'user', text: '看看这个项目' },
-    { id: 2, kind: 'assistant', text: '构建配置在 pubspec.yaml，先跑构建看输出。', streaming: false },
+    { id: 1, kind: 'user', text: 'Look at this project' },
+    { id: 2, kind: 'assistant', text: 'The build config is in pubspec.yaml — run the build first and check the output.', streaming: false },
   ],
   status: 'idle',
   sessionTitle: 'probe',
@@ -140,7 +140,7 @@ const channel: any = {
   responseChars: 0,
   activeToolCount: 0,
   turnStart: Date.now(),
-  lastUserText: '看看这个项目',
+  lastUserText: 'Look at this project',
   pending: [],
   commandList: [],
   notifications: [],
@@ -166,13 +166,13 @@ for (let turn = 0; turn < 2; turn++) {
   channel.rows.push({
     id: 10 + turn,
     kind: 'assistant',
-    text: `第 ${turn} 轮回复：应用装配、主题系统、同步与加密打包`.repeat(6),
+    text: `Turn ${turn} reply: app assembly, theme system, sync and encrypted packaging`.repeat(6),
     streaming: false,
   })
   bump()
   await sleep(120)
 }
-channel.rows.push({ id: 99, kind: 'user', text: '再检查一次构建配置，给个概览' })
+channel.rows.push({ id: 99, kind: 'user', text: 'Check the build config once more and give an overview' })
 bump()
 await sleep(200)
 await instance.unmount()
@@ -270,13 +270,13 @@ for (let turn = 2; turn < 4; turn++) {
   channel.rows.push({
     id: 10 + turn,
     kind: 'assistant',
-    text: `第 ${turn} 轮回复：应用装配、主题系统、同步与加密打包`.repeat(6),
+    text: `Turn ${turn} reply: app assembly, theme system, sync and encrypted packaging`.repeat(6),
     streaming: false,
   })
   bump()
   await sleep(120)
 }
-channel.rows.push({ id: 100, kind: 'user', text: '再检查一次构建配置，给个概览' })
+channel.rows.push({ id: 100, kind: 'user', text: 'Check the build config once more and give an overview' })
 bump()
 await sleep(200)
 await inlineInstance.unmount()

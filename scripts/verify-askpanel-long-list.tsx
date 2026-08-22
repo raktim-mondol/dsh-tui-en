@@ -43,7 +43,7 @@ const app = await render(React.createElement(AskUserQuestionPanel, {
   position: 1,
   total: 1,
   answered: 0,
-  question: { question: '选择 provider', options, hideCustomInput: true },
+  question: { question: 'Choose a provider', options, hideCustomInput: true },
   onAnswer() {},
   onCancel() {},
 }), { stdout, stdin, stderr, exitOnCtrlC: false, patchConsole: false })

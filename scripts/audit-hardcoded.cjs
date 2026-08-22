@@ -43,6 +43,6 @@ for (const r of results) (byFile[r.f] ??= []).push(r)
 for (const [f, rs] of Object.entries(byFile).sort((a, b) => b[1].length - a[1].length)) {
   console.log(`\n${f} (${rs.length})`)
   rs.slice(0, 12).forEach(r => console.log(`  ${r.l} [${r.kind}] ${r.text}`))
-  if (rs.length > 12) console.log(`  …还有 ${rs.length - 12} 处`)
+  if (rs.length > 12) console.log(`  …${rs.length - 12} more`)
 }
-console.log(`\n总计 ${results.length} 处 / ${Object.keys(byFile).length} 个文件`)
+console.log(`\nTotal: ${results.length} hits across ${Object.keys(byFile).length} files`)

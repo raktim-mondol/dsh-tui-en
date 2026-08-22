@@ -1,5 +1,5 @@
 /**
- * #185 repro probe: 长会话 + 长流式 + 复杂内容, watching for the nested-update
+ * #185 repro probe: long session + long streaming + complex content, watching for the nested-update
  * counter (React error #185) on the POST-#146 code (queueMicrotask measure).
  *
  * Run instrumented (dev reconciler logs [NESTED++] / [IN-COMMIT-SETSTATE]):
@@ -94,7 +94,7 @@ const channel: any = {
   responseChars: 0,
   activeToolCount: 1,
   turnStart: Date.now(),
-  lastUserText: '长会话流式压测',
+  lastUserText: 'Long session streaming stress test',
   pending: [],
   commandList: [],
   notifications: [],
@@ -114,13 +114,13 @@ const bump = () => { channel.version++; for (const cb of listeners) cb() }
 let id = 0
 const codeBlock = (n: number, lang: string) =>
   '```' + lang + '\n' + Array.from({ length: n }, (_, i) =>
-    `const handleRequest${i} = async (req: Request, res: Response): Promise<void> => { // 第 ${i} 行，故意写得很长，让窄终端里一定折行，从而撑高测量高度`
+    `const handleRequest${i} = async (req: Request, res: Response): Promise<void> => { // line ${i}, deliberately long so a narrow terminal must wrap, inflating the measured height`
   ).join('\n') + '\n```'
 
 // --- long session: 10 turns, mixed tool cards + markdown --------------------
 for (let turn = 0; turn < 10; turn++) {
-  channel.rows.push({ id: id++, kind: 'user', text: `历史问题 ${turn}：分析一下模块 ${turn} 的实现` })
-  channel.rows.push({ id: id++, kind: 'reasoning', text: `用户在问模块 ${turn}。`.repeat(4), streaming: false, durationMs: 1500 })
+  channel.rows.push({ id: id++, kind: 'user', text: `History question ${turn}: analyze the implementation of module ${turn}` })
+  channel.rows.push({ id: id++, kind: 'reasoning', text: `The user is asking about module ${turn}. `.repeat(4), streaming: false, durationMs: 1500 })
   for (let t = 0; t < 3; t++) {
     channel.rows.push({
       id: id++, kind: 'tool', text: '',
@@ -129,13 +129,13 @@ for (let turn = 0; turn < 10; turn++) {
         argsText: t % 2 ? `{"file_path": "/tmp/demo/src/mod${turn}/file${t}.ts"}` : `{"command": "rg -n 'export' src/mod${turn} | head -40", "description": "list exports"}`,
         argsFull: '{}',
         status: 'ok', startedAt: Date.now() - 600000, durationMs: 30,
-        resultText: Array.from({ length: 12 + ((turn + t) % 5) * 6 }, (_, i) => `export function helper_${turn}_${t}_${i}(input: unknown): Promise<Result<unknown>> { /* 历史结果行 ${i}，长度凑一凑 */ return null }`).join('\n'),
+        resultText: Array.from({ length: 12 + ((turn + t) % 5) * 6 }, (_, i) => `export function helper_${turn}_${t}_${i}(input: unknown): Promise<Result<unknown>> { /* history result line ${i}, padded for length */ return null }`).join('\n'),
       },
     })
   }
   channel.rows.push({
     id: id++, kind: 'assistant', streaming: false,
-    text: `模块 ${turn} 的结论：\n\n- 入口在 \`src/mod${turn}/index.ts\`\n- 关键逻辑如下：\n\n${codeBlock(18 + (turn % 4) * 8, 'ts')}\n\n| 项 | 值 |\n| --- | --- |\n| 行数 | ${300 + turn * 17} |\n| 复杂度 | 高 |\n`,
+    text: `Conclusion for module ${turn}:\n\n- Entry point at \`src/mod${turn}/index.ts\`\n- Key logic:\n\n${codeBlock(18 + (turn % 4) * 8, 'ts')}\n\n| Item | Value |\n| --- | --- |\n| Lines | ${300 + turn * 17} |\n| Complexity | High |\n`,
   })
 }
 
@@ -176,25 +176,25 @@ const ticker2 = setInterval(() => { bump() }, 47)
 await sleep(800)
 
 // --- live turn: long streamed markdown+code at ~25ms/chunk -------------------
-channel.rows.push({ id: id++, kind: 'user', text: '把 AAA 项目的核心模块完整讲一遍，带上代码' }); bump()
+channel.rows.push({ id: id++, kind: 'user', text: "Walk me through the AAA project's core modules in full, with code" }); bump()
 await sleep(150)
 
 const think = { id: id++, kind: 'reasoning', text: '', streaming: true, durationMs: undefined as number | undefined }
 channel.rows.push(think); bump()
-for (const c of ['用户要完整讲解，', '需要覆盖架构、', '关键代码与数据流。']) { think.text += c; bump(); await sleep(120) }
+for (const c of ['The user wants a full walkthrough, ', 'covering architecture, ', 'key code, and data flow.']) { think.text += c; bump(); await sleep(120) }
 think.streaming = false; think.durationMs = 900; bump()
 
 const finalMsg = { id: id++, kind: 'assistant', text: '', streaming: true }
 channel.rows.push(finalMsg); bump()
 
 // Build a big streamed doc: prose + fenced code with long wrapping lines + tables.
-const docChunks: string[] = ['好，完整梳理一遍 AAA 项目的核心模块。\n\n']
+const docChunks: string[] = ["Sure, let me walk through the AAA project's core modules in full.\n\n"]
 for (let s = 0; s < 8; s++) {
-  docChunks.push(`\n## ${s + 1}. 子系统 ${s + 1}：职责与入口\n\n`)
-  docChunks.push(`子系统 ${s + 1} 负责请求生命周期第 ${s + 1} 阶段的编排。`.repeat(2) + '\n\n')
+  docChunks.push(`\n## ${s + 1}. Subsystem ${s + 1}: responsibilities and entry point\n\n`)
+  docChunks.push(`Subsystem ${s + 1} orchestrates stage ${s + 1} of the request lifecycle. `.repeat(2) + '\n\n')
   for (const ln of codeBlock(10 + (s % 3) * 6, 'ts').split('\n')) docChunks.push(ln + '\n')
-  docChunks.push('\n| 指标 | 数值 | 说明 |\n| --- | --- | --- |\n')
-  for (let r = 0; r < 5; r++) docChunks.push(`| 指标${s}-${r} | ${(s + 1) * (r + 2) * 137} | 这是一行表格说明文字，用来占宽 |\n`)
+  docChunks.push('\n| Metric | Value | Description |\n| --- | --- | --- |\n')
+  for (let r = 0; r < 5; r++) docChunks.push(`| metric${s}-${r} | ${(s + 1) * (r + 2) * 137} | This is a table description line, padded for width |\n`)
   docChunks.push('\n')
 }
 

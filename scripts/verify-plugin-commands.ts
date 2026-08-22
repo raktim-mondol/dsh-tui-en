@@ -1,22 +1,27 @@
 /**
- * 批 5 电池（二）：commands 契约对齐（C-041）。
+ * Battery 5 (part 2): the commands contract alignment (C-041).
  *
- *   A. 真实依赖映射：真 dsh-commands 重复注册抛出的纯文案 Error 经
- *      mapCommandError 后带 code=DUPLICATE_CONTRIBUTION_ID（原名/原文/
- *      cause 保留）；
- *   B. 文案变体与透传：两种已知重复文案都映射；非重复 Error 与非 Error
- *      值原样透传（同一引用）；
- *   C. hasCommandErrorCode 判定面；
- *   D. withCommandErrorMapping：成功透传、重复重抛带码、其他重抛原引用；
- *   E. 契约错误码词表恰好 6 个；
- *   F. invoke 检查点门语义：denies 撤销 commands.invoke 后 root 被拒；
- *      默认 allow；他人 denies 不影响 root；
- *   G. channel 接线断言：检查点在 execute 之前、deny 文案走 i18n、skill
- *      注册 catch 映射并台账记录（applied/failed）、invoke deny 台账；
- *   H. 非破坏签名：四个托管服务 register 系方法不传 identity 照旧返回
- *      disposer（看护挂钩零行为变化）。
+ *   A. Real dependency mapping: the plain-text Error that real dsh-commands
+ *      throws on duplicate registration, after mapCommandError, carries
+ *      code=DUPLICATE_CONTRIBUTION_ID (original name/message/cause kept);
+ *   B. Message variants and passthrough: both known duplicate-message
+ *      variants are mapped; a non-duplicate Error and non-Error values pass
+ *      through as-is (same reference);
+ *   C. the hasCommandErrorCode predicate surface;
+ *   D. withCommandErrorMapping: success passes through, a duplicate rethrows
+ *      with the code, everything else rethrows the original reference;
+ *   E. the contract error-code vocabulary has exactly 6 entries;
+ *   F. invoke checkpoint gate semantics: after denies revokes
+ *      commands.invoke, root is denied; allow by default; other plugins'
+ *      denies don't affect root;
+ *   G. channel wiring assertions: the checkpoint runs before execute, the
+ *      deny message goes through i18n, skill registration's catch maps and
+ *      ledgers the result (applied/failed), invoke denials are ledgered;
+ *   H. Non-breaking signature: the register-family methods on all four
+ *      managed services still return a disposer when no identity is passed
+ *      (zero behavior change for existing call sites).
  *
- * HOME/USERPROFILE 在导入 src 前隔离。
+ * HOME/USERPROFILE are isolated before importing src.
  *
  * Run via `node --import tsx/esm scripts/verify-plugin-commands.ts`.
  */
@@ -25,7 +30,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// ── 隔离 HOME（必须先于任何 src 导入）─────────────────────────────────────
+// ── Isolate HOME (must happen before any src import) ───────────────────────
 const fakeHome = mkdtempSync(join(tmpdir(), 'dsh-plugin-commands-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
@@ -58,14 +63,14 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   if (!ok) failures.push(`${name}${detail ? `: ${detail}` : ''}`)
 }
 
-// ── A. 真实依赖映射 ───────────────────────────────────────────────────────
+// ── A. Real dependency mapping ───────────────────────────────────────────────
 {
   const ctx = new Context()
   ctx.plugin(CommandRuntime)
   await sleep(50)
   const service = ctx.get('commands')
   check1('real dsh-commands mounts standalone', service !== undefined)
-  const definition = { name: 'dup-probe', description: '电池探针', handler: () => ({ kind: 'success' }) }
+  const definition = { name: 'dup-probe', description: 'battery probe', handler: () => ({ kind: 'success' }) }
   service.register(definition as never)
   let thrown: unknown
   try {
@@ -80,7 +85,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   check1('message preserved verbatim', (mapped as Error).message === (thrown as Error).message)
 }
 
-// ── B. 文案变体与透传 ─────────────────────────────────────────────────────
+// ── B. Message variants and passthrough ──────────────────────────────────────
 {
   const variants = [
     'command "x" is already registered (for a per-agent variant, mount a command-injected plugin under that agent\'s `agent.ctx`)',
@@ -99,7 +104,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   }
 }
 
-// ── C. hasCommandErrorCode 判定面 ─────────────────────────────────────────
+// ── C. the hasCommandErrorCode predicate surface ─────────────────────────────
 {
   const coded = mapCommandError(new Error('command "x" is already registered in this scope'))
   check1('true for the matching code', hasCommandErrorCode(coded, 'DUPLICATE_CONTRIBUTION_ID'))
@@ -134,7 +139,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   check1('unrelated error rethrown as the same reference', rethrown === original)
 }
 
-// ── E. 契约错误码词表 ─────────────────────────────────────────────────────
+// ── E. the contract error-code vocabulary ────────────────────────────────────
 {
   check1(
     'vocabulary matches the contract (6 codes)',
@@ -150,7 +155,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   )
 }
 
-// ── F. invoke 检查点门语义 ────────────────────────────────────────────────
+// ── F. invoke checkpoint gate semantics ──────────────────────────────────────
 {
   const revoked = parseGrantStore(JSON.stringify({ denies: { root: ['commands.invoke'] } }))
   check1('legacy unscoped deny cannot be widened into a command grant',
@@ -167,7 +172,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
     !others.allows({ componentId: 'evil-plugin' }, 'commands.invoke', 'evil-plugin.command'))
 }
 
-// ── F2. 命令归属（C-041 per-owner 检查点的数据源）─────────────────────────
+// ── F2. Command attribution (the data source for C-041's per-owner checkpoint) ──
 {
   const { commandOwner } = await import('../src/dsh-adapter/command-attribution.js')
   const pluginHostRow = await import('../src/dsh-adapter/plugin-host.js')
@@ -181,7 +186,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   const resolved = (agent: object, name: string) => commands?.find(agent as never, name)
   check1('registerCommand surface exists on the plugin-host row', typeof host?.registerCommand === 'function')
 
-  // 经托管面注册：必须使用已 admission 的 Component 与显式 contribution ID。
+  // Registering via the managed surface: must use an admitted Component and an explicit contribution ID.
   const evil = await mountAdmitted(attrCtx, 'evil-plugin', testManifest({
     id: 'com.example.evil-plugin',
     requires: [COMMAND_COORDINATE],
@@ -190,19 +195,19 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   }))
   const registerVia = (definition: unknown) =>
     host!.registerCommand(evil.context, 'evil-plugin.evil-cmd', definition as never)
-  const disposer = registerVia({ name: 'evil-cmd', description: '归属探针', handler: () => ({ kind: 'success' }) })
+  const disposer = registerVia({ name: 'evil-cmd', description: 'attribution probe', handler: () => ({ kind: 'success' }) })
   check1('mediated registration attributes the command to the plugin fiber',
     commandOwner(attrCtx, resolved(globalAgent, 'evil-cmd'))?.componentId === 'com.example.evil-plugin')
 
-  // 直接 ctx.get('commands') 注册 → 未归属（文档化 C-070 边界）。
-  commands?.register({ name: 'accessor-cmd', description: '直接注册', handler: () => ({ kind: 'success' }) } as never)
+  // A direct ctx.get('commands') registration → unattributed (a documented C-070 boundary).
+  commands?.register({ name: 'accessor-cmd', description: 'direct registration', handler: () => ({ kind: 'success' }) } as never)
   check1('direct ctx.get registration stays unattributed (documented boundary)',
     commandOwner(attrCtx, resolved(globalAgent, 'accessor-cmd')) === undefined)
 
-  // 托管面重复注册 → 映射为 DUPLICATE_CONTRIBUTION_ID，原印不动。
+  // A duplicate registration via the managed surface → maps to DUPLICATE_CONTRIBUTION_ID, the original stamp unmoved.
   let duplicateMapped = false
   try {
-    registerVia({ name: 'evil-cmd', description: '再注册一次', handler: () => ({ kind: 'success' }) })
+    registerVia({ name: 'evil-cmd', description: 'register again', handler: () => ({ kind: 'success' }) })
   } catch (error) {
     duplicateMapped = hasCommandErrorCode(error, 'DUPLICATE_CONTRIBUTION_ID')
   }
@@ -210,7 +215,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   check1('the failed duplicate left the original stamp intact',
     commandOwner(attrCtx, resolved(globalAgent, 'evil-cmd'))?.componentId === 'com.example.evil-plugin')
 
-  // disposer 摘印且幂等。
+  // The disposer lifts the stamp and is idempotent.
   disposer()
   check1('the mediated disposer lifts the stamp', commandOwner(attrCtx, resolved(globalAgent, 'evil-cmd')) === undefined)
   disposer()
@@ -255,7 +260,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   await scopeB.dispose()
 }
 
-// ── G. channel 接线断言 ───────────────────────────────────────────────────
+// ── G. channel wiring assertions ─────────────────────────────────────────────
 {
   const channel = readFileSync(join(root, 'src/dsh-adapter/channel.ts'), 'utf8')
   // Keep this assertion tied to the effective-definition lookup rather than
@@ -304,16 +309,15 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   const keyIdx = i18n.indexOf("'command-invoke-denied'")
   check1("i18n key 'command-invoke-denied' exists", keyIdx !== -1)
   const entry = i18n.slice(keyIdx, keyIdx + 400)
-  check1('zh translation present', /zh:\s*'[^']*授权文件拒绝[^']*'/.test(entry))
-  check1('en translation present', /en:\s*'[^']*grants file[^']*'/.test(entry))
+  check1('message present', /:\s*'[^']*grants file[^']*'/.test(entry))
   const ownerIdx = i18n.indexOf("'command-invoke-denied-owner'")
   check1("i18n key 'command-invoke-denied-owner' exists", ownerIdx !== -1)
   const ownerEntry = i18n.slice(ownerIdx, ownerIdx + 500)
-  check1('owner deny zh translation names the owner', ownerEntry.includes('{{owner}}'))
-  check1('owner deny en translation present', /en:\s*'[^']*owner plugin[^']*'/.test(ownerEntry))
+  check1('owner deny message names the owner', ownerEntry.includes('{{owner}}'))
+  check1('owner deny message present', /:\s*'[^']*owner plugin[^']*'/.test(ownerEntry))
 }
 
-// ── H. 非破坏签名（不传 identity 照旧可用）──────────────────────────────────
+// ── H. Non-breaking signature (still usable without passing identity) ──────────
 {
   const ctx = new Context()
   new TuiShortcutRuntime(ctx)
@@ -323,7 +327,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   let activation: import('@deepseek-ai/cordis').Context | undefined
   const fiber = ctx.inject(['tuiShortcuts', 'tuiScenes', 'tuiStatus', 'tuiRenderers'], (pluginCtx) => {
     activation = pluginCtx
-    const disposeShortcut = pluginCtx.tuiShortcuts.register('ctrl+shift+q', { description: '无 identity', handler: () => {} })
+    const disposeShortcut = pluginCtx.tuiShortcuts.register('ctrl+shift+q', { description: 'no identity', handler: () => {} })
     check1('tuiShortcuts.register without identity returns a disposer', typeof disposeShortcut === 'function')
     disposeShortcut()
 
@@ -345,7 +349,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   await ctx.fiber.dispose()
 }
 
-// ── 汇总 ──────────────────────────────────────────────────────────────────
+// ── Summary ──────────────────────────────────────────────────────────────
 for (const dir of cleanup) rmSync(dir, { recursive: true, force: true })
 if (failures.length > 0) {
   console.error(`plugin-commands battery FAILED (${failures.length}/${checks}):`)

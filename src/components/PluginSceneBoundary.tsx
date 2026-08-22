@@ -8,7 +8,7 @@
  *
  * Boundaries catch render/lifecycle errors only; errors thrown from async
  * handlers and effects remain the scene's own responsibility (see the
- * 场景红线 section in docs/plugins.md).
+ * "Quality and Security Red Lines" section in docs/plugins.md).
  */
 import React from 'react'
 

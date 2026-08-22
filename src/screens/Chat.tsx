@@ -274,7 +274,7 @@ export function Chat({
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false)
   const [models, setModels] = React.useState<readonly LlmModelInfo[]>([])
   const [modelIndex, setModelIndex] = React.useState(0)
-  /** `/skills` 技能目录（issue #204）：null = 注册表快照在途。 */
+  /** `/skills` skill catalog (issue #204): null = registry snapshot still in flight. */
   const [skillsPickerOpen, setSkillsPickerOpen] = React.useState(false)
   const [skillsList, setSkillsList] = React.useState<readonly SkillInfo[] | null>(null)
   const [skillsIndex, setSkillsIndex] = React.useState(0)
@@ -862,9 +862,11 @@ export function Chat({
         })
         return true
       case 'skills':
-        // issue #204: 列出当前 agent 的完整技能目录（名称 + 来源 + 简述），
-        // Enter 把可直调技能以 `/name ` 填回输入行（completion-only 分发的
-        // 同一路径）。注册表读取走 channel（快照 scoped 到 live agent）。
+        // issue #204: lists the current agent's full skill catalog (name +
+        // source + summary); Enter fills a directly-invocable skill back
+        // into the input row as `/name ` (the same path as completion-only
+        // dispatch). Registry reads go through the channel (the snapshot
+        // is scoped to the live agent).
         setHelpOpen(false)
         setSkillsList(null)
         setSkillsIndex(0)
@@ -1714,8 +1716,9 @@ export function Chat({
       } else if (plainReturn) {
         const skill = list[skillsIndex]
         setSkillsPickerOpen(false)
-        // 可直调技能 Enter 填入 `/name `——与 / 菜单选中技能同一条
-        // completion-only 分发路径；模型专用技能（userInvocable=false）只关闭。
+        // Enter on a directly-invocable skill fills in `/name ` — the same
+        // completion-only dispatch path as selecting a skill from the /
+        // menu; a model-only skill (userInvocable=false) just closes.
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: out-of-range index on an empty list
         if (skill?.userInvocable) setHistoryFill(`/${skill.name} `)
       } else if (key.escape) {
