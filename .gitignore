@@ -9,3 +9,4 @@ package-lock.json
 AGENTS.md
 lib/
 .dsh-prompt-debug.json
+rust/**/target/

@@ -1,0 +1,25 @@
+name: Rust TUI
+
+on:
+  push:
+    paths:
+      - 'rust/dsh-tui-en/**'
+      - '.github/workflows/rust.yml'
+  pull_request:
+    paths:
+      - 'rust/dsh-tui-en/**'
+      - '.github/workflows/rust.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust/dsh-tui-en
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
+      - run: cargo clippy -- -D warnings
+      - run: cargo build --release
+      - run: ./target/release/dsh-tui-en --help
