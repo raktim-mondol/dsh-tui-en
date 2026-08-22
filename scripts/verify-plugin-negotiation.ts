@@ -342,7 +342,12 @@ const overview = () => pluginsInfoLines('', { grants, host })
   const i18n = readFileSync(join(root, 'src/i18n.ts'), 'utf8')
   check1('trust banner exists',
     i18n.includes("'plugins-trust-banner'") && i18n.includes('in-process with the host'))
-  check1("cmd-desc-plugins exists", i18n.includes("'cmd-desc-plugins'"))
+  // No i18n override key is expected here: `LOCAL_COMMANDS`' own `description`
+  // is the single source of truth (see the commands.ts — slash-command
+  // descriptions section of i18n.ts), and `localizedDescription` falls back
+  // to it directly when the dict has no entry for a command.
+  check1("plugins command description is present in LOCAL_COMMANDS",
+    /name: 'plugins', description: '[^']+'/.test(commands))
   check1('doctor plugin keys exist',
     i18n.includes("'doctor-plugin-generation'") && i18n.includes('Plugin runtime generation') &&
     i18n.includes("'doctor-plugin-registry'") && i18n.includes('Plugin-spec registry self-check'))

@@ -662,23 +662,15 @@ const dict = {
   'provider-opt-switch-now': 'Switch to {{model}}',
   'provider-opt-switch-keep': 'Keep the current model',
   // ── commands.ts — slash-command descriptions ─────────────────────────
-  // zh-only on purpose: the English text stays in `LOCAL_COMMANDS` (and in
-  // the DSH registry for external commands) as the single source of truth,
-  // so `localizedDescription` falls back to it whenever the active language
-  // has no entry here. `cmd-desc-<name>` keys are resolved at render time,
-  // so `/lang` switches apply on the next repaint.
-  // Conversation
-  // Session / environment
-  // Model / display
-  // Account / policy
-  // Built-in skills
-  // Misc
+  // The English text lives in `LOCAL_COMMANDS` (and in the DSH registry for
+  // external commands) as the single source of truth; `localizedDescription`
+  // (see commands.ts) only consults an entry here when one is present, and
+  // otherwise falls straight back to the command's own `description`. Most
+  // commands have no entry here for exactly that reason. The three below are
+  // harmless leftover duplicates of their `description` field, not overrides.
   'cmd-desc-workspace-resume': 'Switch to another workspace',
   'cmd-desc-workspace-rename': 'Rename the current workspace',
   'cmd-desc-workspace-open': 'Open a path or workspace URI',
-  // Help / exit
-  // Registry-injected (external) commands — zh only; en falls back to the
-  // registry's own description, and unlisted externals always fall back.
   // ── /lang command ───────────────────────────────────────────────────
   'lang-current': 'Current language  {{lang}}',
   'lang-switch-hint': 'Switch      /lang en | /lang zh',
