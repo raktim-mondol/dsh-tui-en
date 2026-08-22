@@ -15,7 +15,10 @@
   <a href="https://trendshift.io/repositories/146168" title="GitHub Trending Daily #7 · TypeScript"><img alt="Trendshift" src="https://trendshift.io/api/badge/trendshift/repositories/146168/daily?language=TypeScript"></a>
 </p>
 
-# dsh-TUI
+# dsh-tui-en
+
+English TypeScript fork of `dsh-TUI`. The command is `dsh-tui-en` (`dsh-tui`
+still works). This is the original Ink/Cordis plugin, not a Rust rewrite.
 
 `dsh-TUI` is an interactive terminal front door for DeepSeek Harness. It is
 mounted as a Cordis plugin and provides a Claude Code-style conversation, tool,
@@ -71,18 +74,19 @@ Prerequisites: an interactive terminal TTY, the official `dsh` CLI, and
 `pnpm` 10+. Model requests also require `DEEPSEEK_API_KEY`.
 
 ```sh
-# 1. Install the CLI and this plugin globally (ships the dsh-tui command)
-npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
-
-# 2. Start it (first run auto-initializes the dsh-tui profile; needs pnpm)
-dsh-tui
+# From this checkout (English TypeScript TUI)
+dsh-tui-en
 ```
+
+`dsh-tui` is the same launcher. First run needs the official `dsh` CLI and
+`pnpm` 10+. Model requests use `DEEPSEEK_API_KEY`.
 
 Manual alternative: `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui`
 (the repository's `sh install.sh` wraps this step and checks the required
-commands), then `dsh-tui` and `dsh --profile dsh-tui` are equivalent.
+commands), then `dsh-tui-en`, `dsh-tui`, and `dsh --profile dsh-tui` are
+equivalent.
 
-`dsh-tui --resume` restores the most recently selected session; on Windows
+`dsh-tui-en --resume` restores the most recently selected session; on Windows
 the repository's `dsh-tui.cmd` works the same way.
 
 ### Herdr

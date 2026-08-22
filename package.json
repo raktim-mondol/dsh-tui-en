@@ -19,6 +19,7 @@
     "#dsh-ecosystem-spec/tui-channel": "./dsh-ecosystem-spec/protocols/tui-channel.js"
   },
   "bin": {
+    "dsh-tui-en": "./bin/dsh-tui.js",
     "dsh-tui": "./bin/dsh-tui.js"
   },
   "main": "lib/types/index.js",
