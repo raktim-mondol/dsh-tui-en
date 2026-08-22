@@ -67,33 +67,14 @@ Live activity, goal/todo state, and context metrics:
 
 ## Quick Start
 
-This English fork ships a **Rust Ratatui client** (`dsh-tui-en`) as the
-native TUI. The original TypeScript Cordis plugin remains in-tree.
-
-### Rust TUI (this repository)
-
-```sh
-cd rust/dsh-tui-en
-cargo run --release
-
-# stream from DeepSeek
-export DEEPSEEK_API_KEY='your-key'
-cargo run --release -- --model deepseek-chat
-```
-
-Install the binary: `cargo install --path rust/dsh-tui-en`, then `dsh-tui-en`.
-`--backend demo` runs without an API key. See [rust/dsh-tui-en/README.md](rust/dsh-tui-en/README.md).
-
-### TypeScript plugin (upstream-compatible)
-
 Prerequisites: an interactive terminal TTY, the official `dsh` CLI, and
 `pnpm` 10+. Model requests also require `DEEPSEEK_API_KEY`.
 
 ```sh
-# Official CLI + upstream npm package (not this fork's unpublished name)
+# 1. Install the CLI and this plugin globally (ships the dsh-tui command)
 npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 
-# Start it (first run auto-initializes the dsh-tui profile; needs pnpm)
+# 2. Start it (first run auto-initializes the dsh-tui profile; needs pnpm)
 dsh-tui
 ```
 
