@@ -24,7 +24,7 @@ committed yet — see "Current git status"):
 | [ink-core.md](ink-core.md) | The Ink render kernel: ink.tsx's main pipeline, the reconciler, log-update's diffing, the output hot loop, the Yoga bridge, termio terminal capabilities |
 | [rendering.md](rendering.md) | The render pipeline and performance: two-tier 16ms throttling, virtualization, resticky, shrink-frame ghosting fixes, the TPS folding chain, the CJK measurement system |
 | [input-commands.md](input-commands.md) | The input model: key parsing (kitty/modifyOtherKeys/IME), command dispatch, scroll/search/paste, mouse |
-| [theme-i18n.md](theme-i18n.md) | The theme system and i18n: the three palettes, OSC 11 probing, custom themes, the 215-key bilingual dictionary, /theme /lang |
+| [theme-i18n.md](theme-i18n.md) | The theme system and i18n: the three palettes, OSC 11 probing, custom themes, the English-only dictionary, /theme /lang |
 | [lifecycle.md](lifecycle.md) | Lifecycle and assembly: the cordis.yml/patch composition layer, the preset chain, apply's startup order, command dispatch, the exit funnel and teardown |
 | [model-route.md](model-route.md) | Model routing: the config > pref > default chain, /model's live switch, resume tracking, issue 67 |
 | [session-context.md](session-context.md) | Session and context: JSONL/SQLite conflict details, resume/teardown, how injected context is displayed |

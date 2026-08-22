@@ -182,7 +182,7 @@ background daemons.
 | --- | --- | --- |
 | `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved to an absolute path against the host PATH) |
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
-| `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
+| `dsh-tui-vscode.lang` | `""` | `""`/`en`/`zh`, exported as `DSH_TUI_LANG` (`zh` is a compatibility alias; the UI stays English) |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
@@ -271,8 +271,9 @@ The TUI's `Ctrl+G` uses `$VISUAL`/`$EDITOR`. To edit in VS Code, export
 
 ### UI language
 
-`DSH_TUI_LANG` defaults to Chinese; for the English UI, add
-`"DSH_TUI_LANG": "en"` to the env block above.
+The TUI is English. `DSH_TUI_LANG` still accepts `en` or `zh` (`zh` is a
+compatibility alias and still shows English). Leave the env unset unless you
+need to pin the stored language code.
 
 ### Known differences (built-in terminal)
 

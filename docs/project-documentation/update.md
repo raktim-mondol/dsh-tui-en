@@ -85,9 +85,8 @@ direct --config launch, onUpdate is undefined
      delete process.env.DSH_CC_UPDATED_FROM (avoids assigning undefined,
      which would turn into the string "undefined" and leak to child
      processes); when the current version isn't strictly newer than the
-     marker value, logger.warn + a stderr hint in Chinese ("this may be
-     because the mirror registry hasn't synced yet — please retry shortly
-     or check your registry configuration")
+     marker value, logger.warn + a stderr hint ("the mirror registry may be
+     stale — retry later or check the registry config")
   -> The 0.8.3 launcher-alignment bridge (same verification block):
      /update only replaces the package inside the profile — the global
      dsh-tui launcher is a separate install. The launcher (bin/dsh-tui.js,

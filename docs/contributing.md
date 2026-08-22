@@ -10,8 +10,8 @@ development contract for humans and coding agents working on `@deepseek-harness-
 - **Report bugs or request features** by opening an issue with a clear
   reproduction and the terminal environment you use.
 - **Open a pull request** against `main`. Keep changes focused: one logical
-  change per PR, with a Chinese or bilingual title and a description that
-  covers motivation, what changed, and how it was verified.
+  change per PR, with a description that covers motivation, what changed, and
+  how it was verified.
 - **Run the verification matrix** below before requesting a review; CI runs
   the same commands.
 - New features should include or extend a focused regression script.
@@ -71,9 +71,9 @@ boundaries and helpers over introducing parallel abstractions.
 - `lib/`: ignored JavaScript, declarations, and declaration maps generated from
   `src/` and shipped to npm. `./invariant` uses the compiled
   `lib/types/dsh-adapter/invariant.js` entry as well.
-- `README.md` and `README_EN.md`: Chinese and English user documentation. Keep
-  behavior, configuration, shortcuts, and limitations synchronized between
-  them.
+- `README.md` and `docs/`: English user documentation. Keep behavior,
+  configuration, shortcuts, and limitations synchronized across the README
+  and the guides under `docs/`.
 
 ## Runtime Shape
 
@@ -363,13 +363,13 @@ the required credentials.
 
 | If you change | Keep these in sync |
 | --- | --- |
-| Plugin config or environment behavior | `src/index.ts`, runtime consumer, `cordis.patch.yml`, `cordis.yml`, `README.md`, `README_EN.md` |
-| Slash commands or shortcuts | `src/commands.ts`, `src/screens/Chat.tsx`, help/input components, both READMEs, relevant skill mapping/tests |
-| Theme contract or persisted theme behavior | `src/theme.ts`, all palettes, theme provider/picker, custom-theme parser, theme verification, both READMEs |
+| Plugin config or environment behavior | `src/index.ts`, runtime consumer, `cordis.patch.yml`, `cordis.yml`, `README.md` |
+| Slash commands or shortcuts | `src/commands.ts`, `src/screens/Chat.tsx`, help/input components, `README.md`, relevant skill mapping/tests |
+| Theme contract or persisted theme behavior | `src/theme.ts`, all palettes, theme provider/picker, custom-theme parser, theme verification, `README.md` |
 | Session/channel behavior | `src/channel.ts`, affected UI projections, compiled output, focused channel/replay regression |
 | Renderer/layout behavior | `src/ink/` or Yoga source, compiled output, CI regressions, focused scroll/resize/PTY probe |
 | Packaged skill | `skills/<name>/SKILL.md`, `src/packaged-skills.ts` assumptions, command prompt/mapping if exposed as a slash command |
-| User-facing documented behavior | Chinese and English READMEs, plus config comments/help text where applicable |
+| User-facing documented behavior | `README.md` and the matching `docs/` guide, plus config comments/help text where applicable |
 | Package version or dependency | `package.json`, `pnpm-lock.yaml`, generated/published artifacts as applicable; do not churn the legacy npm lock incidentally |
 
 ## Git And Release Safety

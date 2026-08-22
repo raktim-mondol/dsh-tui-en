@@ -146,11 +146,12 @@ export function isHiddenCommandName(input: string): boolean {
 }
 
 /**
- * Resolve a command's description in the active UI language. The en text in
- * `LOCAL_COMMANDS` (and the registry's own text for external commands) is
- * the fallback; zh translations live in the i18n dict under
- * `cmd-desc-<name>`. Resolved at call time — components call this during
- * render, so a `/lang` switch repaints descriptions immediately.
+ * Resolve a command's description in the active UI language. The English
+ * text in `LOCAL_COMMANDS` (and the registry's own text for external
+ * commands) is the source of truth; a `cmd-desc-<name>` dict entry, if
+ * present, can override it. Plugin-supplied `descriptions` still consult
+ * the active language code (`zh` remains a compatibility alias). Resolved
+ * at call time so a `/lang` switch repaints immediately.
  * @param command - The command whose description to localize.
  */
 export function localizedDescription(command: LocalCommand & { descriptionKey?: string }): string {

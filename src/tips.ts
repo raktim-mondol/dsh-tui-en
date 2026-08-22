@@ -390,7 +390,7 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'disp-lang',
     group: 'display',
-    en: '/lang zh|en switches UI language instantly',
+    en: 'The UI is English; /lang zh is a compatibility alias',
   },
   {
     id: 'disp-activity',

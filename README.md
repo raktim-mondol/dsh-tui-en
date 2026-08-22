@@ -39,8 +39,8 @@ the interface, and removing it leaves no core modifications behind.
   command and file completion, `@` file references (complete anywhere; text
   files attach content, directories attach listings, and PNG/JPEG/WebP/GIF are
   sent as durable image blocks), history
-  search, message selection, inline or alternate-screen rendering, and `/lang`
-  zh/en UI language switching.
+  search, message selection, inline or alternate-screen rendering, and an
+  English UI (`/lang zh` remains a compatibility alias and still shows English).
 - **Visible agent state**: live activity, segmented context usage, TPS, cache
   hit rate, reasoning effort, input/output tokens, and Git/session metadata.
 - **Complete session workflow**: `/resume`, `/new`, `/workspace`, `/compact`, `/export`, the
@@ -176,7 +176,7 @@ so keep using `Ctrl`.
 |---|---|
 | Session | `/new` new session · `/resume` session browser (search, preview, cross-project, sub-agent runs folded) · `/rename` rename session · `/workspace resume|rename|open` manage workspaces · `/clear` clear screen · `/compact` compact · `/export` export Markdown · `/trace` trace timeline (or `Ctrl+T`) · `/rewind` rewind picker (same as double-`Esc` on empty input) · `/btw <question>` side question (never interrupts the main turn, writes no history) |
 | Status | `/context` loaded-context details · `/status` session info · `/cost` token usage · `/doctor` environment self-check · `/config` configuration sources · `/init` create AGENTS.md · `/settings` settings panel (namespace read/edit) |
-| Model | `/model` picker (**switching = fork continuation, history preserved**) · `/effort` reasoning effort (slider / `status` / `<id>`) · `/preset` agent preset (**cannot switch once the session has started** — blank-only) · `/thinking` thinking display · `/tokens` token details · `/activity` working animation (`frames <name>` / `status`) · `/theme` theme picker · `/lang` zh/en UI switch (also selectable in `/settings`) |
+| Model | `/model` picker (**switching = fork continuation, history preserved**) · `/effort` reasoning effort (slider / `status` / `<id>`) · `/preset` agent preset (**cannot switch once the session has started** — blank-only) · `/thinking` thinking display · `/tokens` token details · `/activity` working animation (`frames <name>` / `status`) · `/theme` theme picker · `/lang` reports the UI language (English; `/lang zh` is a compatibility alias) |
 | Accounts/Policy | `/provider` add a model provider · `/login` credential status · `/logout` logout notes · `/permissions` permission notes · `/add-dir` file-policy scope · `/hooks` · `/mcp` |
 | Skills | `/audit` code audit · `/bug` bug report · `/review` code review · `/practice` coding practice · `/pr_comments` PR comments · `/release-notes` release notes · `/vuln-check` vulnerability check |
 | Other | `/agents` subagent list · `/skills` skills directory · `/plugins check <path>` plugin diagnostics · `/update` auto-update and restart · `/vim` · `/terminal-setup` · `/connect` · `/help` · `/exit` (aliases `/quit` `/q`) |
@@ -197,7 +197,7 @@ so keep using `Ctrl`.
 | [Contributing](docs/contributing.md) | Contribution workflow, repository map, build artifacts, verification matrix, change rules |
 | [Plugin development](docs/plugins.md) | Plugin seams (session events / slots / skills / themes / prompt sections), contract, conventions, listing |
 
-The complete bilingual index is [`docs/README.md`](docs/README.md).
+The complete documentation index is [`docs/README.md`](docs/README.md).
 
 ## Configuration & Extensions
 

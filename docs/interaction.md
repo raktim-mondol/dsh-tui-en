@@ -74,11 +74,11 @@ the prompt sends a real image block. The prompt never contains base64.
 
 ## Interface language
 
-`/lang` toggles the UI between Simplified Chinese and English (affects all UI
-strings); the choice persists across restarts (0.3.7+). The **dsh-tui →
-Language** select in `/settings` switches it too (applies immediately and saves
-to `dsh-tui.lang` in `~/.dsh/settings.yaml`; the `DSH_TUI_LANG` env var always
-wins).
+The interface is English. `/lang` reports the current language code and still
+accepts `/lang en` or `/lang zh` so a persisted `zh` preference does not error,
+but TUI strings stay English either way. The **dsh-tui → Language** select in
+`/settings` offers English only. The `DSH_TUI_LANG` env var always wins over
+`dsh-tui.lang` in `~/.dsh/settings.yaml`, `cordis.yml`, and `~/.dsh-tui/lang.json`.
 
 ## Message delivery semantics
 
@@ -314,10 +314,10 @@ The protocol offers only "allow once / deny" — there is **no "always allow"**.
 ## Slash commands
 
 The command menu merges local commands with the DSH command registry. Type `/`
-to inspect the complete surface available in the current composition. Command
-descriptions follow the UI language (`/lang`): built-in commands and mapped
-registry commands (`/plan`, `/goal`, `/feedback`) show Chinese translations in
-zh; unmapped registry commands fall back to the registry's own text.
+to inspect the complete surface available in the current composition. Built-in
+and mapped registry commands (`/plan`, `/goal`, `/feedback`) use their English
+description text; unmapped registry commands fall back to the registry's own
+text.
 
 | Group | Commands |
 | --- | --- |
@@ -341,7 +341,8 @@ Additional forms:
 - `/effort` opens the reasoning-effort slider (←/→ adjusts live);
   `/effort <id>` sets a level directly; `/effort status` reports the current one.
 - `/theme <name>` and `/theme status` are described in the theme guide.
-- `/lang` toggles the interface language (see “Interface language”).
+- `/lang` reports the UI language (see “Interface language”). `/lang zh` is a
+  compatibility alias and still shows English.
 - `/compact` compresses the session history; unavailable under the minimal
   preset (bash + editor only).
 - `/thinking` toggles extended reasoning display; UI state only — **not

@@ -673,7 +673,7 @@ const dict = {
   'cmd-desc-workspace-open': 'Open a path or workspace URI',
   // ── /lang command ───────────────────────────────────────────────────
   'lang-current': 'Current language  {{lang}}',
-  'lang-switch-hint': 'Switch      /lang en | /lang zh',
+  'lang-switch-hint': 'Switch      /lang en | /lang zh (zh is English-compat)',
   'lang-persist-hint': 'Persisted    ~/.dsh-tui/lang.json (survives restart; DSH_TUI_LANG wins)',
   'lang-switched': 'Language switched: {{lang}} (saved)',
   'lang-unknown': 'Unknown language "{{lang}}" · /lang to view all (en / zh)',

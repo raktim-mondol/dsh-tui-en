@@ -228,8 +228,8 @@ responds
 
 The command menu = built-in commands (50) + DSH registry commands (`/plan`
 `/goal`, etc.) + the skill catalog (completion only, hidden from the `/help`
-menu). `/lang` switches the interface and command descriptions between
-Chinese and English.
+menu). The interface is English; `/lang zh` is a compatibility alias and
+still shows English.
 
 ### 3.1 Session
 
@@ -272,7 +272,7 @@ Chinese and English.
 | `/activity` | `frames <name>` / `status` | Working-activity row animation: no args = picker; `frames` lists all presets; `frames <name>` sets it directly. 30 frame names (`random` for a random pick, plus `claude/star2/sand/triangle/box/box2/corners/point/layer/flip/aesthetic/hamburger/moon/moon8/comet/breathe/dots/arrow/spark/bar/braille/arc/circle/grow/noise/bounce/rainbow/dqpb/toggle`; default `moon8`). Persisted to `~/.dsh-tui/working-activity.json` |
 | `/preset` | `<id>` / `status` | Switch agent preset: official `standard` / `code` / `minimal` / `cordis` + the TUI-bundled **Liangshen mode `liangshen`** + user-defined presets; **cannot be switched once the session has started** (blank-only lock). Persisted to `~/.dsh-tui/agent-preset.json` |
 | `/theme` | `<name>` / `status` | Theme: no args = picker; `<name>` switches directly; `status` shows the current theme (with the OSC 11 resolution result when set to auto). Persisted to `~/.dsh-tui/theme.json` |
-| `/lang` | `en` / `zh` / `status` | Hot-switch the interface language. Priority: `DSH_TUI_LANG` > settings.yaml > cordis.yml > persisted choice |
+| `/lang` | `en` / `zh` / `status` | Report the UI language (English). `zh` is a compatibility alias. Priority: `DSH_TUI_LANG` > settings.yaml > cordis.yml > persisted choice |
 
 ### 3.4 Account / Policy / Extensions
 
@@ -554,7 +554,7 @@ takes effect live) has 19 fields:
 
 | Field | Notes |
 |---|---|
-| lang | Interface language en/zh (locked when `DSH_TUI_LANG` is pinned) |
+| lang | UI language code (`en`; `zh` is a compatibility alias). Locked when `DSH_TUI_LANG` is pinned |
 | whale | The pixel whale header animation on the splash screen (on by default) |
 | diffLayout | Edit/Write diff layout: auto (two-column at ≥110 columns) / split / unified |
 | thinkingFold | Thinking blocks: preview (2-3 line streaming preview + folds once settled) / full (stays expanded to end of turn) |
@@ -590,7 +590,7 @@ sessionId / modes
 | Agent preset | `/preset` | `standard` / `code` / `minimal` / `cordis` + **Liangshen mode `liangshen`**; **cannot be switched once the session has started** (blank-only) |
 | Theme | `/theme` | `auto` (follows the terminal background via OSC 11) / `light` / `dark` / `dark-ansi`; `/theme <name>` switches directly; `/theme status` shows the resolution result |
 | Custom theme | manual | `~/.dsh-tui/themes/<name>.json`, `{base, colors}` format, hot-switches on selection; a theme named `auto` is shadowed by the built-in one |
-| Language | `/lang` | Hot-switch between `en` / `zh`; priority `DSH_TUI_LANG` > settings.yaml > cordis.yml > persisted choice |
+| Language | `/lang` | English UI; `/lang zh` is a compatibility alias. Priority `DSH_TUI_LANG` > settings.yaml > cordis.yml > persisted choice |
 | Status-row animation | `/activity` | Picker, or `/activity frames <name>`; 30 frame names (default `moon8`, `random` for a random pick) |
 
 **Theme priority**: `DSH_TUI_THEME` > `~/.dsh-tui/theme.json` > OSC 11
@@ -625,8 +625,8 @@ at startup if they're still set).
    type `/` to see all commands — both support Tab completion.
 2. Not sure the environment is set up right? Run `/doctor` first; use
    `/status` for the full session picture.
-3. Switch the interface language with `/lang en|zh` — takes effect
-   immediately and persists.
+3. The interface is English. `/lang` reports the language code; `/lang zh`
+   is accepted for compatibility and still shows English.
 
 **Efficiency**
 4. **While the model is working**: `Enter` slips in a next step (steer),

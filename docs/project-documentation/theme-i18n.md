@@ -2,8 +2,11 @@
 
 This document covers the Gentle Mist Blue theme family (three built-in
 palettes + user-defined themes), startup resolution and hot /theme
-switching, plus the en/zh bilingual i18n system and hot /lang switching.
-All line numbers are relative to the audit baseline b2f4087.
+switching, plus the English-only i18n dictionary and `/lang` compatibility
+alias. All line numbers are relative to the audit baseline b2f4087; the
+i18n section below is updated for the current English-only fork (the
+baseline originally documented a bilingual `{zh, en}` dict with zh as
+default).
 
 ## Theme family and key surface
 
@@ -67,7 +70,7 @@ borrow/release that garbled the echoed reply).
 | /theme | `/theme <name>` | setTheme switches directly | same |
 | /theme | bare /theme | Opens the ThemePicker selector (no dedicated shortcut; Enter confirms/Esc cancels) | same |
 | /lang | `/lang status` | Shows the current language (bare /lang does the same) | src/screens/Chat.tsx:372-407 |
-| /lang | `/lang en\|zh` | writeLangPref persists first → setLang hot-switches | same |
+| /lang | `/lang en\|zh` | writeLangPref persists first → setLang hot-switches; `zh` is a compatibility alias and TUI strings stay English | same |
 | /lang | `/lang help` | Help | same |
 
 The /theme switch chain
@@ -108,25 +111,29 @@ colors }:
   regression script), run directly via `node --import tsx/esm
   scripts/verify-themes.mjs`.
 
-## The i18n system (#22, commit 283aba1)
+## The i18n system (#22, commit 283aba1; English-only fork)
 
-- A flat dict: **215 keys in total** (counted programmatically), each key a
-  {zh, en} string pair, zh by default (src/i18n.ts:30-279); t(key, params)
-  substitutes {{name}} placeholders, rendering the key itself when it's
-  missing — "a typo is visible in the UI instead of silently blank"
-  (src/i18n.ts:13-17,322-328).
-- A 5-tier language-resolution chain (src/i18n.ts:5-11,372-382):
-  `CC_TUI_LANG` env → the `lang` cordis.yml key → the persisted /lang
-  choice in ~/.dsh-cc/lang.json → OS locale (LC_ALL/LC_MESSAGES/LANG) → zh.
-- Settled at startup (src/plugin.ts:40-45): setLang runs before the first
-  render (env > config.lang > resolveStartupLang()) — "Must settle before
-  the first render so every module resolves strings in the same language".
-- Hot-switching at runtime (src/i18n.ts:305-308): setLang walks listeners;
-  Chat re-renders the whole UI via useSyncExternalStore(subscribeLang,
-  getLang) (src/screens/Chat.tsx:119-120); non-React modules like
-  src/channel.ts call t() at the call site.
-- Persisted to ~/.dsh-cc/lang.json (src/i18n.ts:336-365); parseLangPref only
-  accepts zh/en.
+- A flat dict: key → English string. `t(key, params)` substitutes
+  `{{name}}` placeholders, rendering the key itself when it's missing —
+  "a typo is visible in the UI instead of silently blank" (`src/i18n.ts`).
+  `LANGS` ships only `en`. A persisted `zh` code is still accepted by
+  `isLang` / `/lang zh` for compatibility, but dictionary lookups always
+  return these English strings.
+- A 5-tier language-resolution chain (`src/i18n.ts`):
+  `DSH_TUI_LANG` env → the `lang` cordis.yml key → the persisted `/lang`
+  choice in `~/.dsh-tui/lang.json` → OS locale (`LC_ALL` / `LC_MESSAGES` /
+  `LANG`) → `en`. `detectLocaleLang()` always returns `en` in this build
+  (including an absent locale or the POSIX/C locale).
+- Settled at startup: `setLang` runs before the first render (env >
+  config.lang > resolveStartupLang()) so every module resolves strings
+  from the same dictionary.
+- Hot-switching at runtime: `setLang` walks listeners; Chat re-renders
+  via `useSyncExternalStore(subscribeLang, getLang)`; non-React modules
+  call `t()` at the call site. Switching to `zh` still notifies
+  subscribers (plugin-supplied `descriptions.zh` may appear) but TUI
+  dict copy stays English.
+- Persisted to `~/.dsh-tui/lang.json`; `parseLangPref` accepts `zh`/`en`.
+  Settings Language (`LANGS`) offers English only.
 
 ## Conflicts
 

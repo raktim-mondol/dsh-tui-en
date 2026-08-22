@@ -709,10 +709,11 @@ export function Chat({
         return true
       }
       case 'lang': {
-        // `/lang` shows the current UI language, `/lang en|zh` switches
-        // (hot-swap, persisted to ~/.dsh-tui/lang.json). Precedence on next
-        // launch: DSH_TUI_LANG > settings.yaml `dsh-tui.lang` > cordis.yml
-        // `lang` > the persisted choice.
+        // `/lang` shows the current UI language code. `/lang en|zh` persists
+        // the code (hot-swap, ~/.dsh-tui/lang.json); `zh` is a compatibility
+        // alias and the TUI strings stay English. Precedence on next launch:
+        // DSH_TUI_LANG > settings.yaml `dsh-tui.lang` > cordis.yml `lang` >
+        // the persisted choice.
         const parts = rawInput.trim().split(/\s+/).filter(Boolean)
         if (parts[0] === 'status') {
           setHelpOpen(false)
