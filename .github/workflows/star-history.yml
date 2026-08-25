@@ -28,7 +28,7 @@ jobs:
   star-history:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
       - name: Switch to the chart-only branch (based on the latest main, synced with the remote)

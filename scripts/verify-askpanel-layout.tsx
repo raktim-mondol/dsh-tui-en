@@ -13,13 +13,14 @@ export {} // Module boundary: avoids top-level await/globals clashing with other
 
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }, { settle }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
   import('../src/ui.js'),
   import('../src/screens/Chat.js'),
   import('../src/dsh-adapter/questions.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -154,8 +155,8 @@ for (const [name, rows] of [['short session', shortRows], ['tall transcript', ta
   )
   await sleep(600)
   void store.ask({ questions: [EXACT_QUESTION] } as never)
-  await sleep(600)
-  check(`static render (${name})`, screen())
+  await settle(() => REQUIRED.every(t => screen().includes(t)))
+  check(`静态渲染（${name}）`, screen())
   app.unmount()
   await sleep(100)
 }
@@ -213,8 +214,8 @@ for (const [name, rows] of [['short session', shortRows], ['tall transcript', ta
     stdout.emit('resize')
     await sleep(90)
   }
-  await sleep(800)
-  check('after resize storm (130x42)', screen())
+  await settle(() => REQUIRED.every(t => screen().includes(t)))
+  check('resize 风暴后（130x42）', screen())
   app.unmount()
   await sleep(100)
 }

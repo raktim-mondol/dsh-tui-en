@@ -114,37 +114,42 @@ markTeardown + unmount and never enters the user-exit/update sequence;
 
 ## Confirmed defects
 
-**DSH_CC_UPDATED_FROM is read at the wrong point in time**
-(src/update.ts:232):
+**DSH_CC_UPDATED_FROM 取值时点错误**（原 src/update.ts:232）——**已修复**：
+现代码在 `runProcess(update)` 之前捕获 `updatedFrom`（updateTuiAndRestart
+开头，注释引用 issue #307），重启 env 复用该捕获值；verify-update.mjs
+的 `stamp:` 两项断言锁定该顺序。本文行号仍以审计基线 b2f4087 为准。
 
-- Design intent (src/plugin.ts:47-48's comment): the marker is meant to be
-  "the version it was leaving behind" (the pre-update version), warning
-  only when "the freshly loaded one is not newer".
-- Actual code: `installedTuiVersion()` is evaluated only **after**
-  `await runProcess(dsh, ...update --latest...)` completes — by then the
-  disk already has the new version, so the marker = the new version.
-- Consequence: after a successful update, the restart-time check of
-  `isVersionNewer(now, updatedFrom)` is necessarily false, so the "version
-  unchanged" warning **fires the same way after every successful update**;
-  that warning is only supposed to fire in a stale-mirror/failure scenario.
+## 2026-08-24 修复（issues #479/#483）
 
-The static ordering evidence is clear; the runtime consequence needs an
-actual run to confirm (the internal pnpm behavior of dsh plugin update is
-an external implementation detail of the dsh CLI, which a read-only audit
-can't verify), so the evidence tier is strong indication.
+- **#479（Linux 必现 ERR_PNPM_EEXIST）**：pnpm `importPackage` 的确定性
+  暂存目录名（`_tmp_<pid>_<threadId>`）使同一次 update 内第二次 swap
+  撞名，Linux overlayfs 报 EEXIST——必现、非瞬时，普通重试永远失败。
+  修复分两层：`isEexistTmpRenameFailure()` 识别该签名（与 #225 的
+  ENOENT/EPERM/EBUSY 瞬时族分开）；`removeStalePackageInstall()` 清除
+  profile 内陈旧包目录（`$DSH_HOME ?? ~/.dsh`/profiles/<name>/…，
+  junction/symlink 只摘链接不穿越目标树）与同级 `dsh-tui_tmp_<pid>_<tid>`
+  残留暂存目录后重跑——issue 实测验证的恢复路径。#225 瞬时族直接重试
+  失败后同样升级到该恢复。
+- **#483-1（更新重启后键盘失灵）**：/update 重启尾部从裸
+  `runProcess(inherit)` 换为复用泛化后的 `restartTui(sessionId,
+  { kind: 'update' })`——获得 /restart 同款加固：等待替代进程自然退出、
+  stdin watchdog 周期性 re-assert detach、stderr 捕获与快速死亡同步
+  报告、restart.log 诊断（事件前缀 `update-restart:`；kind 'update' 不
+  设 DSH_TUI_RESTART_CHILD 标记）。
+- **#483-2（启动器同步提示命令在 npm 12 崩溃，#459）**：
+  `update-launcher-align-unknown` / `update-launcher-outdated` 的手动
+  命令加 `--legacy-peer-deps`（全局启动器是瘦壳，跳过全局 peer 解析
+  安全）。
 
 ## Regression verification
 
-`scripts/verify-update.mjs`: 25 checks, making pure-function assertions
-against the compiled output lib/types/update.js (a real compiled lib, no
-network, no subprocess; :27-29), exiting non-zero on any failure
-(:206-210), mounted in CI (.github/workflows/ci.yml:43-45). Covers:
-installedTuiVersion's dual layout + rejecting a foreign manifest (4),
-registry resolution across both env spellings/npmrc/default (4), strict
-semver greater-than (5), resolveDshProfileName's five forms (5), shellQuote's
-three cases (3), source-text assertions (4: pnpm --latest is present, the
-P1 dsh.cmd spawn requests a shell, the P1 node-restart spawn requests no
-shell — the space-safe execution path).
+`scripts/verify-update.mjs`：57 项 check，对编译产物 lib/types/update.js 做
+纯函数断言（真实编译 lib、无网络、无子进程；:27-29），任一失败非零退出
+（:206-210），挂 CI（.github/workflows/ci.yml:43-45）。覆盖：installedTuiVersion 双布局+外来
+manifest 拒绝（4）、registry 解析 env 两种拼写/npmrc/默认（4）、semver 严格
+大于（5）、resolveDshProfileName 五种形态（5）、shellQuote 三种（3）、源码
+文本断言（4：pnpm --latest 存在、P1 dsh.cmd spawn 请求 shell、P1 node 重启
+spawn 无 shell——空间安全执行路径）。
 
 ## Conflicts
 

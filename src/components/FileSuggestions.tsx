@@ -2,6 +2,8 @@ import React from 'react'
 import { Text } from '../ui.js'
 import { stringWidth } from '../ink/stringWidth.js'
 import { truncateToWidth } from '../ink/truncateToWidth.js'
+import type { Color } from '../ink/styles.js'
+import type { Theme } from '../theme.js'
 import type { FileCandidate } from '../utils/fileSuggestions.js'
 import { t } from '../i18n.js'
 import { POINTER } from '../cc/figures.js'
@@ -30,13 +32,20 @@ export function FileSuggestions({
   columns,
   query = '',
   accent,
+  onPick,
+  onWheelStep,
 }: {
   files: readonly FileCandidate[]
   selectedIndex: number
   columns: number
   /** The query already typed in the `@` trigger token (`mention.query`), used to highlight the matching name prefix. */
   query?: string
-  accent?: 'promptBorder' | 'planMode'
+  accent?: keyof Theme | Color
+  /** 鼠标点击行（fullscreen）：上报过滤后列表的绝对索引（与键盘
+   *  selectedIndex 同一索引空间），接受路径由 PromptInput 复用。 */
+  onPick?: (index: number) => void
+  /** 滚轮步进（fullscreen）：±1 移动选中行。 */
+  onWheelStep?: (step: 1 | -1) => void
 }): React.ReactNode {
   if (files.length === 0) return null
 
@@ -80,6 +89,8 @@ export function FileSuggestions({
       columns={columns}
       accent={accent}
       footer={footer}
+      onRowPick={onPick ? index => onPick(startIndex + index) : undefined}
+      onWheelStep={onWheelStep}
       rows={visible.map(file => {
         const isSelected = file.id === files[safeIndex]?.id
         const name = nameOf(file)

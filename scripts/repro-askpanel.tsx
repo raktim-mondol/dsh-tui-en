@@ -8,12 +8,13 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
   import('../src/ui.js'),
   import('../src/components/questions/AskUserQuestionPanel.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const COLS = 90
@@ -36,10 +37,7 @@ const stdin = new FakeStdin()
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 /** The real terminal screen, line by line. */
 function screen(): string {
-  const buf = term.buffer.active
-  const lines: string[] = []
-  for (let y = 0; y < ROWS; y++) lines.push(buf.getLine(y)?.translateToString(true) ?? '')
-  return lines.join('\n')
+  return viewportLines(term, ROWS).join('\n')
 }
 
 let answer: unknown
@@ -61,7 +59,7 @@ const app = await render(
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
 )
-await sleep(300)
+await settle(() => screen().includes('自定义回答') && screen().includes('输入文字附带回答'))
 
 let failures = 0
 const results: string[] = []
@@ -78,7 +76,7 @@ check('hint says you can type an attached answer', s1.includes('Type text to att
 // 2. Type on the focused "I have one" option: text lands in the input row, the
 //    option list stays (no jump), and the label is attached.
 stdin.write('sk-test123')
-await sleep(300)
+await settle(() => screen().includes('sk-test123') && screen().includes('（附加：我有）'))
 const s2 = screen()
 check('typed text appears on the input row', s2.includes('sk-test123'))
 check('view does not jump (option list still visible)', s2.includes("I don't"))
@@ -86,7 +84,7 @@ check('input row shows attached label I have one', s2.includes('(attached: I hav
 
 // 3. Enter right there → the answer carries BOTH the label and the text.
 stdin.write('\r')
-await sleep(300)
+await settle(() => answer !== undefined)
 const a1 = answer as { selected?: string[]; custom?: string } | undefined
 check('submit carries both selected + custom', a1?.selected?.join() === 'I have one' && a1?.custom === 'sk-test123')
 
@@ -99,16 +97,16 @@ app.rerender(
     question: { question: 'Anything else to add?', options: [{ label: 'Yes' }, { label: 'No' }] },
   }),
 )
-await sleep(300)
+await settle(() => screen().includes('还有别的要说吗？'))
 stdin.write('[B') // ↓
 stdin.write('[B') // ↓ → input row
 await sleep(200)
-stdin.write('just rambling')
-await sleep(200)
+stdin.write('随便说说')
+await settle(() => screen().includes('随便说说'))
 const s4 = screen()
 check('inline edit on the input row (view still does not jump)', s4.includes('just rambling') && s4.includes('No'))
 stdin.write('\r')
-await sleep(300)
+await settle(() => answer !== undefined)
 const a2 = answer as { selected?: string[]; custom?: string } | undefined
 check('input-row submit is pure custom (no label)', a2?.selected?.length === 0 && a2?.custom === 'just rambling')
 
@@ -126,13 +124,13 @@ app.rerender(
     },
   }),
 )
-await sleep(300)
-stdin.write(' ') // check Sweet
+await settle(() => screen().includes('要哪些口味？'))
+stdin.write(' ') // check 甜
 await sleep(150)
-stdin.write('less sugar')
-await sleep(200)
+stdin.write('少放糖')
+await settle(() => screen().includes('少放糖'))
 stdin.write('\r')
-await sleep(300)
+await settle(() => answer !== undefined)
 const a3 = answer as { selected?: string[]; custom?: string } | undefined
 check('multi-select: checked label + text submitted together', a3?.selected?.join() === 'Sweet' && a3?.custom === 'less sugar')
 

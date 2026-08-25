@@ -14,12 +14,13 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
   import('../src/ui.js'),
   import('../src/components/questions/AskUserQuestionPanel.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const COLS = 90
@@ -41,10 +42,7 @@ const stdout = new FakeStdout()
 const stdin = new FakeStdin()
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 function screen(): string {
-  const buf = term.buffer.active
-  const lines: string[] = []
-  for (let y = 0; y < ROWS; y++) lines.push(buf.getLine(y)?.translateToString(true) ?? '')
-  return lines.join('\n')
+  return viewportLines(term, ROWS).join('\n')
 }
 
 let answer: unknown
@@ -58,7 +56,7 @@ const app = await render(
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
 )
-await sleep(200)
+await settle(() => screen().includes('占位'))
 
 let failures = 0
 const check = (name: string, ok: boolean, extra = '') => {
@@ -67,9 +65,13 @@ const check = (name: string, ok: boolean, extra = '') => {
 }
 const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-/** Remount the panel with a fresh question (key forces clean state). */
+/**
+ * Remount the panel with a fresh question (key forces clean state). `ready`
+ * is polled until the new panel's distinctive content is parsed (the old
+ * fixed 200ms could sample a half-parsed screen on slow runners).
+ */
 let mountSeq = 0
-async function mount(question: Record<string, unknown>): Promise<void> {
+async function mount(question: Record<string, unknown>, ready: () => boolean): Promise<void> {
   answer = undefined
   cancelled = false
   app.rerender(React.createElement(AskUserQuestionPanel, {
@@ -79,7 +81,7 @@ async function mount(question: Record<string, unknown>): Promise<void> {
     onCancel: () => { cancelled = true },
     question,
   }))
-  await sleep(200)
+  await settle(ready)
 }
 
 // ── 1. Pure multiple-choice + hideCustomInput ─────────────────────────
@@ -87,33 +89,37 @@ await mount({
   question: 'Which model provider do you want to add?',
   options: [{ label: 'Built-in provider' }, { label: 'Custom API endpoint' }],
   hideCustomInput: true,
-})
-check('1 hide: no "Custom answer" input row', !screen().includes('Custom answer'))
-check('1 hide: hint has no input prompt', !screen().includes('Type answer') && !screen().includes('Type text to attach an answer'))
-check('1 hide: options render normally', screen().includes('Built-in provider') && screen().includes('Custom API endpoint'))
+}, () => screen().includes('内置 provider') && !screen().includes('自定义回答'))
+check('1 hide: 无「自定义回答」输入行', !screen().includes('自定义回答'))
+check('1 hide: hint 无输入提示', !screen().includes('输入回答') && !screen().includes('输入文字附带回答'))
+check('1 hide: 选项照常渲染', screen().includes('内置 provider') && screen().includes('自定义 API 端点'))
 
-stdin.write('\x1b[B') // ↓ → second item
+// Tab/可打印字符「应被忽略」是状态不得改变的稳定性探针：轮询已成立条件会
+// 立即返回等于没测，键间保留固定窗口。
+stdin.write('\x1b[B') // ↓ → 第二项
 await sleep(100)
 stdin.write('\t')    // Tab should be ignored (no input row to jump to)
 await sleep(100)
 stdin.write('x')     // printable characters should be ignored
 await sleep(100)
-stdin.write('\r')    // Enter submits the focused item
-await sleep(200)
-check('1 hide: Enter only submits selected, no custom',
-  eq(answer, { selected: ['Custom API endpoint'] }), JSON.stringify(answer))
+stdin.write('\r')    // Enter 提交焦点项
+await settle(() => eq(answer, { selected: ['自定义 API 端点'] }))
+check('1 hide: Enter 只提交 selected，无 custom',
+  eq(answer, { selected: ['自定义 API 端点'] }), JSON.stringify(answer))
 
 // ── 2. Text-only question with no options + hideCustomInput (hide must be ignored)
 await mount({
   question: 'Enter your API key',
   hideCustomInput: true,
-})
-check('2 text-only: hide is ignored, input row stays', screen().includes('Custom answer'))
+  // patchConsole 会把前面 check 消息（含「自定义回答」字样）渲染进终端，
+  // 只盯它会立即返回——用新题独有的问题文本当挂载完成信号。
+}, () => screen().includes('输入 API key'))
+check('2 text-only: hide 被忽略，输入行仍在', screen().includes('自定义回答'))
 stdin.write('sk-secret')
-await sleep(100)
+await settle(() => screen().includes('sk-secret'))
 stdin.write('\r')
-await sleep(200)
-check('2 text-only: text submits normally',
+await settle(() => eq(answer, { selected: [], custom: 'sk-secret' }))
+check('2 text-only: 文本照常提交',
   eq(answer, { selected: [], custom: 'sk-secret' }), JSON.stringify(answer))
 
 // ── 3. Multi-select without hide (the model-selection question shape): default behavior does not regress
@@ -121,15 +127,17 @@ await mount({
   question: 'Select the models to enable',
   options: [{ label: 'deepseek-chat' }, { label: 'deepseek-reasoner' }],
   multiSelect: true,
-})
-check('3 multi: input row stays', screen().includes('Custom answer'))
-stdin.write(' ')      // check the first item
+  // 上一屏已含「自定义回答」，settle 只盯它会立即返回——加新题独有的选项
+  // 文本当挂载完成信号。
+}, () => screen().includes('deepseek-chat') && screen().includes('自定义回答'))
+check('3 multi: 输入行保留', screen().includes('自定义回答'))
+stdin.write(' ')      // 勾选第一项
 await sleep(100)
-stdin.write('extra-model') // supplement via the input row
-await sleep(100)
+stdin.write('extra-model') // 输入行补充
+await settle(() => screen().includes('extra-model'))
 stdin.write('\r')
-await sleep(200)
-check('3 multi: checkbox selection + custom text both take effect',
+await settle(() => eq(answer, { selected: ['deepseek-chat'], custom: 'extra-model' }))
+check('3 multi: 勾选 + 自定义补充同时生效',
   eq(answer, { selected: ['deepseek-chat'], custom: 'extra-model' }), JSON.stringify(answer))
 
 app.unmount()

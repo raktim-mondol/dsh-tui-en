@@ -81,6 +81,7 @@ const [
   { createChannel },
   { listWindow },
   { ListItem },
+  { settle, viewportLines },
 ] = await Promise.all([
   import('node:stream'),
   import('react'),
@@ -91,6 +92,7 @@ const [
   import('../src/dsh-adapter/channel.js'),
   import('../src/components/listWindow.js'),
   import('../src/components/design-system/ListItem.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const COLS = 100
@@ -264,11 +266,12 @@ for (const c of winCases) {
     </Box>,
     { stdout: new FakeStdout2(), stdin: new FakeStdin(), stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
   )
-  await sleep(300)
-  const lines2: string[] = []
-  for (let y = term2.buffer.active.baseY; y < term2.buffer.active.baseY + ROWS; y++) {
-    lines2.push(term2.buffer.active.getLine(y)?.translateToString(true) ?? '')
-  }
+  // 落定：等全部标记行（M0..M4）上屏再取快照断言（原固定 300ms）。
+  await settle(() => {
+    const ls = viewportLines(term2, ROWS)
+    return ['M0', 'M1', 'M2', 'M3', 'M4'].every(m => ls.some(l => l.includes(m)))
+  })
+  const lines2 = viewportLines(term2, ROWS)
   const rowOf2 = (needle: string) => lines2.findIndex(l => l.includes(needle))
   check('contract: top-level string newline flattening (exactly 1 row)',
     rowOf2('M1') === rowOf2('M0') + 2 && (lines2[rowOf2('M0') + 1] ?? '').includes('Foo Bar'),
@@ -357,15 +360,15 @@ const typeKeys = async (s: string, stepMs = 40) => {
   await typeKeys('/model')
   await sleep(200)
   stdin.write('\r')
-  await sleep(600)
-  // Focus starts on the current model model-00 (index 0): even at 2 rows per item it must stay on screen.
-  check('/model focus 0 on-screen (with description, 2 rows per item)', focusLineVisible('Model 00'))
-  check('/model opening causes zero buffer growth', term.buffer.active.length === bufBefore,
+  await settle(() => focusLineVisible('Model 00'))
+  // 焦点初始落在当前模型 model-00（索引 0）：每项 2 行也必须留在屏内。
+  check('/model 焦点 0 在屏（带描述，每项 2 行）', focusLineVisible('Model 00'))
+  check('/model 打开缓冲区零增长', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('model focus 0')
   for (let i = 0; i < 20; i++) { stdin.write('\x1b[B'); await sleep(25) }
-  await sleep(400)
-  check('/model ↓×20 focus 20 on-screen', focusLineVisible('Model 20'))
+  await settle(() => focusLineVisible('Model 20'))
+  check('/model ↓×20 焦点 20 在屏', focusLineVisible('Model 20'))
   dump('model focus 20')
   stdin.write('\x1b')
   await sleep(400)
@@ -375,23 +378,22 @@ const typeKeys = async (s: string, stepMs = 40) => {
 {
   const bufBefore = term.buffer.active.length
   stdin.write('\x12') // ctrl+r
-  await sleep(500)
-  // History newest→oldest: the newest entry is the '/model' really typed in
-  // the previous phase (appendHistory persisted it), followed by the
-  // pre-seeded histcmd-29…00. Focus 0 = '/model'.
-  check('ctrl+r focus 0 on-screen (2-row items + gap)', focusLineVisible('/model'))
-  check('ctrl+r opening causes zero buffer growth', term.buffer.active.length === bufBefore,
+  await settle(() => focusLineVisible('/model'))
+  // 历史新→旧：最新一条是上一阶段真实键入的 '/model'（appendHistory 落盘），
+  // 之后才是预置的 histcmd-29…00。焦点 0 = '/model'。
+  check('ctrl+r 焦点 0 在屏（2 行项 + gap）', focusLineVisible('/model'))
+  check('ctrl+r 打开缓冲区零增长', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('history focus 0')
-  stdin.write('\x1b[A') // ↑ wraps from 0 to the last item
-  await sleep(300)
-  check('ctrl+r ↑ wraps to the last item, focus on-screen', focusLineVisible('histcmd-00'))
-  stdin.write('\x1b[B') // ↓ wraps back to 0
+  stdin.write('\x1b[A') // ↑ 从 0 回绕到末项
+  await settle(() => focusLineVisible('histcmd-00'))
+  check('ctrl+r ↑ 回绕末项焦点在屏', focusLineVisible('histcmd-00'))
+  stdin.write('\x1b[B') // ↓ 回绕回 0
   await sleep(200)
   for (let i = 0; i < 15; i++) { stdin.write('\x1b[B'); await sleep(25) }
-  await sleep(300)
-  // Index 15 = histcmd-15 (index 0 is '/model', index 1 is histcmd-29).
-  check('ctrl+r ↓×15 focus 15 on-screen', focusLineVisible('histcmd-15'))
+  await settle(() => focusLineVisible('histcmd-15'))
+  // 索引 15 = histcmd-15（索引 0 是 '/model'，索引 1 才是 histcmd-29）。
+  check('ctrl+r ↓×15 焦点 15 在屏', focusLineVisible('histcmd-15'))
   dump('history focus 15')
   stdin.write('\x1b')
   await sleep(400)
@@ -407,7 +409,11 @@ const typeKeys = async (s: string, stepMs = 40) => {
   await typeKeys('/theme')
   await sleep(200)
   stdin.write('\r')
-  await sleep(600)
+  await settle(() => {
+    const ls = screenLines()
+    const row = ls.findIndex(l => l.includes('Foo Bar NL'))
+    return row !== -1 && (ls[row] ?? '').includes('██')
+  })
   const lines = screenLines()
   const nameRow = lines.findIndex(l => l.includes('Foo Bar NL'))
   check('/theme newline displayName renders on one line with the swatch',
@@ -426,22 +432,22 @@ const typeKeys = async (s: string, stepMs = 40) => {
   stdin.write('\x1b') // double-Esc (empty input) opens rewind
   await sleep(100)
   stdin.write('\x1b')
-  await sleep(600)
-  // Focus 0 = the newest user message; the first item carries a 'last message' description (2 rows).
-  check('rewind focus 0 on-screen (first item 2 rows)', focusLineVisible('rewind message 29'))
-  check('rewind first item description row on-screen', screenLines().some(l => l.includes('last message')))
-  check('rewind opening causes zero buffer growth', term.buffer.active.length === bufBefore,
+  await settle(() => focusLineVisible('rewind 消息 29'))
+  // 焦点 0 = 最新用户消息；首项带 'last message' 描述（2 行）。
+  check('rewind 焦点 0 在屏（首项 2 行）', focusLineVisible('rewind 消息 29'))
+  check('rewind 首项描述行在屏', screenLines().some(l => l.includes('最近一条消息')))
+  check('rewind 打开缓冲区零增长', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('rewind focus 0')
-  stdin.write('\x1b[A') // ↑ wraps to the last item = the oldest one
-  await sleep(300)
-  check('rewind ↑ wraps to the last item, focus on-screen', focusLineVisible('rewind message 00'))
-  stdin.write('\x1b[B') // ↓ wraps back to 0
+  stdin.write('\x1b[A') // ↑ 回绕到末项 = 最老一条
+  await settle(() => focusLineVisible('rewind 消息 00'))
+  check('rewind ↑ 回绕末项焦点在屏', focusLineVisible('rewind 消息 00'))
+  stdin.write('\x1b[B') // ↓ 回绕回 0
   await sleep(200)
   for (let i = 0; i < 15; i++) { stdin.write('\x1b[B'); await sleep(25) }
-  await sleep(300)
-  // Index 15 = rewind message 14 (index 0 is the newest, 29).
-  check('rewind ↓×15 focus 15 on-screen', focusLineVisible('rewind message 14'))
+  await settle(() => focusLineVisible('rewind 消息 14'))
+  // 索引 15 = rewind 消息 14（索引 0 是最新的 29）。
+  check('rewind ↓×15 焦点 15 在屏', focusLineVisible('rewind 消息 14'))
   dump('rewind focus 15')
   stdin.write('\x1b')
   await sleep(400)

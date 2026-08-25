@@ -43,9 +43,13 @@ function sourceLabel(source: string): string {
 export function SkillsPicker({
   skills,
   focusIndex,
+  onPick,
 }: {
   skills: readonly SkillInfo[]
   focusIndex: number
+  /** Mouse pick (fullscreen): clicked row's absolute index (Chat applies
+   *  the same code path as the keyboard Enter). */
+  onPick?: (index: number) => void
 }): React.ReactNode {
   const { rows: terminalRows } = useTerminalSize()
   // Each item always takes 2 rows (body + source/summary description row, both truncated to a single line).
@@ -75,6 +79,7 @@ export function SkillsPicker({
                 description={`${sourceLabel(skill.source)}${skill.description === '' ? '' : ` · ${skill.description}`}`}
                 showScrollUp={absoluteIndex === start && start > 0}
                 showScrollDown={absoluteIndex === end - 1 && end < skills.length}
+                onClick={onPick ? () => onPick(absoluteIndex) : undefined}
               >
                 {skill.userInvocable ? `/${skill.name}` : skill.name}
               </ListItem>

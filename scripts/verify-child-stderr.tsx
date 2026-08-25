@@ -19,6 +19,7 @@ process.env.DSH_TUI_LANG = 'zh'
 
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { settle } from './lib/term-test.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -90,37 +91,43 @@ async function runDriver(): Promise<void> {
   reporter.push(failing)
   reporter.push(failing)
   reporter.push(failing)
+  // 稳定性探针（不得多出通知）：settle 会在第一条通知出现时立即返回，
+  // 测不到「只出一条」的上界——保留固定窗口。
   await sleep(150)
   check('dedup: three identical lines produce one notice', notices.length === 1)
   check('dedup: notice carries a repeat count (repeated 3×)', notices[0]?.includes('repeated 3×') ?? false)
 
   reporter.push(failing)
+  // 稳定性探针（冷却期内不得出新通知）：条件在 push 前就成立，轮询等于
+  // 没测——保留固定窗口。
   await sleep(150)
   check('cooldown: a just-notified line stays silent during cooldown', notices.length === 1)
 
+  // 纯排序等待：冷却窗口是墙钟时间，没有可观察的状态翻转——保留。
   await sleep(400)
   reporter.push(failing)
-  await sleep(150)
-  check('cooldown ended: the same line can notify again', notices.length === 2)
+  await settle(() => notices.length === 2)
+  check('冷却结束：同一行可再次通知', notices.length === 2)
 
   reporter.push('Usage: tsx proxy.ts <url>')
-  await sleep(150)
-  check('distinct lines each become their own notice', notices.length === 3 && (notices[2]?.includes('Usage:') ?? false))
+  await settle(() => notices.length === 3 && (notices[2]?.includes('Usage:') ?? false))
+  check('不同的行各自成条通知', notices.length === 3 && (notices[2]?.includes('Usage:') ?? false))
 
   reporter.push('\x1b[31mred-line\x1b[39m')
-  await sleep(150)
+  await settle(() => (notices.at(-1) ?? '').includes('red-line') && !(notices.at(-1) ?? '').includes('\x1b'))
   const ansiNotice = notices.at(-1) ?? ''
   check('ANSI escapes are stripped', ansiNotice.includes('red-line') && !ansiNotice.includes('\x1b'))
 
   const longLine = 'x'.repeat(100)
   reporter.push(longLine)
-  await sleep(150)
+  await settle(() => (notices.at(-1) ?? '').includes('…') && !(notices.at(-1) ?? '').includes(longLine))
   const longNotice = notices.at(-1) ?? ''
   check('over-long line is truncated (with an ellipsis)', longNotice.includes('…') && !longNotice.includes(longLine))
 
   const countBefore = notices.length
   reporter.push('   ')
   reporter.push('')
+  // 稳定性探针（空行不得产生通知）：条件在 push 前就成立——保留固定窗口。
   await sleep(150)
   check('empty / whitespace-only lines are dropped', notices.length === countBefore)
 

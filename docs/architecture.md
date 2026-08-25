@@ -6,14 +6,14 @@
 
 ```text
 Cordis profile
-  -> src/index.ts (plugin contract and Schema)
-  -> src/plugin.ts (services, Agent, and React lifecycle)
+  -> src/index.ts（插件契约与 Schema）
+  -> src/dsh-adapter/plugin.ts（服务、Agent、React 生命周期）
   -> DSH Agent / session / tool services
-  -> src/channel.ts (session/event -> Channel)
-  -> src/screens/Chat.tsx (keyboard and mode orchestration)
-  -> src/components/* (views)
-  -> src/ui.ts (themed renderer facade)
-  -> src/ink/* + Yoga (layout, terminal protocol, differential output)
+  -> src/dsh-adapter/channel.ts（session/event -> Channel）
+  -> src/screens/Chat.tsx（键盘与模式编排）
+  -> src/components/*（视图）
+  -> src/ui.ts（主题化 renderer facade）
+  -> src/ink/* + Yoga（布局、终端协议、差分输出）
   -> ANSI terminal
 ```
 
@@ -21,16 +21,16 @@ Cordis profile
 
 | Module | Owns |
 | --- | --- |
-| `src/index.ts` | Cordis plugin name, injection declaration, config interface, and Schema; keep the entry small and lazy |
-| `src/plugin.ts` | TTY guard, questionnaire/skill registration, Agent create/resume, React mount, and the single cleanup funnel |
-| `src/channel.ts` | DSH event projection plus submit, steer, resume, rewind, model, and preset actions |
-| `src/workspaces.ts` | Local-path fallback and generic workspace-provider registry; it must contain no provider protocol, copy, or dependency |
-| `src/screens/Chat.tsx` | Modal precedence, global keys, scroll/search/selection state, and slash dispatch |
-| `src/components/` | User views and design-system primitives; no Agent or session source of truth |
-| `src/ui.ts` | Themed `Box`/`Text`, render, selection, scroll, and other public TUI primitives |
-| `src/ink/` | Ported Ink renderer, terminal protocol, events, selection, and Yoga bridge; sensitive infrastructure |
-| `src/native-ts/yoga-layout/` | Pure JS/TS layout implementation |
-| `cordis.patch.yml` | Profile bundle layer, service rows, overrides, and mount ordering |
+| `src/index.ts` | Cordis 插件名称、注入声明、配置接口与 Schema；保持入口轻量并延迟加载 runtime |
+| `src/dsh-adapter/plugin.ts` | TTY 检查、问卷与 Skills 注册、Agent 创建/恢复、React 挂载、统一退出清理 |
+| `src/dsh-adapter/channel.ts` | 将 DSH 持久化事件投影为 transcript；提供 submit、steer、resume、rewind、model/preset 等动作 |
+| `src/workspaces.ts` | 本地路径 fallback 与通用工作区 provider registry；不得包含任何 provider 的协议、文案或依赖 |
+| `src/screens/Chat.tsx` | modal 优先级、全局按键、滚动/搜索/选择状态、slash command 分发 |
+| `src/components/` | 用户界面和 design-system；不直接拥有 Agent 或 session 真相 |
+| `src/ui.ts` | 主题化 `Box`/`Text`、render、选择、滚动等公共 facade |
+| `src/ink/` | 移植的 Ink renderer、终端协议、事件、选择与 Yoga 桥接；属于敏感底层设施 |
+| `src/native-ts/yoga-layout/` | 纯 JS/TS 布局实现 |
+| `cordis.patch.yml` | profile bundle 层；决定服务行、覆盖关系与挂载顺序 |
 
 Do not duplicate DSH Agent, session, or tool services in a component. Connect new
 capability through an existing service, registry, or channel seam.

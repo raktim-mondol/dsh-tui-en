@@ -14,12 +14,13 @@ import { format } from 'util';
 import { colorize } from './colorize.js';
 import App from './components/App.js';
 import type { CursorDeclaration, CursorDeclarationSetter } from './components/CursorDeclarationContext.js';
-import { FRAME_INTERVAL_MS } from './constants.js';
+import { FRAME_INTERVAL_MS, PTY_BACKLOG_BYTES } from './constants.js';
 import * as dom from './dom.js';
+import { beginGeometryFrame, endGeometryFrame, GEOMETRY_TRACE_ENABLED, noteFrameCause } from './geometry-trace.js';
 import { KeyboardEvent } from './events/keyboard-event.js';
 import { FocusManager } from './focus.js';
 import { emptyFrame, type Frame, type FrameEvent } from './frame.js';
-import { dispatchClick, dispatchHover } from './hit-test.js';
+import { dispatchClick, dispatchHover, dispatchWheel, clearHovered } from './hit-test.js';
 import { logMouseDebug } from '../utils/debug.js';
 import instances from './instances.js';
 import { suppressInputFor } from './input-suppression.js';
@@ -35,10 +36,11 @@ import createRenderer, { type Renderer } from './renderer.js';
 import { CellWidth, CharPool, cellAt, createScreen, HyperlinkPool, isEmptyCellAt, migrateScreenPools, StylePool } from './screen.js';
 import { applySearchHighlight } from './searchHighlight.js';
 import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, pickFollowForSelection, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
-import { isDecstbmSafe, SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
+import { isDecstbmSafe, SYNC_OUTPUT_SUPPORTED, serializeDiff, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
 import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ENABLE_WIN32_INPUT_MODE, ERASE_SCREEN, ERASE_SCROLLBACK, SGR_RESET } from './termio/csi.js';
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, SHOW_CURSOR } from './termio/dec.js';
 import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, setClipboard, supportsTabStatus, wrapForMultiplexer } from './termio/osc.js';
+import { decrqm } from './terminal-querier.js';
 import { TerminalWriteProvider } from './useTerminalNotification.js';
 
 // Alt-screen: renderer.ts sets cursor.visible = !isTTY || screen.height===0,
@@ -351,9 +353,32 @@ export default class Ink {
     // settling). Same-dimension events are no-ops; skip to avoid redundant
     // frame resets and renders.
     if (cols === this.terminalColumns && rows === this.terminalRows) return;
+    noteFrameCause('resize');
     this.terminalColumns = cols;
     this.terminalRows = rows;
     this.altScreenParkPatch = makeAltScreenParkPatch(this.terminalRows);
+    // Reflow moved every rect the pointer state was tracking: hover sets
+    // and the multi-click chain reference pre-resize geometry. Fire the
+    // leave handlers FIRST — a bare clear() strands the crossed rows'
+    // hovered=true React state forever (stuck highlights) — then drop the
+    // set so a post-resize click is a fresh single click and hover re-fires
+    // from scratch. (Coordinates in in-flight events are clamped at the
+    // App boundary against the new dimensions.)
+    clearHovered(this.hoveredNodes);
+    this.app?.resetPointerState();
+
+    // Invalidate every render that was scheduled against the OLD size: a
+    // queued microtask generation or a scroll-drain timer would otherwise
+    // fire after this resize completes and paint a frame computed for the
+    // pre-resize layout (mixed-width rows, off-by-reflow writes). The
+    // re-render below schedules fresh work at the new dimensions.
+    this.renderGeneration++;
+    this.pendingRenderGeneration = null;
+    this.scheduleRender.cancel?.();
+    if (this.drainTimer !== null) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
 
     // Every cached measurement in the tree was taken against a width that no
     // longer exists. Nothing here is "dirty" in the reconciler's sense — no
@@ -376,9 +401,12 @@ export default class Ink {
     // doesn't exit alt-screen. Do NOT write ERASE_SCREEN: render() below
     // can take ~80ms; erasing first leaves the screen blank that whole time.
     if (this.altScreenActive && !this.isPaused && this.options.stdout.isTTY) {
-      if (this.altScreenMouseTracking) {
-        this.options.stdout.write(ENABLE_MOUSE_TRACKING);
-      }
+      // Blind mouse re-assert + 1049 probe: conpty resets modes on resize
+      // too, and a dropped 1049 means every subsequent frame paints onto
+      // the MAIN screen (looks like the app spontaneously exited
+      // fullscreen). The probe's re-entry is gated on a positive DECRPM
+      // "reset" answer, so this stays inert on healthy terminals.
+      this.probeAltScreenHealth();
       this.resetFramesForAltScreen();
       this.needsEraseBeforePaint = true;
     }
@@ -509,10 +537,12 @@ export default class Ink {
    */
   reanchorViewport() {
     if (this.altScreenActive) return;
+    noteFrameCause('reanchor');
     this.log.requestViewportReanchor();
   }
   /** Render synchronously and invalidate older trailing/drain callbacks. */
   private renderNow(): void {
+    noteFrameCause('immediate');
     this.renderGeneration++;
     this.pendingRenderGeneration = null;
     this.scheduleRender.cancel?.();
@@ -522,10 +552,50 @@ export default class Ink {
     }
     this.onRender();
   }
+
+  /**
+   * Schedule the next scroll-drain frame — Grok Build's Presenter, ported.
+   * Grok keeps TWO cadence knobs (min_draw_ms for renders, scroll_ms for
+   * scroll); collapsing both to FRAME_INTERVAL_MS made big flicks steppy
+   * (the proportional step, 75%-of-remaining, × 4× the interval = chunky
+   * ramp and ~4× longer settle), so the drain keeps its own fast cadence:
+   *
+   *  - CADENCE: quarter interval (~250fps). Drain frames are cheap
+   *    (DECSTBM + ~10 patches); scroll throughput is unchanged.
+   *  - IN-FLIGHT GATE: while stdout still holds unflushed bytes above
+   *    PTY_BACKLOG_BYTES (slow ConPTY round trip, ssh link), queue nothing
+   *    further — re-probe at quarter interval instead. Grok's equivalent
+   *    (in_flight_target + writer ack) exists to keep latency bounded
+   *    under exactly this backpressure; without it each stacked frame adds
+   *    its full render+write to the input→paint latency, which reads as
+   *    sticky, laggy scrolling on Windows terminals.
+   *
+   * The gate holds only DRAIN frames; React-driven renders (keystrokes,
+   * streaming) still render via the normal throttle — user-visible updates
+   * must never wait behind scroll output.
+   */
+  private scheduleDrain(): void {
+    if (this.drainTimer !== null) return;
+    const stdout = this.options.stdout;
+    const backlog =
+      typeof (stdout as { writableLength?: number }).writableLength === 'number'
+        ? (stdout as { writableLength: number }).writableLength
+        : 0;
+    if (backlog > PTY_BACKLOG_BYTES) {
+      this.drainTimer = setTimeout(() => {
+        this.drainTimer = null;
+        this.scheduleDrain();
+      }, FRAME_INTERVAL_MS >> 2);
+      return;
+    }
+    this.drainTimer = setTimeout(this.renderNow, FRAME_INTERVAL_MS >> 2);
+  }
+
   onRender() {
     if (this.isUnmounted || this.isPaused) {
       return;
     }
+    if (GEOMETRY_TRACE_ENABLED) beginGeometryFrame(this.renderGeneration);
     // Entering a render cancels any pending drain tick — this render will
     // handle the drain (and re-schedule below if needed). Prevents a
     // wheel-event-triggered render AND a drain-timer render both firing.
@@ -539,9 +609,27 @@ export default class Ink {
     // Done before the render to avoid dirtying state that would trigger
     // an extra React re-render cycle.
     flushInteractionTime();
+
+    // Dimension consistency: onComputeLayout laid the tree out against
+    // this.terminalColumns/Rows (the cached values handleResize owns), so
+    // the renderer and the diff engine MUST paint that same size. Reading
+    // the live stdout size here mixed the two when a resize event had not
+    // fired yet (Windows Terminal emits 'resize' after columns already
+    // changed): Yoga laid out for the old width while log-update wrapped
+    // and diffed at the new one — rows painted off by the reflow delta.
+    // On drift, route through the resize path (cache sync + markTreeDirty
+    // + re-render) and bail: the render handleResize schedules paints the
+    // correctly-laid-out frame.
+    const liveColumns = this.options.stdout.columns || 80;
+    const liveRows = this.options.stdout.rows || 24;
+    if (this.options.stdout.isTTY && (liveColumns !== this.terminalColumns || liveRows !== this.terminalRows)) {
+      this.handleResize();
+      return;
+    }
+
     const renderStart = performance.now();
-    const terminalWidth = this.options.stdout.columns || 80;
-    const terminalRows = this.options.stdout.rows || 24;
+    const terminalWidth = this.terminalColumns;
+    const terminalRows = this.terminalRows;
     const frame = this.renderer({
       frontFrame: this.frontFrame,
       backFrame: this.backFrame,
@@ -879,18 +967,16 @@ export default class Ink {
     this.prevFrameContaminated = selActive || hlActive;
 
     // A ScrollBox has pendingScrollDelta left to drain — schedule the next
-    // frame. MUST NOT call this.scheduleRender() here: we're inside a
-    // trailing-edge throttle invocation, timerId is undefined, and lodash's
-    // debounce sees timeSinceLastCall >= wait (last call was at the start
-    // of this window) → leadingEdge fires IMMEDIATELY → double render ~0.1ms
-    // apart → jank. Use a plain timeout. If a wheel event or immediate
-    // render arrives first, renderNow cancels this timer — no double.
-    //
-    // Drain frames are cheap (DECSTBM + ~10 patches, ~200 bytes) so run at
-    // quarter interval (~250fps, setTimeout practical floor) for max scroll
-    // speed. Regular renders stay at FRAME_INTERVAL_MS via the throttle.
+    // frame via scheduleDrain (cadence + pty backpressure gate, see there).
+    // MUST NOT call this.scheduleRender() here: we're inside a trailing-edge
+    // throttle invocation, timerId is undefined, and lodash's debounce sees
+    // timeSinceLastCall >= wait (last call was at the start of this window)
+    // → leadingEdge fires IMMEDIATELY → double render ~0.1ms apart → jank.
+    // If a wheel event or immediate render arrives first, renderNow cancels
+    // this timer — no double.
     if (frame.scrollDrainPending) {
-      this.drainTimer = setTimeout(this.renderNow, FRAME_INTERVAL_MS >> 2);
+      noteFrameCause('scroll-drain');
+      this.scheduleDrain();
     }
     const yogaMs = getLastYogaMs();
     const commitMs = getLastCommitMs();
@@ -904,6 +990,7 @@ export default class Ink {
       cacheHits: 0,
       live: 0
     };
+    endGeometryFrame(performance.now() - renderStart);
     this.options.onFrame?.({
       durationMs: performance.now() - renderStart,
       phases: {
@@ -1025,6 +1112,14 @@ export default class Ink {
     if (this.altScreenActive === active) return;
     this.altScreenActive = active;
     this.altScreenMouseTracking = active && mouseTracking;
+    // Screen geometry/context just changed wholesale: hover sets, the
+    // multi-click chain, and any pending hyperlink open belong to the old
+    // screen. Fire leave handlers before dropping the set — a bare clear()
+    // strands the old screen's rows with hovered=true forever (stuck
+    // highlights). Stale clickCount would turn the first click into a
+    // double-click; stale hovered nodes would suppress real onMouseEnter.
+    clearHovered(this.hoveredNodes);
+    this.app?.resetPointerState();
     if (active) {
       this.mainScreenFrameState = {
         frontFrame: this.frontFrame,
@@ -1078,6 +1173,10 @@ export default class Ink {
    */
   reassertTerminalModes = (includeAltScreen = false): void => {
     if (!this.options.stdout.isTTY) return;
+    // Shutdown latch: the >5s idle-gap trigger (or an event-loop stall
+    // detector firing during the dispose window) must not re-assert mouse
+    // tracking after the exit cleanup disabled it (issue #522).
+    if (this.isUnmounted) return;
     // Don't touch the terminal during an editor handoff — re-enabling kitty
     // keyboard here would undo enterAlternateScreen's disable and nano would
     // start seeing CSI-u sequences again.
@@ -1106,10 +1205,10 @@ export default class Ink {
       this.renderNow();
       return;
     }
-    // Mouse tracking — idempotent, safe to re-assert on every stdin gap.
-    if (this.altScreenMouseTracking) {
-      this.options.stdout.write(ENABLE_MOUSE_TRACKING);
-    }
+    // Mouse tracking + alt-screen health — the probe re-asserts mouse
+    // blindly (idempotent) and re-enters alt only if the terminal answers
+    // DECRPM with "1049 reset".
+    this.probeAltScreenHealth();
     // Alt-screen re-entry — destructive (ERASE_SCREEN). Only for callers that
     // have a strong signal the terminal actually dropped mode 1049.
     if (includeAltScreen) {
@@ -1133,6 +1232,10 @@ export default class Ink {
     // Cancel any pending throttled render so it doesn't fire between
     // cleanupTerminalModes() and process.exit() and write to main screen.
     this.scheduleRender.cancel?.();
+    if (this.drainTimer !== null) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
     this.app?.detachForShutdown();
     // Shutdown bypasses the normal unmount path, so release the process and
     // stdout listeners here as well. Otherwise a SIGCONT or resize arriving
@@ -1140,6 +1243,11 @@ export default class Ink {
     // through this detached instance after terminal cleanup has completed.
     this.unsubscribeTTYHandlers?.();
     this.unsubscribeExit();
+    // unmount() early-returns on isUnmounted above, so its instances.delete
+    // never runs — a detached instance would stay in the map and a later
+    // instances.get(stdout) lookup (Chat's reanchorViewport plumbing) could
+    // hand out a dead renderer. Remove the mapping here too.
+    instances.delete(this.options.stdout);
     // `detachForShutdown()` deliberately makes later `unmount()` calls a
     // no-op, so release process-level output patches here rather than relying
     // on unmount() to do it. The shutdown continuation may run an updater
@@ -1208,6 +1316,62 @@ export default class Ink {
   }
 
   /**
+   * Self-heal after a terminal-side mode reset. Windows conpty drops DEC
+   * private modes on DPI changes, window moves between monitors and renderer
+   * restarts — the user sees the app "exit fullscreen" with a dead mouse
+   * while altScreenActive still claims we are in alt. Two layers:
+   *
+   * 1. Blind, idempotent mouse-tracking re-assert (covers the mode reset
+   *    without a round trip; ~30 bytes).
+   * 2. DECRQM probe of mode 1049. Re-entry (destructive: ERASE) happens
+   *    ONLY on a positive "reset" answer, so iTerm2's
+   *    enter-clears-when-already-in-alt quirk can never fire on a healthy
+   *    screen, and terminals that ignore DECRQM stay inert.
+   *
+   * Called from every interaction dispatch (click/hover/wheel/key) plus the
+   * focus/resize/stdin-gap triggers. The 250ms throttle keeps the round
+   * trip bounded while active use is going on — a dropped 1049 heals on
+   * the FIRST interaction after the drop instead of waiting for a focus
+   * event or a >5s idle gap (mouse motion keeps lastStdinTime fresh, so
+   * the gap path never fires during active use — the exact pattern that
+   * left the app broken until the user gave up).
+   */
+  private lastHealthProbeAt = 0;
+  probeAltScreenHealth = (): void => {
+    // Shutdown latch: during the dispose window after detachForShutdown
+    // (up to the 5s fallback exit) stray input, focus, resize or a pending
+    // DECRPM reply would otherwise re-write ENABLE_MOUSE_TRACKING AFTER the
+    // exit cleanup's DISABLE_MOUSE_TRACKING — the mouse-reporting residue
+    // the shell then echoes as SGR garbage (issue #522). isUnmounted is set
+    // by detachForShutdown() before any cleanup sequence is written.
+    if (this.isUnmounted) return;
+    const now = Date.now();
+    if (now - this.lastHealthProbeAt < 250) return;
+    this.lastHealthProbeAt = now;
+    if (!this.options.stdout.isTTY || this.isPaused || !this.altScreenActive) return;
+    if (this.altScreenMouseTracking) {
+      this.options.stdout.write(ENABLE_MOUSE_TRACKING);
+    }
+    const querier = this.app?.querier;
+    if (querier === undefined) return;
+    void Promise.all([querier.send(decrqm(1049)), querier.flush()]).then(([reply]) => {
+      // DECRPM status: 1/3 = set, 2/4 = reset, 0/undefined = unknown.
+      // Heal only on a POSITIVE reset — an unanswered probe must not
+      // trigger the destructive re-entry.
+      if (reply !== undefined && (reply.status === 2 || reply.status === 4)) {
+        this.reenterAltScreen();
+      }
+    }).catch(() => {
+      /* probe is best-effort; the next trigger retries */
+    });
+  };
+
+  /** Refocus = first observable moment after a conpty-side mode reset. */
+  handleTerminalFocusProbe = (focused: boolean): void => {
+    if (focused) this.probeAltScreenHealth();
+  };
+
+  /**
    * Re-enter alt-screen, clear, home, re-enable mouse tracking, and reset
    * frame buffers so the next render repaints from scratch. Self-heal for
    * SIGCONT, resize, and stdin-gap/event-loop-stall (sleep/wake) — any of
@@ -1215,6 +1379,11 @@ export default class Ink {
    * stays true. ENTER_ALT_SCREEN is a terminal-side no-op if already in alt.
    */
   private reenterAltScreen(): void {
+    // Same shutdown latch as probeAltScreenHealth: a DECRPM reply resolving
+    // after detachForShutdown (or a SIGCONT racing unmount) must not re-enter
+    // the alt screen or re-enable mouse tracking past the exit cleanup
+    // (issue #522).
+    if (this.isUnmounted) return;
     this.options.stdout.write(ENTER_ALT_SCREEN + ERASE_SCREEN + CURSOR_HOME + (this.altScreenMouseTracking ? ENABLE_MOUSE_TRACKING : ''));
     this.resetFramesForAltScreen();
   }
@@ -1509,22 +1678,53 @@ export default class Ink {
    * Returns true if a DOM handler consumed the click. Gated on
    * altScreenActive — clicks only make sense with a fixed viewport where
    * nodeCache rects map 1:1 to terminal cells (no scrollback offset).
+   * The button byte is the raw SGR release code; its modifier bits land
+   * on ClickEvent.shift/alt/ctrl.
    */
-  dispatchClick(col: number, row: number): boolean {
+  dispatchClick(col: number, row: number, button = 0): boolean {
+    // Interaction-level health probe: the first click after a conpty-side
+    // mode drop triggers the heal (probe is throttled + no-op on healthy
+    // screens). Runs before the gate so a dropped 1049 is re-entered
+    // within a round trip instead of the click silently missing.
+    this.probeAltScreenHealth();
     if (!this.altScreenActive) {
       logMouseDebug('dispatchClick skipped — alt screen inactive', { col, row });
       return false;
     }
     const blank = isEmptyCellAt(this.frontFrame.screen, col, row);
-    const handled = dispatchClick(this.rootNode, col, row, blank);
+    const handled = dispatchClick(this.rootNode, col, row, blank, button);
     logMouseDebug('dispatchClick', { col, row, handled });
     return handled;
   }
+  /**
+   * Route a wheel event to the ScrollBox (any onWheel handler) under the
+   * pointer. Returns true when a handler consumed it, so App can skip the
+   * legacy global wheel-key path and exactly one layer scrolls. Gated on
+   * altScreenActive like dispatchClick — without mouse tracking there are
+   * no wheel coordinates to route by.
+   */
+  dispatchWheelAt(
+    col: number,
+    row: number,
+    deltaY: number,
+    deltaX = 0,
+    button = 0,
+  ): boolean {
+    this.probeAltScreenHealth();
+    if (!this.altScreenActive) return false;
+    const handled = dispatchWheel(this.rootNode, col, row, deltaY, deltaX, button);
+    if (handled) {
+      logMouseDebug('dispatchWheelAt consumed', { col, row, deltaY, deltaX });
+    }
+    return handled;
+  }
   dispatchHover(col: number, row: number): void {
+    this.probeAltScreenHealth();
     if (!this.altScreenActive) return;
     dispatchHover(this.rootNode, col, row, this.hoveredNodes);
   }
   dispatchKeyboardEvent(parsedKey: ParsedKey): void {
+    this.probeAltScreenHealth();
     const target = this.focusManager.activeElement ?? this.rootNode;
     const event = new KeyboardEvent(parsedKey);
     dispatcher.dispatchDiscrete(target, event);
@@ -1704,6 +1904,9 @@ export default class Ink {
   // cascades through useContext → <AlternateScreen>'s useLayoutEffect dep
   // array → spurious exit+re-enter of the alt screen on every SIGWINCH.
   private writeRaw(data: string): void {
+    if (data.includes('\x1b[?1049')) {
+      logMouseDebug('stdout:1049', { len: data.length, head: data.slice(0, 60) });
+    }
     this.options.stdout.write(data);
   }
   private setCursorDeclaration: CursorDeclarationSetter = (decl, clearIfNode) => {
@@ -1717,7 +1920,7 @@ export default class Ink {
   }
   render(node: ReactNode): void {
     this.currentNode = node;
-    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onHoverAt={this.dispatchHover} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
+    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onHoverAt={this.dispatchHover} onWheelAt={this.dispatchWheelAt} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onTerminalFocus={this.handleTerminalFocusProbe} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
         <TerminalWriteProvider value={this.writeRaw}>
           {node}
         </TerminalWriteProvider>
@@ -1732,7 +1935,16 @@ export default class Ink {
     if (this.isUnmounted) {
       return;
     }
-    this.renderNow();
+    // The final frame render is best-effort: a mid-state React commit can
+    // throw (agent still working at the exact exit moment). It must NOT
+    // skip the synchronous cleanup block below — a skipped DISABLE_*
+    // leaves mouse reporting on past process exit, and the shell echoes
+    // SGR garbage for every click/drag/wheel (issue #522).
+    try {
+      this.renderNow();
+    } catch (renderError) {
+      logError(renderError instanceof Error ? renderError : new Error(String(renderError)));
+    }
     this.unsubscribeExit();
     if (typeof this.restoreConsole === 'function') {
       this.restoreConsole();
@@ -1743,43 +1955,57 @@ export default class Ink {
     // Non-TTY environments don't handle erasing ansi escapes well, so it's better to
     // only render last frame of non-static output
     const diff = this.log.renderPreviousOutput_DEPRECATED(this.frontFrame);
-    writeDiffToTerminal(this.terminal, optimize(diff));
+    const lastFrame = serializeDiff(this.terminal, optimize(diff));
 
     // Clean up terminal modes synchronously before process exit.
     // React's componentWillUnmount won't run in time when process.exit() is called,
     // so we must reset terminal modes here to prevent escape sequence leakage.
-    // Use writeSync to stdout (fd 1) to ensure writes complete before exit.
-    // We unconditionally send all disable sequences because terminal detection
-    // may not work correctly (e.g., in tmux, screen) and these are no-ops on
-    // terminals that don't support them.
+    // Use writeSync to the stdout stream's own fd (not a hard-coded 1 — a
+    // host that runs the TUI on a non-1 TTY would drop every sequence while
+    // the enable writes still reach the TTY, issue #522) to ensure writes
+    // complete before exit. We unconditionally send all disable sequences
+    // because terminal detection may not work correctly (e.g., in tmux,
+    // screen) and these are no-ops on terminals that don't support them.
     /* eslint-disable custom-rules/no-sync-fs -- process exiting; async writes would be dropped */
     if (this.options.stdout.isTTY) {
+      // Node's TTY WriteStream exposes .fd; the NodeJS.WriteStream interface
+      // doesn't declare it, hence the local intersection cast.
+      const stdoutWithFd = this.options.stdout as NodeJS.WriteStream & { fd?: number | null };
+      const stdoutFd = typeof stdoutWithFd.fd === 'number' ? stdoutWithFd.fd : 1;
+      // The last frame must land on the ALT screen while it is still up:
+      // writing it through the async stream would race the synchronous
+      // EXIT_ALT_SCREEN below and the frame bytes would arrive AFTER the
+      // switch to the main screen, painting misplaced residue over the
+      // shell (issue #522).
+      if (lastFrame !== '') {
+        writeSync(stdoutFd, lastFrame);
+      }
       if (this.altScreenActive) {
         // <AlternateScreen>'s unmount effect won't run during signal-exit.
         // Exit alt screen FIRST so other cleanup sequences go to the main screen.
-        writeSync(1, EXIT_ALT_SCREEN);
+        writeSync(stdoutFd, EXIT_ALT_SCREEN);
       }
       // Disable mouse tracking — unconditional because altScreenActive can be
       // stale if AlternateScreen's unmount (which flips the flag) raced a
       // blocked event loop + SIGINT. No-op if tracking was never enabled.
-      writeSync(1, DISABLE_MOUSE_TRACKING);
+      writeSync(stdoutFd, DISABLE_MOUSE_TRACKING);
       // Drain stdin so in-flight mouse events don't leak to the shell
       this.drainStdin();
       // Disable extended key reporting (both kitty and modifyOtherKeys)
-      writeSync(1, DISABLE_MODIFY_OTHER_KEYS);
-      writeSync(1, DISABLE_KITTY_KEYBOARD);
+      writeSync(stdoutFd, DISABLE_MODIFY_OTHER_KEYS);
+      writeSync(stdoutFd, DISABLE_KITTY_KEYBOARD);
       // Disable win32-input-mode (no-op where never enabled)
-      writeSync(1, DISABLE_WIN32_INPUT_MODE);
+      writeSync(stdoutFd, DISABLE_WIN32_INPUT_MODE);
       // Disable focus events (DECSET 1004)
-      writeSync(1, DFE);
+      writeSync(stdoutFd, DFE);
       // Disable bracketed paste mode
-      writeSync(1, DBP);
+      writeSync(stdoutFd, DBP);
       // Show cursor
-      writeSync(1, SHOW_CURSOR);
+      writeSync(stdoutFd, SHOW_CURSOR);
       // Clear iTerm2 progress bar
-      writeSync(1, CLEAR_ITERM2_PROGRESS);
+      writeSync(stdoutFd, CLEAR_ITERM2_PROGRESS);
       // Clear tab status (OSC 21337) so a stale dot doesn't linger
-      if (supportsTabStatus()) writeSync(1, wrapForMultiplexer(CLEAR_TAB_STATUS));
+      if (supportsTabStatus()) writeSync(stdoutFd, wrapForMultiplexer(CLEAR_TAB_STATUS));
     }
     /* eslint-enable custom-rules/no-sync-fs */
 
@@ -1901,9 +2127,24 @@ export default class Ink {
         logForDebugging(`[stderr] ${text}`, {
           level: 'warn'
         });
-        if (this.altScreenActive && !this.isUnmounted && !this.isPaused) {
-          this.prevFrameContaminated = true;
-          this.scheduleRender();
+        if (!this.isUnmounted && !this.isPaused) {
+          if (this.altScreenActive) {
+            this.prevFrameContaminated = true;
+            this.scheduleRender();
+          } else {
+            // Main-screen (inline): the diff engine's moves are purely
+            // relative to the physical cursor, so ANY unobserved tty write
+            // (one that slipped through before this patch existed, or via
+            // a path it can't intercept — a snapshotted ESM writer) shifts
+            // every later write by N rows with nothing to detect it after
+            // the fact. The stdin-gap reassert covers slow leaks; this
+            // per-write defensive net closes the fast ones: blind
+            // idempotent viewport repaint from the physical cursor. When
+            // nothing drifted (the usual case — the write was swallowed)
+            // it paints the same pixels again at O(viewport) bytes.
+            this.log.requestViewportReanchor();
+            this.scheduleRender();
+          }
         }
       } finally {
         reentered = false;

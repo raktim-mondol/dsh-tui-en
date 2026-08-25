@@ -6,16 +6,17 @@ Community projects and related tools:
 
 | Project | Link | Notes |
 | --- | --- | --- |
-| **dsh-tui-ecosystem** | <https://github.com/dsh-tui-ecosystem> | dsh-TUI's plugin ecosystem organization: community plugins, templates, and a registry list |
-| **plugin-template** | <https://github.com/dsh-tui-ecosystem/plugin-template> | A plugin development template repo (pairs with the [Plugin development guide](plugins.md)) |
-| **dsplugin.app** | <https://dsplugin.app/plugins/dsh-cc-tui> | This plugin's listing in the DeepSeek Harness community plugin directory |
-| **dshfind** | <https://dshfind.com> | DeepSeek Harness learning and sharing community |
-| **dsh-tui-vscode** | <https://github.com/baobaolaodie/dsh-tui-vscode> | dsh-TUI's VS Code companion extension: backed by a real integrated terminal, an experience almost identical to the official Claude Code extension (on the VS Code Marketplace) |
-| **deepseek-harness-ux** | <https://github.com/ayuanwong/deepseek-harness-ux> | Makes the DeepSeek Harness work process easy to follow |
-| **dsh-tianshu-tui** | <https://github.com/huiliyi37/dsh-tianshu-tui> | Tianshu-styled dsh-tui |
-| **dsh-data-agent** | <https://github.com/omdsh-dev/dsh-data-agent> | Connect AI to your databases |
-| **cc-dsh-notifier** | <https://github.com/baobaolaodie/cc-dsh-notifier> | Native Windows toast notifications and click-to-return when a DeepSeek Harness / Claude Code session loses focus (dual web and dsh-tui profiles) |
-| **YesPlayMusic ypm skill** | <https://github.com/nagi-studio/YesPlayMusic/tree/master/skills/ypm> | Lets a dsh agent control local YesPlayMusic playback: look up the current track, pause/resume, skip (SKILL.md is ready to use) |
+| **dsh-tui-ecosystem** | <https://github.com/dsh-tui-ecosystem> | dsh-TUI 插件生态组织：社区插件、模板与收录列表 |
+| **plugin-template** | <https://github.com/dsh-tui-ecosystem/plugin-template> | 插件开发模板仓库（配合[插件准入与开发指南](https://github.com/T-Auto/dsh-ecosystem-spec/blob/main/docs/plugin-admission-and-development.md)使用） |
+| **dsplugin.app** | <https://dsplugin.app/plugins/dsh-cc-tui> | DeepSeek Harness 社区插件目录中的本插件页 |
+| **dshfind** | <https://dshfind.com> | DeepSeek Harness 的中文学习与分享社区 |
+| **dsh-tui-vscode** | <https://github.com/baobaolaodie/dsh-tui-vscode> | dsh-TUI 的 VS Code companion 扩展：真实集成终端承载，体验与 Claude Code 官方扩展几乎一致（已上架 VS Code Marketplace） |
+| **deepseek-harness-ux** | <https://github.com/ayuanwong/deepseek-harness-ux> | 让你的 DeepSeek Harness 工作过程一目了然！ |
+| **dsh-tianshu-tui** | <https://github.com/huiliyi37/dsh-tianshu-tui> | Tianshu 风格的 dsh-tui |
+| **dsh-data-agent** | <https://github.com/omdsh-dev/dsh-data-agent> | 让 AI 帮你连数据库 |
+| **cc-dsh-notifier** | <https://github.com/baobaolaodie/cc-dsh-notifier> | DeepSeek Harness / Claude Code 会话失焦时的 Windows 原生 Toast 通知与点击跳回（web 与 dsh-tui 双 profile） |
+| **YesPlayMusic ypm skill** | <https://github.com/nagi-studio/YesPlayMusic/tree/master/skills/ypm> | 让 dsh 的 agent 控制本机 YesPlayMusic 音乐播放：查询在放的歌、暂停/继续、切歌（SKILL.md 直接可用） |
+| **dsh-tui-theme** | <https://github.com/xiaoxiaohaigui/dsh-tui-theme> | 樱花粉主题包：昼樱 / 夜樱 / ANSI 三套全键覆盖调色板，终端背景自动跟随（OSC 11，与宿主同阈值），✿ 状态行与 /settings 设置面板（[npm](https://www.npmjs.com/package/dsh-tui-theme)） |
 
 > This page is a list of community and third-party project links. The listed
 > projects and organizations are maintained independently by their own

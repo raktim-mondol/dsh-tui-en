@@ -45,6 +45,7 @@ const [
   { dispatchTuiDecision, normalizeCancelDecision },
   { stringWidth },
   { KNOWN_SESSION_EVENT_TYPES },
+  { settle },
 ] = await Promise.all([
   import('node:stream'),
   import('react'),
@@ -60,6 +61,7 @@ const [
   import('../src/dsh-adapter/extension-events.js'),
   import('../src/ink/stringWidth.js'),
   import('@deepseek-ai/dsh-session'),
+  import('./lib/term-test.mjs'),
 ])
 const { mountAdmitted, testManifest, DECISION_COORDINATE } = await import('./plugin-test-utils.js')
 const pluginHostRow = await import('../src/dsh-adapter/plugin-host.js')
@@ -478,7 +480,7 @@ const plugin = pluginCtx
   let fired = 0
   plugin.tuiShortcuts.register('alt+z', { description: 'fire', handler: () => { fired += 1 } })
   check('tuiShortcuts.dispatch: matching key consumed', shortcutHost.dispatch('z', { meta: true }) === true)
-  await sleep(20)
+  await settle(() => fired === 1)
   check('tuiShortcuts.dispatch: handler ran', fired === 1)
   check('tuiShortcuts.dispatch: non-matching key passes through', shortcutHost.dispatch('q', { ctrl: true }) === false)
 
@@ -490,7 +492,7 @@ const plugin = pluginCtx
     handler: () => { throw new Error('handler exploded') },
   })
   shortcutHost.dispatch('y', { meta: true })
-  await sleep(20)
+  await settle(() => errored === 'alt+y')
   check('tuiShortcuts.dispatch: handler error routed to onError', errored === 'alt+y')
   removeErrorHandler()
 
@@ -626,7 +628,7 @@ const plugin = pluginCtx
     { order: 'ui-observe' },
   )
   await dispatchTuiDecision(guardCtx, 'tui/session-switched', { sessionId: 'ui-session' }, () => undefined)
-  await sleep(20)
+  await settle(() => observed && !guardWarnings.some(line => line.includes('tui/session-switched')))
   check('decision guard: observe-class events stay ungated',
     observed && !guardWarnings.some(line => line.includes('tui/session-switched')))
   observeRelease()
@@ -704,28 +706,28 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
       { id: 'second', label: 'item two', description: 'with description' },
     ],
   })
-  await sleep(300)
+  await settle(() => screen().includes('挑一个') && screen().includes('第二项'))
   check('ui: select dialog renders title + options',
     screen().includes('pick one') && screen().includes('item two'), screen().slice(-200))
   stdin.write('\x1b[B')
   await sleep(150)
   stdin.write('\r')
   check('ui: select ↓+Enter resolves the second id', (await pending) === 'second')
-  await sleep(200)
+  await settle(() => dialogStore.getSnapshot() === null)
   check('ui: dialog closed after settle', dialogStore.getSnapshot() === null)
 }
 
 // FIFO: the second dialog waits for the first to settle. Confirm: Enter = yes.
 {
-  const first = plugin.tuiDialogs.confirm({ title: 'please confirm', message: 'do it?' })
-  const second = plugin.tuiDialogs.select({ title: 'queued pick', options: [{ id: 'only', label: 'only one' }] })
-  await sleep(300)
+  const first = plugin.tuiDialogs.confirm({ title: '确认一下', message: '要做吗' })
+  const second = plugin.tuiDialogs.select({ title: '排队的选择', options: [{ id: 'only', label: '唯一' }] })
+  await settle(() => screen().includes('确认一下') && screen().includes('要做吗'))
   check('ui: confirm renders with message + localized defaults',
     screen().includes('please confirm') && screen().includes('do it?'), screen().slice(-200))
   check('ui: FIFO — second dialog still queued', dialogStore.getSnapshot()?.kind === 'confirm')
   stdin.write('\r') // Enter on Yes → true
   check('ui: confirm Enter resolves true', (await first) === true)
-  await sleep(300)
+  await settle(() => screen().includes('排队的选择'))
   check('ui: queued select now active',
     screen().includes('queued pick'), screen().slice(-200))
   stdin.write('\x1b') // Esc cancels the select
@@ -734,19 +736,19 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 
 // Input: placeholder shown when empty; typed text resolves.
 {
-  const pending = plugin.tuiDialogs.input({ title: 'say something', placeholder: 'placeholder hint', initial: '' })
-  await sleep(300)
-  check('ui: input dialog renders placeholder', screen().includes('placeholder hint'), screen().slice(-200))
-  for (const ch of 'hi') { stdin.write(ch); await sleep(60) }
+  const pending = plugin.tuiDialogs.input({ title: '说点什么', placeholder: '占位提示', initial: '' })
+  await settle(() => screen().includes('占位提示'))
+  check('ui: input dialog renders placeholder', screen().includes('占位提示'), screen().slice(-200))
+  for (const ch of '你好') { stdin.write(ch); await sleep(60) }
   stdin.write('\r')
   check('ui: input Enter resolves the typed text', (await pending) === 'hi')
 }
 
 // Input with initial: pre-filled, edited, submitted.
 {
-  const pending = plugin.tuiDialogs.input({ title: 'edit me', initial: 'original' })
-  await sleep(300)
-  stdin.write('\x7f') // backspace removes the last letter
+  const pending = plugin.tuiDialogs.input({ title: '改改', initial: '原文' })
+  await settle(() => screen().includes('原文'))
+  stdin.write('\x7f') // backspace removes 文
   await sleep(150)
   stdin.write('\r')
   check('ui: input initial pre-fills and edits', (await pending) === 'origina')
@@ -756,9 +758,11 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 // press (isPasted lives on the InputEvent, not the key) — the confirm must
 // survive it, on its default Yes focus.
 {
-  const pending = plugin.tuiDialogs.confirm({ title: 'paste confirm' })
-  await sleep(300)
+  const pending = plugin.tuiDialogs.confirm({ title: '粘贴确认' })
+  await settle(() => screen().includes('粘贴确认'))
   stdin.write('\x1b[200~\r\n\r\n\x1b[201~')
+  // 稳定性探针（对话框不得被粘贴确认掉）：条件在粘贴前就成立，轮询会
+  // 立即返回，测不到「没被误触」——保留固定窗口。
   await sleep(250)
   check('ui: pure-newline paste does NOT confirm the dialog',
     dialogStore.getSnapshot()?.kind === 'confirm')
@@ -771,7 +775,9 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 // flattened, and the whole value is capped at INPUT_CELLS cells so the
 // resolved answer keeps the documented ≤500-cell bound.
 {
-  const pending = plugin.tuiDialogs.input({ title: 'paste input', initial: '' })
+  const pending = plugin.tuiDialogs.input({ title: '粘贴输入', initial: '' })
+  // 排序等待：增量渲染只重绘变化单元格（标题与上一面板共享 '粘贴' 两格），
+  // 帧窗里凑不出完整标题可供 settle——保留固定窗口。
   await sleep(300)
   const chunk = '多行\n粘贴\x07' + '长'.repeat(600) // deliberately CJK/control-byte filler to exercise flattening + the wide-cell cap, not a translation target
   stdin.write(`\x1b[200~${chunk}\x1b[201~`)
@@ -788,10 +794,13 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 // A typed keystroke past the cap is ignored (the panel never grows beyond
 // INPUT_CELLS even without paste).
 {
-  const nearCap = '字'.repeat(250) // 500 cells exactly (wide chars) — deliberately CJK to hit the cell cap, not a translation target
-  const pending = plugin.tuiDialogs.input({ title: 'input at the cap', initial: nearCap })
+  const nearCap = '字'.repeat(250) // 500 cells exactly (wide chars)
+  const pending = plugin.tuiDialogs.input({ title: '顶格输入', initial: nearCap })
+  // 排序等待：同上，增量重绘下标题片段化，无可靠的屏幕观察点——保留。
   await sleep(300)
   stdin.write('x')
+  // 稳定性探针（超上限按键必须被忽略）：值不得变化，轮询等于没测——
+  // 保留固定窗口让误收的 x 有时间落地。
   await sleep(150)
   stdin.write('\r')
   check('ui: typing past the cell cap is ignored',
@@ -810,24 +819,24 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
       { id: 'second', label: 'item two' },
     ],
   })
-  await sleep(300)
+  await settle(() => screen().includes('同批选择'))
   stdin.write('\x1b[B\r') // Down + Enter in one chunk
   check('ui: batched ↓+Enter settles the NEW focus, not the stale one',
     (await pending) === 'second')
   await sleep(200)
 }
 {
-  const pending = plugin.tuiDialogs.confirm({ title: 'same-batch confirm' })
-  await sleep(300)
-  stdin.write('\x1b[C\r') // Right + Enter in one chunk → focus No → false
+  const pending = plugin.tuiDialogs.confirm({ title: '同批确认' })
+  await settle(() => screen().includes('同批确认'))
+  stdin.write('\x1b[C\r') // Right + Enter in one chunk → focus 否 → false
   check('ui: batched →+Enter settles the moved focus', (await pending) === false)
   await sleep(200)
 }
 // Two Backspaces in one chunk must BOTH delete (each seeing the other's
 // result), not compute from the same stale base.
 {
-  const pending = plugin.tuiDialogs.input({ title: 'same-batch backspace', initial: 'abcd' })
-  await sleep(300)
+  const pending = plugin.tuiDialogs.input({ title: '同批退格', initial: 'abcd' })
+  await settle(() => screen().includes('同批退格'))
   stdin.write('\x7f\x7f')
   await sleep(150)
   stdin.write('\r')
@@ -838,7 +847,8 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 // surrogate pair (never a lone half), and arrow keys never land the cursor
 // inside a pair.
 {
-  const pending = plugin.tuiDialogs.input({ title: 'emoji backspace', initial: 'a😊b' })
+  const pending = plugin.tuiDialogs.input({ title: '表情退格', initial: 'a😊b' })
+  // 排序等待：同上，增量重绘下标题片段化，无可靠的屏幕观察点——保留。
   await sleep(300)
   stdin.write('\x1b[D') // left: cursor between 😊 and b
   await sleep(120)
@@ -849,7 +859,8 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
     (await pending) === 'ab')
 }
 {
-  const pending = plugin.tuiDialogs.input({ title: 'emoji clear', initial: '😊' })
+  const pending = plugin.tuiDialogs.input({ title: '表情清空', initial: '😊' })
+  // 排序等待：同上，增量重绘下标题片段化，无可靠的屏幕观察点——保留。
   await sleep(300)
   stdin.write('\x7f') // single backspace at end of the sole emoji
   await sleep(150)
@@ -857,7 +868,8 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
   check('ui: Backspace on the sole emoji empties the value', (await pending) === '')
 }
 {
-  const pending = plugin.tuiDialogs.input({ title: 'emoji step', initial: '😊x' })
+  const pending = plugin.tuiDialogs.input({ title: '表情步进', initial: '😊x' })
+  // 排序等待：同上，增量重绘下标题片段化，无可靠的屏幕观察点——保留。
   await sleep(300)
   // Left ×2 from the end: code-point steps land BEFORE the emoji (a UTF-16
   // step would park the cursor mid-surrogate and split the pair on insert).
@@ -872,14 +884,16 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 
 // Status line: appears on set, disappears on clear.
 {
-  plugin.tuiStatus.set('demo-plugin', 'building 42%')
-  await sleep(300)
-  check('ui: status line renders the contribution', screen().includes('building 42%'), screen().slice(-300))
+  plugin.tuiStatus.set('demo-plugin', '构建中 42%')
+  await settle(() => screen().includes('构建中 42%'))
+  check('ui: status line renders the contribution', screen().includes('构建中 42%'), screen().slice(-300))
   // The incremental renderer only writes diffs: after the clear, assert on
   // frames written FROM the clear on — earlier frames legitimately still
   // contain the set text.
   const mark = stdout.frames.length
   plugin.tuiStatus.set('demo-plugin', undefined)
+  // 稳定性探针（清除后的重绘不得再含该文案）：mark 之后暂无新帧时条件
+  // 空洞成立，轮询会立即返回——保留固定窗口等待重绘发生。
   await sleep(300)
   check('ui: status line clears', !plainText(stdout.frames.slice(mark)).includes('building'))
 }
@@ -892,7 +906,7 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
   plugin.tuiShortcuts.register('alt+p', { description: 'ui fire', handler: () => { fired += 1 } })
   await sleep(100)
   stdin.write('\x1bp') // alt+p
-  await sleep(300)
+  await settle(() => fired >= 1)
   check('ui: plugin shortcut handler fired through Chat', fired >= 1, String(fired))
   check('ui: shortcut keypress never reached submit', channel.submitCalls.length === 0)
 }
@@ -903,9 +917,11 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
 {
   let fired = 0
   plugin.tuiShortcuts.register('alt+b', { description: 'blocked', handler: () => { fired += 1 } })
-  const pending = plugin.tuiDialogs.confirm({ title: 'holds the keyboard' })
-  await sleep(300)
+  const pending = plugin.tuiDialogs.confirm({ title: '占键盘中' })
+  await settle(() => screen().includes('占键盘中'))
   stdin.write('\x1bb') // alt+b — must not reach shortcuts while the dialog is open
+  // 稳定性探针（快捷键不得触发）：fired 本就为 0，轮询会立即返回，
+  // 测不到「没被触发」——保留固定窗口。
   await sleep(200)
   check('ui: open dialog gates plugin shortcuts', fired === 0)
   stdin.write('\x1b')

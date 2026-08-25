@@ -113,18 +113,18 @@ dsh-tui
 
 | Key | Action |
 |---|---|
-| `←` / `→` | Move the cursor by character |
-| `Ctrl+←` / `Ctrl+→` (⌘←/→) | Jump by word |
-| `Home` / `End`, `Ctrl+E` | Logical line start / end (`Ctrl+A` is now used for the subagent panel, see §2.7) |
-| `Ctrl+U` / `Ctrl+K` | Delete before the cursor (to line start) / after the cursor (to line end) |
-| `Ctrl+W` | Delete the previous word |
-| `Backspace` / `Delete` | Delete the previous / next character |
-| `↑` / `↓` | Move between lines when multi-line; browse input history (50 entries) when single-line |
-| `Ctrl+V` (⌘V) | Paste: text / file paths (images auto-become `@` references) / clipboard bitmap (`[Image #N]` attachment) |
-| `Ctrl+G` | Edit the input in an external editor via `$VISUAL`/`$EDITOR` (`:cq` keeps the draft; a hint is shown when neither variable is set) |
-| Right-click / `Ctrl+Shift+V` | Native terminal paste (newlines inserted as-is) |
-| `Esc` (in the input box) | Layered: close help → close command menu → close file menu (current `@` token only) → interrupt and resend → clear input → double-press = time rewind |
-| Double-press `Esc` (empty input) | **Time rewind** (two presses within a 3s window) |
+| `←` / `→` | 按字符移动光标 |
+| `Ctrl+←` / `Ctrl+→`（⌘←/→） | 按词跳转 |
+| `Home` / `End`，`Ctrl+E` | 逻辑行首 / 行尾（`Ctrl+A` 已改用于子代理面板，见 §2.7） |
+| `Ctrl+U` / `Ctrl+K` | 删除光标前（至行首）/ 光标后（至行尾） |
+| `Ctrl+W` | 删除前一个单词 |
+| `Backspace` / `Delete` | 删前一 / 后一字符 |
+| `↑` / `↓` | 多行时行间移动；单行时浏览输入历史（50 条） |
+| `Ctrl+V`（⌘V）/ `Alt+V` | 粘贴：文本 / 文件路径（图片自动 `@` 引用）/ 剪贴板位图（`[Image #N]` 附件）；终端拦截 `Ctrl+V` 时用 `Alt+V` |
+| `Ctrl+G` | 用 `$VISUAL`/`$EDITOR` 外部编辑器编辑输入（`:cq` 保留原稿；未设置变量时提示配置） |
+| 右键 / `Ctrl+Shift+V` | 终端原生粘贴（含换行原样插入） |
+| `Esc`（输入框） | 层级：关帮助 → 关命令菜单 → 关文件菜单（仅当前 `@` token）→ 中断重投 → 有输入清空 → 双击=时间回溯 |
+| 双击 `Esc`（空输入） | **时间回溯 rewind**（3s 窗口内按两次） |
 
 ### 2.5 Navigation / Modes
 
@@ -150,9 +150,8 @@ dsh-tui
 
 ### 2.7 Per-Scene Keybindings
 
-**Questionnaire (model `ask_user_question`)**
-`↑/↓` select · `Space` toggle multi-select · `Tab` switch to custom answer ·
-`Enter` submit · `Esc`/`Ctrl+C` cancel the whole question batch
+**问卷（模型 ask_user_question）**
+`↑/↓` 选择 · `Space` 多选勾选 · `Tab` 切自定义回答 · `Enter` 提交 · 第 2 题起 `Esc` 返回上一题 · 第 1 题 `Esc` 或任意题 `Ctrl+C` 取消整批提问
 
 **Plan review**
 `↑/↓` move · `1`/`2` quick-pick by number (when feedback is empty) · typing =
@@ -235,17 +234,18 @@ still shows English.
 
 | Command | Arguments | Effect |
 |---|---|---|
-| `/new` | none | Start a new session (no confirmation prompt; the old session stays recoverable via `/resume`) |
-| `/resume` | none | Open the session browser (search, preview, cross-project, fold subagent runs) |
-| `/rename` | `<new name>` | Rename the current session (shows the current title and usage when called without an argument) |
-| `/workspace` | `resume` / `rename <name>` / `open <path or URI>` | Manage the workspace; `open` accepts an absolute path, a file URI, or a plugin scheme |
-| `/clear` | none | Clear the current session view (resets expand/selection state) |
-| `/compact` | none | Compact the session history (warns when there's nothing to compact) |
-| `/export` | none | Export the session as Markdown into the working directory |
-| `/btw` | `<question>` | Side question: single turn, no tools, never interrupts the main turn, not written to history |
-| `/trace` | none | Open the trajectory scene (same as `Ctrl+T`) |
-| `/rewind` | none | Rewind selector (same as the double-press-Esc time rewind on an empty input) |
-| `/exit` (alias `/quit` `/q`) | none | Exit dsh-tui |
+| `/new` | 无 | 新开会话（无二次确认；旧会话可 `/resume` 恢复） |
+| `/resume` | 无 | 打开会话浏览器（搜索、预览、跨项目、折叠子 agent 运行） |
+| `/rename` | `<新名称>` | 重命名当前会话（无参时显示当前标题与用法） |
+| `/recap` | 无 | 最近活动摘要（一行）+ 建议标题；面板内 `a` 键或点击一键应用标题。设置 `dsh-tui.recapOnOpen`（默认开）开启时，打开/恢复会话自动在底部显示一条分隔线 + `回顾：` 摘要行，悬停可查看操作、点击展开，发送新消息后自动消失 |
+| `/workspace` | `resume` / `rename <名称>` / `open <路径或URI>` | 管理工作区；`open` 支持绝对路径、file URI、插件 scheme |
+| `/clear` | 无 | 清空当前会话视图（重置展开/选择状态） |
+| `/compact` | 无 | 压缩会话历史（无可压缩内容时会提示） |
+| `/export` | 无 | 导出会话为 Markdown 到工作目录 |
+| `/btw` | `<问题>` | 侧问：单轮、无工具、不打断主回合、不写历史 |
+| `/trace` | 无 | 打开轨迹场景（同 `Ctrl+T`） |
+| `/rewind` | 无 | 回退选择器（同空输入双击 Esc 的时间回溯） |
+| `/exit`（别名 `/quit` `/q`） | 无 | 退出 dsh-tui |
 
 ### 3.2 Status and Diagnostics
 
@@ -265,14 +265,15 @@ still shows English.
 
 | Command | Arguments | Effect |
 |---|---|---|
-| `/model` | none | Model picker; **switching = fork the session and continue** (history kept, only the route changes); persisted to `~/.dsh-tui/model.json` |
-| `/effort` | `status` / `<id>` | Reasoning effort: no args = slider (←/→ adjusts live); `status` shows the current tier; `<id>` sets it directly. Persisted to `~/.dsh-tui/effort.json` |
-| `/thinking` | none | Toggle extended thinking display (expands thinking incrementally while streaming) |
-| `/tokens` | none | Token usage + context percentage |
-| `/activity` | `frames <name>` / `status` | Working-activity row animation: no args = picker; `frames` lists all presets; `frames <name>` sets it directly. 30 frame names (`random` for a random pick, plus `claude/star2/sand/triangle/box/box2/corners/point/layer/flip/aesthetic/hamburger/moon/moon8/comet/breathe/dots/arrow/spark/bar/braille/arc/circle/grow/noise/bounce/rainbow/dqpb/toggle`; default `moon8`). Persisted to `~/.dsh-tui/working-activity.json` |
-| `/preset` | `<id>` / `status` | Switch agent preset: official `standard` / `code` / `minimal` / `cordis` + the TUI-bundled **Liangshen mode `liangshen`** + user-defined presets; **cannot be switched once the session has started** (blank-only lock). Persisted to `~/.dsh-tui/agent-preset.json` |
-| `/theme` | `<name>` / `status` | Theme: no args = picker; `<name>` switches directly; `status` shows the current theme (with the OSC 11 resolution result when set to auto). Persisted to `~/.dsh-tui/theme.json` |
-| `/lang` | `en` / `zh` / `status` | Report the UI language (English). `zh` is a compatibility alias. Priority: `DSH_TUI_LANG` > settings.yaml > cordis.yml > persisted choice |
+| `/model` | 无 | 模型选择器；**切换 = fork 会话续聊**（历史保留、仅换路由），选择持久化到 `~/.dsh-tui/model.json` |
+| `/effort` | `status` / `<id>` | 推理强度：无参滑杆（←/→ 实时调整）；`status` 当前档位；`<id>` 直接设定。持久化 `~/.dsh-tui/effort.json` |
+| `/thinking` | 无 | 扩展思考显示开关（流式时思考逐条展开） |
+| `/tokens` | 无 | token 用量 + 上下文百分比 |
+| `/activity` | `frames <名>` / `status` | 工作状态行动画：无参选择器；`frames` 列全部预设；`frames <名>` 直接设置。帧名 30 个（`random` 随机 + `claude/star2/sand/triangle/box/box2/corners/point/layer/flip/aesthetic/hamburger/moon/moon8/comet/breathe/dots/arrow/spark/bar/braille/arc/circle/grow/noise/bounce/rainbow/dqpb/toggle`，默认 `moon8`）。持久化 `~/.dsh-tui/working-activity.json` |
+| `/preset` | `<id>` / `status` | Agent 预设切换：官方 `standard` / `code` / `minimal` / `cordis` + TUI 打包**梁神模式 `liangshen`** + 用户自定义；**已开始的会话不可切换**（blank-only 锁定）。持久化 `~/.dsh-tui/agent-preset.json` |
+| `/theme` | `<名字>` / `status` | 主题：无参选择器；`<名字>` 直接切换；`status` 当前主题（auto 时附 OSC 11 解析结果）。持久化 `~/.dsh-tui/theme.json` |
+| `/color` | 无参 / `<名>` / `status` / `reset` | 会话强调色：**无参打开调色板选择器**（8 色 + 色点预览，`↑/↓` 选择、`Enter` 应用）；`<名>` 直接设置；`status` 当前；`reset` 恢复主题默认。输入框边框 + 会话名标签变色（标签显示在输入框顶边框**右上角**，**默认关闭**，`/settings` 的「会话名标签」可开启；`red/orange/yellow/green/blue/purple/pink/cyan`）。按会话经 `session/color` 事件保存，resume/rewind 后仍在 |
+| `/lang` | `en` / `zh` / `status` | 界面语言热切换。优先级：`DSH_TUI_LANG` > settings.yaml > cordis.yml > 持久化 |
 
 ### 3.4 Account / Policy / Extensions
 
@@ -432,14 +433,10 @@ full timeline:
 
 ### 4.7 Questionnaires and Approvals
 
-**Questionnaire (model `ask_user_question`)**: the panel takes exclusive
-keyboard focus; `↑/↓` selects an option, `Space` toggles multi-select,
-`Enter` submits. **The last row is a free-text input row** — typing directly
-on an option row appends that option's label plus your custom text and
-submits both together; `Tab` jumps straight to the input row. `Esc`/`Ctrl+C`
-cancels the whole question batch (the model receives `ASK_CANCELLED`).
-Plan-review cards: `1`/`2` quick-pick by number; **approval must carry no
-feedback text** (feedback text is treated as "keep planning").
+**问卷（模型 ask_user_question）**：面板独占键盘；`↑/↓` 选选项、`Space` 多选、
+`Enter` 提交。**最后一行是自由输入行**——在选项行直接打字 = 附加该选项标签 + 自定义文本一起提交；
+`Tab` 直达输入行。第 2 题起按 `Esc` 返回上一题并保留草稿；第 1 题按 `Esc`，或任意题按 `Ctrl+C`，取消整批提问（模型收到 ASK_CANCELLED）。
+计划评审卡片：`1`/`2` 数字快选；**批准必须无反馈文本**（带反馈视为"继续规划"）。
 
 **Tool approval**: an approval bar pops up when a command requests elevated
 permissions (tool name + full command + reason).
@@ -512,16 +509,11 @@ thinking brand blue / tools light blue,
 with a right-edge readout like `ctx 12.3k/1.0M 1.2% 988.9k` (auto-shortened
 on narrow terminals).
 
-**Row 2 — status field row** (each field has its own toggle, see
-`/settings`)
-- Left group: model → TPS → thinking effort level → mode (session mode) →
-  ctx (context usage) → cache (hit rate) → tokens (`1.2k→340` in→out)
-- Right group: git branch → working directory (basename only in compact
-  mode) → session title
-- With `statusBar.compact`, left and right merge into a single line.
-- On by default: compact / model / thinking / cwd / contextUsage / cache;
-  off by default: tokens / tps / gitBranch / sessionTitle / mode /
-  contextBar / activity / trajectory.
+**Row 2 — 状态字段行**（每个字段独立开关，见 `/settings`）
+- 左组：模型 → TPS → thinking 推理等级 → mode 会话模式 → ctx 上下文占用 → cache 缓存命中率 → tokens（`1.2k→340` 输入→输出）
+- 右组：git 分支 → 工作目录（紧凑模式仅 basename）→ 会话标题 → 短会话 ID（`#` + 前 8 位，与日志文件名对应，方便 `--resume` 定位）
+- `statusBar.compact` 时左右合并为单行。
+- 默认开：compact / model / thinking / cwd / contextUsage / cache；默认关：tokens / tps / gitBranch / sessionTitle / sessionId / mode / contextBar / activity / trajectory。
 
 **Row 3 — hint / working activity + mini trajectory bar**
 - Shows `? for shortcuts` while idle, `esc to interrupt` while a turn is
@@ -554,12 +546,12 @@ takes effect live) has 19 fields:
 
 | Field | Notes |
 |---|---|
-| lang | UI language code (`en`; `zh` is a compatibility alias). Locked when `DSH_TUI_LANG` is pinned |
-| whale | The pixel whale header animation on the splash screen (on by default) |
-| diffLayout | Edit/Write diff layout: auto (two-column at ≥110 columns) / split / unified |
-| thinkingFold | Thinking blocks: preview (2-3 line streaming preview + folds once settled) / full (stays expanded to end of turn) |
-| toolBackground | Tool card background emphasis: none / subtle / strong |
-| statusBar.* | All status-bar toggles from the table above (compact/model/thinking/cwd/contextUsage/cache/tokens/tps/gitBranch/sessionTitle/mode/contextBar/activity/trajectory) |
+| lang | 界面语言 zh/en（DSH_TUI_LANG 钉死时不可改） |
+| whale | 开屏头部像素鲸鱼娘（默认开） |
+| diffLayout | Edit/Write diff 布局：auto（≥110 列双栏）/ split / unified |
+| thinkingFold | 思考块：preview（流式 2-3 行预览 + 落定折叠）/ full（展开到轮末） |
+| toolBackground | 工具卡背景强调：none / subtle / strong |
+| statusBar.* | 上表全部状态栏开关（compact/model/thinking/cwd/contextUsage/cache/tokens/tps/gitBranch/sessionTitle/sessionId/mode/contextBar/activity/trajectory；statusBar.sessionId 是底栏显示开关，与 cordis 的启动 sessionId 无关） |
 
 Namespaces without a declared TUI section are listed read-only; edit
 `~/.dsh/settings.yaml` by hand for those.
@@ -683,23 +675,15 @@ at startup if they're still set).
     of scrolling the list — press `Esc` to clear the selection first if you
     want to scroll.
 
-**Pitfalls to avoid**
-22. `/compact` and `/model` are refused while a turn is running — press
-    `Ctrl+C` first or wait for the turn to end.
-23. `Esc` on an approval bar = deny (fail closed); `Esc` on a questionnaire
-    = cancel the whole batch (the model receives a cancellation signal).
-24. `/update` only updates the profile runtime, not the global install;
-    when it reports a version mismatch, run
-    `npm install -g @deepseek-harness-tui/dsh-tui@<version>` as prompted to
-    align the launcher.
-25. The ⌘ key on macOS needs iTerm2/kitty/WezTerm/ghostty/tmux; use Ctrl in
-    Terminal.app.
-26. Mouse drag-select copies immediately (fullscreen mode);
-    `DSH_TUI_DISABLE_MOUSE=1` temporarily disables the mouse.
-27. When the logo screen shows a **⚠ version-drift warning**, align the dsh
-    engine as prompted:
-    `npm i -g @deepseek-ai/dsh@<version>` (see §1.1 for the supported
-    range).
+**避坑**
+22. `/compact`、`/model` 在回合运行中会被拒绝——先 `Ctrl+C` 或等回合结束。
+23. 审批条 `Esc` = 拒绝（fail closed）；问卷第 2 题起 `Esc` = 返回上一题，第 1 题 `Esc` 或任意题 `Ctrl+C` = 取消整批（模型会收到取消信号）。
+24. `/update` 只更新 profile runtime 不动全局安装；提示版本错位时按提示执行
+    `npm install -g @deepseek-harness-tui/dsh-tui@<版本>` 对齐启动器。
+25. macOS 的 ⌘ 键需要 iTerm2/kitty/WezTerm/ghostty/tmux；Terminal.app 用 Ctrl 即可。
+26. 鼠标拖选即复制（fullscreen 模式）；`DSH_TUI_DISABLE_MOUSE=1` 可临时关闭鼠标。
+27. logo 页出现 **⚠ 版本漂移警告**时按提示对齐 dsh 引擎：
+    `npm i -g @deepseek-ai/dsh@<版本>`（支持范围见 §1.1）。
 
 ---
 

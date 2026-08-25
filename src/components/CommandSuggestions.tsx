@@ -2,6 +2,8 @@ import React from 'react'
 import { Text } from '../ui.js'
 import { stringWidth } from '../ink/stringWidth.js'
 import { truncateToWidth } from '../ink/truncateToWidth.js'
+import type { Color } from '../ink/styles.js'
+import type { Theme } from '../theme.js'
 import type { LocalCommand } from '../commands.js'
 import { localizedDescription } from '../commands.js'
 import { t } from '../i18n.js'
@@ -31,13 +33,20 @@ export function CommandSuggestions({
   columns,
   query = '',
   accent,
+  onPick,
+  onWheelStep,
 }: {
   commands: readonly (LocalCommand & { descriptionKey?: string })[]
   selectedIndex: number
   columns: number
   /** Raw `/…` input; its last token is used to highlight the matching name prefix. */
   query?: string
-  accent?: 'promptBorder' | 'planMode'
+  accent?: keyof Theme | Color
+  /** 鼠标点击行（fullscreen）：上报过滤后列表的绝对索引（与键盘
+   *  selectedIndex 同一索引空间），接受路径由 PromptInput 复用。 */
+  onPick?: (index: number) => void
+  /** 滚轮步进（fullscreen）：±1 移动选中行。 */
+  onWheelStep?: (step: 1 | -1) => void
 }): React.ReactNode {
   if (commands.length === 0) return null
 
@@ -81,6 +90,8 @@ export function CommandSuggestions({
       columns={columns}
       accent={accent}
       footer={footer}
+      onRowPick={onPick ? index => onPick(startIndex + index) : undefined}
+      onWheelStep={onWheelStep}
       rows={visible.map(command => {
         const isSelected = command.name === commands[selectedIndex]?.name
         const tagText = command.tag ? `[${command.tag}] ` : ''

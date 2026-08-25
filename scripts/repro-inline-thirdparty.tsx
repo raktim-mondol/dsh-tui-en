@@ -21,13 +21,14 @@ process.env.FORCE_COLOR = '3'
 process.env.TERM_PROGRAM = 'WezTerm'
 process.env.DSH_TUI_THEME = 'dark'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }, { sleep, settle, writeParsed }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
   import('../src/ui.js'),
   import('../src/screens/Chat.js'),
   import('../src/dsh-adapter/questions.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const COLS = 100
@@ -52,7 +53,6 @@ class FakeStdin extends PassThrough {
   ref() { return this }
   unref() { return this }
 }
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 function viewportLines(): string[] {
   const buf = term.buffer.active
   const start = Math.max(0, buf.length - ROWS)
@@ -110,10 +110,9 @@ await sleep(600)
 // Baseline: clean viewport after settle.
 const golden = viewportLines()
 
-// ★ Quiet-period third-party inject (real #17: mcp child stderr writes
-//   the tty under the idle prompt — no large redraw will self-heal it).
-term.write('\r\n[5764] Error: Non-HTTPS URLs are only allowed for localhost\r\n[35540] Usage: npx tsx proxy.ts <https://server-url>\r\n')
-await sleep(100)
+// ★ 静止期注入第三方输出（真机 #17 场景：mcp 子进程 stderr 直写 tty，
+//   打在空闲时的输入框下方——之后没有大重绘来自愈）。
+await writeParsed(term, '\r\n[5764] Error: Non-HTTPS URLs are only allowed for localhost\r\n[35540] Usage: npx tsx proxy.ts <https://server-url>\r\n')
 
 // After that only light UI activity (notice / metrics ticks) — a real idle scene.
 channel.responseChars += 7; bump()
@@ -133,7 +132,11 @@ const { default: instances } = await import('../src/ink/instances.js')
 const ink: any = instances.get(stdoutObj as any)
 check('precondition: got the ink instance', !!ink)
 ink?.reassertTerminalModes?.()
-await sleep(400)
+await settle(() => {
+  const lines = viewportLines()
+  return !lines.some(l => l.includes('[5764] Error') || l.includes('[35540] Usage'))
+    && Array.from({ length: 12 }, (_, i) => `概览要点第 ${i + 1} 条`).every(t => lines.some(l => l.includes(t)))
+})
 
 const healed = viewportLines()
 console.log('=== after self-heal (G=clean baseline H=reanchored) ===')

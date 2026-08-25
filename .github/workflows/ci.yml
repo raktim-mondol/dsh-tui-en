@@ -10,7 +10,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 变更分流：纯文档 / issue 模板改动不需要编译与回归——docs/contributing.md
+  # 已经写了「纯文档、纯 workflow、纯 YAML 改动不需要重建」，这里是它的 CI 落地。
+  # 白名单之外的任何路径都算代码，包括 .github/workflows 本身（改 ci.yml 必须跑
+  # 全套）。push 与任何非 PR 事件一律按代码处理。
+  #
+  # 不能改用 paths-ignore 跳过整个 workflow：ci-gate 是 main 的 required check，
+  # workflow 不运行就永远不上报，文档 PR 会卡在 pending 无法合并。
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/github-script@v9
+        id: filter
+        with:
+          script: |
+            if (context.eventName !== 'pull_request') {
+              core.setOutput('code', 'true')
+              core.notice('非 pull_request 事件，按代码改动处理')
+              return
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            })
+            const DOCS_ONLY = [
+              /^docs\//,
+              /^README(_EN)?\.md$/,
+              /^\.github\/ISSUE_TEMPLATE\//,
+              /^\.github\/PULL_REQUEST_TEMPLATE(\.md)?$/,
+              /^LICENSE$/,
+            ]
+            const paths = files.map(f => f.filename)
+            // 空改动集按代码处理：宁可多跑一轮，不要漏跑。
+            const code = paths.length === 0
+              || paths.some(p => !DOCS_ONLY.some(re => re.test(p)))
+            core.setOutput('code', String(code))
+            core.notice(`${paths.length} 个文件改动，code=${code}`)
+
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env:
       # Keep UI language deterministic for the repro/verify scripts: zh is the
@@ -18,18 +64,18 @@ jobs:
       # DSH_TUI_LANG=en themselves before their dynamic imports.
       DSH_TUI_LANG: zh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Verify generated output is not checked in
         run: test -z "$(git ls-files -- lib)"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -38,7 +84,11 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - run: pnpm install --frozen-lockfile
+      # install 只装依赖：prepare 钩子里的 compile 由下面的显式步骤替代，
+      # 全 workflow 只编译这一次，产物经 artifact 供下游测试组复用。
+      # （--ignore-scripts 对依赖无影响：pnpm-workspace.yaml 的 allowBuilds
+      # 本就禁了 esbuild/koffi 的构建脚本。）
+      - run: pnpm install --frozen-lockfile --ignore-scripts
 
       # lib/ is not checked in. Compile it once from a clean output directory;
       # the following gates reuse this exact runtime instead of rebuilding it.
@@ -56,454 +106,287 @@ jobs:
       - run: pnpm verify:package
       - run: pnpm verify:bun-package
 
-      # Regression with assertions: ask-panel inline input (issue #9) + tool
-      # card layout (⎿ indent, red/green diff lines, envelope stripping) —
-      # fails with a non-zero exit.
-      - run: node --import tsx/esm scripts/repro-askpanel.tsx
+      # 编译产物交给下游测试组（needs: build 的 job 下载复用，不再各自
+      # prepare-compile）。@dsh-std 运行时依赖只有 workspace 内部链接，
+      # 根 node_modules 的符号链接即完成解析，无需携带 vendor 的构建
+      # 工具链；.tsx 脚本走的 src/ 由各组自己的 checkout 提供。
+      - name: Upload compiled output
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-build-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            lib/
+            dsh-auth/lib/
+            vendor/dsh-std/packages/core/lib/
+            vendor/dsh-std/packages/manifest/lib/
+            vendor/dsh-std/packages/connection/lib/
+            vendor/dsh-std/packages/presentation/lib/
+            vendor/dsh-std/packages/command/lib/
+            vendor/dsh-std/packages/storage/lib/
+            vendor/dsh-std/packages/messages/lib/
 
-      # Ask-panel full-app layout regression: short/long history, activity
-      # tick diffing, resize storms.
-      - run: node --import tsx/esm scripts/verify-askpanel-layout.tsx
+  # 渲染 · 滚动 · resize · 子代理 · picker——与其余组并行；失败互不遮蔽。
+  # needs: build：编译只在 build job 发生一次，本组经 artifact 复用产物。
+  render-scroll:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DSH_TUI_LANG: zh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
-      - run: node --import tsx/esm scripts/repro-toolcards.tsx
-      - run: node --import tsx/esm scripts/repro-diff-split.tsx
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
 
-      # Scrollback/pill/inline-mode regression: new-message pill count
-      # decrementing, Ctrl+C interaction, inline scrollback third-party
-      # terminal compatibility. Previously froze silently when the mock
-      # channel was missing a new field (a render-time TypeError swallowed by
-      # ink), and wasn't caught until it had rotted through all of 0.6.x
-      # because it wasn't in CI — wired in here to prevent a repeat.
-      - run: node --import tsx/esm scripts/repro-pill.tsx
-      - run: node --import tsx/esm scripts/repro-ctrlc.tsx
-      # /settings screen regression (issue #165): opening the screen, staged
-      # edits, revision-fence saves, secrets routed through credentials, Esc
-      # returns to the session.
-      - run: node --import tsx/esm scripts/repro-settings.tsx
-      - run: node --import tsx/esm scripts/repro-inline-scrollback.tsx
-      - run: node --import tsx/esm scripts/repro-inline-thirdparty.tsx
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
 
-      # Message-list virtualization regression: the nested-update cap for
-      # consecutive height corrections (#129, React #185), scroll window and
-      # shrink boundaries. measure-depth needs production mode (minified
-      # #185).
-      - run: node --import tsx/esm scripts/verify-message-measure-depth.tsx
+      # 依赖装好即可；编译产物复用 build job 的 artifact，本组不再 compile。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-build-${{ github.run_id }}
+      # 组内失败聚合（#466 收尾）：单条失败不再遮蔽同组后续测试——全部
+      # 跑完后统一 ✓/✗ 汇总，任一失败 exit 1。测试清单与逐条说明在
+      # scripts/run-ci-group.mjs 的 GROUPS 表（新增测试时同步登记）。
+      - run: node scripts/run-ci-group.mjs render-scroll
+
+  # 输入 · 终端协议 · 退出漏斗 · 系统集成——与其余组并行；失败互不遮蔽。
+  # needs: build：编译只在 build job 发生一次，本组经 artifact 复用产物。
+  input-terminal:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DSH_TUI_LANG: zh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 依赖装好即可；编译产物复用 build job 的 artifact，本组不再 compile。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-build-${{ github.run_id }}
+      # 组内失败聚合（#466 收尾）：单条失败不再遮蔽同组后续测试——全部
+      # 跑完后统一 ✓/✗ 汇总，任一失败 exit 1。测试清单与逐条说明在
+      # scripts/run-ci-group.mjs 的 GROUPS 表（新增测试时同步登记）。
+      - run: node scripts/run-ci-group.mjs input-terminal
+
+  # 会话 · 工作区 · 插件扩展 · resume——与其余组并行；失败互不遮蔽。
+  # needs: build：编译只在 build job 发生一次，本组经 artifact 复用产物。
+  session-workspace:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DSH_TUI_LANG: zh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 依赖装好即可；编译产物复用 build job 的 artifact，本组不再 compile。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-build-${{ github.run_id }}
+      # 组内失败聚合（#466 收尾）：单条失败不再遮蔽同组后续测试——全部
+      # 跑完后统一 ✓/✗ 汇总，任一失败 exit 1。测试清单与逐条说明在
+      # scripts/run-ci-group.mjs 的 GROUPS 表（新增测试时同步登记）。
+      - run: node scripts/run-ci-group.mjs session-workspace
+
+  # channel · 界面应用回归——与其余组并行；失败互不遮蔽。
+  # needs: build：编译只在 build job 发生一次，本组经 artifact 复用产物。
+  channel-ui:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DSH_TUI_LANG: zh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 依赖装好即可；编译产物复用 build job 的 artifact，本组不再 compile。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-build-${{ github.run_id }}
+      # 组内失败聚合（#466 收尾）：单条失败不再遮蔽同组后续测试——全部
+      # 跑完后统一 ✓/✗ 汇总，任一失败 exit 1。测试清单与逐条说明在
+      # scripts/run-ci-group.mjs 的 GROUPS 表（新增测试时同步登记）。
+      - run: node scripts/run-ci-group.mjs channel-ui
+
+  # 已知时序 flaky 隔离区：照常运行、照常红，但不接进 ci-gate、不阻塞
+  # 合并。两个成员都有 CI 环境间歇失败记录（Linux runner 负载高时触发，
+  # 本地同内容通过）：
+  #   - verify-resize-temporal：resize 落定/循环/流中竞争三断言对 settle
+  #     窗口敏感（main 自己的 push-CI 挂过，#462/#467 两次重跑即绿）；
+  #   - verify-trace-scene：AGENTS.md 已登记的时序 flake（本地约 1/3 复现，
+  #     4s 轮询窗口被慢渲染打败，下一断言 400ms 后即通过）。
+  # 探针改成真正 deterministic 后移回原组（届时从本 job 删除即可）。
+  flaky-observation:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DSH_TUI_LANG: zh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 依赖装好即可；编译产物复用 build job 的 artifact，本组不再 compile。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: ci-build-${{ github.run_id }}
+
+      # 组内失败聚合（#466 收尾）：单条失败不再遮蔽同组后续测试——全部
+      # 跑完后统一 ✓/✗ 汇总，任一失败 exit 1。测试清单与逐条说明在
+      # scripts/run-ci-group.mjs 的 GROUPS 表（新增测试时同步登记）。
+      - run: node scripts/run-ci-group.mjs flaky-observation
+
+  # 平台冒烟（non-blocking 观察档）：Windows（ConPTY/路径/行尾）与
+  # macOS（PTY/clang 工具链）上只有真实平台才能暴露的安装与编译差异。
+  # 最小链路：install → compile → 入口导入。结果只做观察（不接
+  # ci-gate、不阻塞合并），探明各平台差异后再逐步扩测并提升为
+  # required。fail-fast: false 让两个平台都跑完。
+  platform-smoke:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      DSH_TUI_LANG: zh
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 与 build job 相同的显式编译语义；Windows 上 pnpm 脚本经 npm 转发，
+      # bash shell 保证 test/管道语法跨平台一致。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - run: pnpm compile
+
+      - run: |
+          test -f lib/types/index.js
+          test -f lib/types/dsh-adapter/invariant.js
+
+      - name: Smoke-import compiled entry
+        run: node -e "import('./lib/types/index.js').then(() => console.log('entry import ok')).catch(e => { console.error(e); process.exit(1) })"
+
+  # CI 门禁：唯一的 required check 候选。汇总所有分组结果——任何一组失败
+  # 或被取消，gate 显式失败并逐组报告状态。if: always() 保证上游失败时
+  # gate 仍然运行（被跳过的 check 不会阻塞合并，失败才会）；后续 CI 内部
+  # 再拆组、改名、加 matrix，branch protection 只需盯住这一个稳定名字。
+  ci-gate:
+    needs: [changes, build, render-scroll, input-terminal, session-workspace, channel-ui]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every group to have succeeded
         env:
-          NODE_ENV: production
-      - run: node scripts/verify-scroll.mjs
-      - run: node scripts/verify-shrink.mjs
-
-      # unseen-count reporting contract regression: repeated reports of the
-      # same value could dispatch setState inside a commit during dense
-      # streaming commits, pushing the nested-update count past the React
-      # #185 cap (a lingering thread left over after #146). Reporting must
-      # only be allowed when the count actually changes.
-      - run: node --import tsx/esm scripts/verify-unseen-report-once.tsx
-        env:
-          NODE_ENV: production
-
-      # /model switch scrollback re-deposit regression: transient panels
-      # (completion/picker) must go through a zero-height overlay, with the
-      # frame height not fluctuating as they open/close — otherwise the
-      # frame's top row scrolls into scrollback and gets written a second
-      # time on the closing repaint, adding one more splash copy per /model
-      # switch.
-      - run: node --import tsx/esm scripts/repro-model-switch-scrollback.tsx
-
-      # Long-list picker focus-windowing regression: rendering the full list
-      # under a height-limited overlay clips the focused row off-screen (a
-      # 30-row terminal with 30 models, focus at index 0, invisible), and
-      # yoga squeeze can produce zero-height dropped rows — focus must always
-      # stay on-screen within the window.
-      - run: node --import tsx/esm scripts/repro-picker-windowing.tsx
-      # Edge-truncation regression (#396): when a long name is truncated in
-      # the terminal's last cell, the selection checkmark ✓ must count toward
-      # the truncation budget, and the row must stay exactly 1 line with no
-      # wrap — asserts zero wrapped lines, no ghost blank lines inside the
-      # pane, and that the title/footer/focus stay on-screen after paging.
-      - run: node --import tsx/esm scripts/verify-picker-edge.tsx
-
-      # Key-parsing regression (issue #110): Option+Enter (ESC CR) in its
-      # exact/coalesced/chunked arrival forms, and CSI-u / modifyOtherKeys
-      # Shift/Ctrl/Meta+Enter.
-      - run: node --import tsx/esm scripts/verify-keys.tsx
-
-      # Terminal capability probing regression: raw mode stays held while
-      # waiting for a delayed OSC/XTVERSION reply; the reply only reaches the
-      # querier and never echoes as terminal ghosting.
-      - run: node --import tsx/esm scripts/verify-terminal-queries.tsx
-
-      # win32-input-mode parsing regression (issue #147): Windows Shift+Enter
-      # probe bytes, AltGr text, Ctrl+[ as an Escape equivalent, omitted spec
-      # fields, numpad Uc precedence, surrogate pairs interleaved with keyup,
-      # Rc repeat expansion, conhost's split-paste reassembly, two-round
-      # Alt+numpad composition.
-      - run: node --import tsx/esm scripts/verify-win32-input.tsx
-
-      # Exit-funnel regression (issue #12): context teardown must never reach
-      # process exit.
-      - run: node --import tsx/esm scripts/verify-teardown-exit.tsx
-
-      # Exit resume-marker regression (issue #42): the marker is kept only
-      # when there's an actual message or a pending operation.
-      - run: node --import tsx/esm scripts/verify-exit-resume-marker.tsx
-
-      # Exit-phase stderr/console restoration regression (issue #42):
-      # shutdown unbinds and restores the physical streams and deregisters
-      # listeners.
-      - run: node --import tsx/esm scripts/verify-shutdown-stderr.tsx
-
-      # /update pure-function regression: version probing (dual layout +
-      # rejecting a foreign manifest), registry resolution (env/npmrc/
-      # default), semver comparison, pnpm --latest.
-      - run: node scripts/verify-update.mjs
-
-      # Direct-launcher regression (issue #108): args forwarded as-is,
-      # reinstalling a broken profile, the version-mismatch hint, bilingual-
-      # compat messages, shellQuote escape rules.
-      - run: node scripts/verify-launcher.mjs
-
-      # Clipboard regression: strict text/uri-list URL parsing (rejecting a
-      # remote authority, stripping query/fragment, preserving malformed
-      # escapes), image/text MIME selection, insertion formatting; stub-PATH
-      # fake wl-paste/xclip integration — CJK split across chunks, gnome verb
-      # lines, image export permissions (dir 0700/file 0600), empty vs
-      # unavailable, falling back to xclip on a dead Wayland session.
-      - run: node scripts/verify-clipboard.mjs
-
-      # Ctrl+V UI end-to-end regression (stub wl-paste): the help panel
-      # closes before the read, clipboard text lands in the input box, a
-      # second paste still works after the busy latch releases.
-      - run: node --import tsx/esm scripts/repro-clipboard.tsx
-
-      # Image attachment regression: clipboard bitmap placeholders and
-      # image-file @ references landing in the attachment library (#152).
-      - run: node --import tsx/esm scripts/verify-clipboard-image.ts
-      # Rename-migration regression (issue #120): first-launch copy migration
-      # from ~/.dsh-cc → ~/.dsh-tui, the resume.txt dual-write contract, the
-      # legacy env-name check (a dual read of DSH_CC_RESUME_SESSION doesn't
-      # count as deprecated).
-      - run: node scripts/verify-legacy-rename.mjs
-
-      # Approval-service config regression (issue #49 loose end): a bare
-      # cordis.yml composition must mount the approval row; the policy
-      # expressions in the bare composition and the profile patch must match
-      # per-scenario (ask / never / win32 never), with no semantic drift
-      # between the two entry points.
-      - run: node scripts/verify-cordis-approval.mjs
-
-      # Working-activity state is derived in-process from base events: phase,
-      # 500ms tick, reset on agent switch.
-      - run: node scripts/verify-working-activity.mjs
-
-      # Sessions created and resumed by the TUI must stay durably attached to
-      # a Workspace.
-      - run: node scripts/verify-workspace-attachment.mjs
-
-      # tuiWorkspaces service-optionality regression (issue #183): the
-      # code-level inject doesn't reference tuiWorkspaces, consumers carry a
-      # local fallback, and the patch preserves the service row and its
-      # line-level ordering guarantee.
-      - run: node scripts/verify-workspaces-degrade.mjs
-
-      # Plugin extension-surface regression (dsh-tui-extensions):
-      #  - events: a real cordis bus + real channel — tui/input rewrite/
-      #    cancel/crash isolation, rewind decisions (mode list/veto/summary
-      #    after completion), session-switch veto and switched notification,
-      #    the serial-bail semantics of a compact veto.
-      #  - ui: the dialog store (FIFO/AbortSignal/timeout/settleAll), runtime
-      #    validation (warns, never throws), shortcut parsing/matching/
-      #    reserved slots/dispatch, renderer-registration rejection and
-      #    sticky errors, and real Chat-driven dialog/status-line/shortcut
-      #    end-to-end.
-      - run: node --import tsx/esm scripts/verify-extension-events.tsx
-      - run: node --import tsx/esm scripts/verify-extension-ui.tsx
-
-      # Session-title regression: the picker's tolerant title reading (a log
-      # with unlabeled third-party events must not degrade the title to a
-      # directory name), the last session/title event from /rename wins.
-      - run: node scripts/verify-session-titles.mjs
-
-      # resume legacy-event registration regression (issue #153): a real
-      # storage-stack e2e — load() throws SessionFormatUnsupportedError
-      # before registration (reproducing the issue as-is), and is let through
-      # after registration; log bytes and 0600 permissions are never
-      # rewritten; non-allowlisted unknown types stay refused (doesn't break
-      # upstream's fail-closed protection for new formats).
-      - run: node scripts/verify-resume-legacy-events.mjs
-
-      # Session cwd regression (issue #96): the launch directory resolves
-      # upward to the git repo root (covering both a plain clone and a
-      # dotfiles `.git`-file worktree guard), /resume filters sessions logged
-      # under a subdirectory before the bidirectional-compat upgrade, the
-      # $HOME/drive-root container directory only matches exactly (issue
-      # #153), Windows path-separator and case-folding semantics.
-      - run: node scripts/verify-session-cwd.mjs
-
-      # Modal-confirm Enter-guard regression (loose end from a 4-PR review):
-      # Option+Enter (ESC CR) / Ctrl+Enter (CSI 13;5u) must never trigger an
-      # approval-panel decision or any modal confirmation — only an
-      # unmodified Enter does; full ApprovalPanel pipeline + a static
-      # source-level invariant.
-      - run: node scripts/verify-plain-enter-guard.mjs
-      # Ctrl+←/→ word-jump regression (issue #156, PR #158): Ctrl+arrow
-      # arrives as leftArrow+ctrl, so the isMod word-jump branch must be
-      # checked before the plain-arrow branch; a real pipeline feeds
-      # ESC[1;5D/1;5C, moves the cursor, inserts a marker character, submits,
-      # and verifies the full text.
-      - run: node scripts/verify-word-jump.mjs
-      # stdin batched-keystroke regression: text, arrow keys, and text within
-      # the same read must each execute in order based on the previous
-      # event's input state — characters must not drop because React's batch
-      # processing read a stale closure.
-      - run: node scripts/verify-batched-prompt-input.mjs
-      # Input-history draft regression (issue #287): the first ↑ saves the
-      # uncommitted draft; after walking through history, ↓ back to the end
-      # must restore the original text, and repeated overshoot must not
-      # clear the draft.
-      - run: node scripts/verify-prompt-history-draft.mjs
-      # File-completion regression (issue #278): a CMake build directory or
-      # any other large sibling directory must not monopolize the 100-entry
-      # global budget, and ordinary deep source trees must not be silently
-      # truncated by a fixed depth either.
-      - run: node scripts/verify-file-completion.mjs
-      # /resume session-management regression (issue #112): the picker's
-      # rename appends a frame (sequential seq, existing bytes untouched,
-      # last-title-wins), directory deletion, path-traversal id rejection.
-      - run: node scripts/verify-resume-manage.mjs
-
-      # /resume rename-at-any-depth regression: the session index dropped its
-      # title-resolution window — even the oldest entry must still resolve
-      # its own title, and a rename must show the new name immediately. The
-      # stub only provides list (no listSnapshots/locate), which also
-      # exercises the degraded fallback path.
-      - run: node scripts/verify-resume-rename-mru.mjs
-
-      # Session-kind and view truth table: origin determines a sub-agent,
-      # parentSession appearing alone is a /rewind fork (must not be filtered
-      # out together with it), empty sessions are only counted and never
-      # listed, search/grouping/collapsing, and the variable-height window
-      # resolved by row height (exhaustively covers focus×budget×prev without
-      # overflowing).
-      - run: node scripts/verify-session-kinds.mjs
-
-      # Session-index engine: structured frame walking is equivalent to
-      # delimited reads and full decoding, a corrupt frame doesn't swallow
-      # the whole log, title-source determination, revision hit/miss
-      # (pinning a revision and rewriting the log as the criterion), index
-      # self-healing and pruning, **terminal-state equivalence** (incremental
-      # index == a fresh build).
-      - run: node scripts/verify-session-index.mjs
-
-      # /resume session-browser keystroke-stream regression: sub-run
-      # collapse/expand, empty sessions not listed, search, Esc clears the
-      # query first and only exits on the next press, the cursor follows the
-      # renamed target by id after a rename (not by row number),
-      # confirm-delete only accepts an unmodified Enter, Esc cancels. Driven
-      # by a real Chat render.
-      - run: node scripts/verify-session-browser.mjs
-
-      # Session-browser layout stress test: 8 geometries × English/Chinese
-      # bilingual content × 9 interaction states, using xterm's isWrapped to
-      # assert that no row overflows the terminal width and that the hint row
-      # always stays the last row (equivalent to "every region above fits,
-      # nothing takes an extra row, nothing gets pushed off-screen"). The
-      # Chinese case is required: all copy is localized, and layout bugs
-      # based on character count rather than column width don't show up
-      # under English.
-      - run: node scripts/verify-session-browser-layout.mjs
-
-      # Channel-layer regression: the send chain (submit/steer/withdraw/
-      # interrupt-and-resubmit), compact folding, goal/todo event replay.
-      # Previously failed silently as the interface evolved because it
-      # wasn't in CI (neither 0.3.6's installModelSelection nor #34's
-      # delivery-goes-async change were caught by it) — wired in here to
-      # prevent further rot.
-      - run: node --import tsx/esm scripts/verify-submit.mjs
-
-      - run: node --import tsx/esm scripts/verify-compact.mjs
-
-      - run: node --import tsx/esm scripts/verify-channel-goal-todo.mjs
-
-      - run: node --import tsx/esm scripts/verify-whale-toggle.mjs
-
-      # Bare-● empty-row regression: an assistant/message step that's purely
-      # thinking or purely a tool call (no text blocks) must not create an
-      # empty assistant row — otherwise, once the thinking block folds, the
-      # transcript ends up with one extra row holding only the ● prefix and
-      # no content.
-      - run: node scripts/verify-empty-assistant-row.mjs
-
-      # Skill slash-command completion regression (issue #86): user-invocable
-      # skills merge into the / menu and Tab completion (the skill marker,
-      # yielding to a name collision with locals/the registry), skills/change
-      # adds and removes them live, a read failure keeps the last-good state.
-      - run: node scripts/verify-skill-commands.mjs
-
-      # Trajectory-projection regression (issue #80 evolution): incremental
-      # folding and full folding reach an equivalent terminal state at every
-      # split point (a mechanical oracle), six bracket-pairing classes, full
-      # mutation fuzzing of the augmented-event guard, forward compatibility
-      # with unknown events, the burst-fold boundary, a chunk-less step
-      # doesn't fake a TTFT.
-      - run: node scripts/verify-trace-projection.mjs
-
-      # effort config-pipeline regression (issue #51): the effort configured
-      # in cordis must reach the actual request config, not just the
-      # status-bar startup display (the ≤0.3.5 display-only behavior).
-      - run: node --import tsx/esm scripts/repro-effort.tsx
-
-      # Sub-agent model-routing regression (issue #191): when a child scope
-      # has no AgentOptions route, its first request inherits the TUI's
-      # current full route; an explicit child route still takes precedence.
-      - run: node --import tsx/esm scripts/verify-subagent-model-route.tsx
-
-      # Subprocess stderr takeover regression (issue #17): an inherited MCP
-      # subprocess's stderr no longer writes directly to the terminal and
-      # breaks the alt-screen; output is deduplicated and aggregated into a
-      # controlled notification.
-      - run: node --import tsx/esm scripts/verify-child-stderr.tsx
-
-      # Model-route atomic-resolution regression (issue #67): a complete
-      # config takes effect as a whole over pref/default; a provider-only pin
-      # must not get spliced with the other half into a mismatched route.
-      - run: node scripts/verify-model-route.mjs
-
-      # CJK display-width truncation regression (issue #41): 4 description
-      # sites handle terminal display width correctly — no splitting a CJK
-      # character in half, no breaking a narrow-terminal layout.
-      - run: node --import tsx/esm scripts/verify-cjk-truncate.tsx
-
-      # Loaded-context summary narrow-terminal regression (issue #167): the
-      # summary and the Ctrl+T hint must lay out as a single truncatable line
-      # of text and must not wrap and interleave with each other.
-      - run: node --import tsx/esm scripts/verify-loaded-context-width.tsx
-
-      # thinking-spinner ghosting regression (issue #72): the text-default
-      # emoji (✳) measures width 2 but paints width 1, which misaligned the
-      # spinner row every frame, leaving thinking ghosting that never clears.
-      - run: node --import tsx/esm scripts/repro-thinking.tsx
-
-      # Slash-command description i18n regression (issue #41): the / menu
-      # and the ? help menu descriptions switch with /lang between English
-      # and Chinese; an external command with no dictionary mapping falls
-      # back to the registry's original text; a narrow terminal doesn't split
-      # a Chinese character in half.
-      - run: node --import tsx/esm scripts/verify-i18n-command-descriptions.tsx
-
-      # /help long-command-panel regression (issue #368): 80×24/80×18/60×18
-      # must all keep the hint; ↑/↓, paging, Home/End, and the wheel must
-      # reach both ends without scrolling the underlying transcript; closing
-      # and reopening returns to the top, the pending preview only restores
-      # after help closes, and none of these key combos rewrite the Chat
-      # state underneath.
-      - run: node --import tsx/esm scripts/verify-help-scroll.tsx
-
-      # External-editor regression (issue #123): Ctrl+G's $VISUAL/$EDITOR
-      # parsing (quote splitting, precedence, unavailable when unconfigured —
-      # no vi fallback) and the temp-file round trip (edited/unchanged/
-      # non-zero exit/launch failure). A fake editor process, no TTY needed.
-      - run: node scripts/verify-external-editor.mjs
-
-      # External-editor TTY-handoff regression (issue #123 real-machine
-      # smoke): a full transcript repaint after resuming, no residual/late
-      # bytes from the handoff window landing in the input, activity behaves
-      # normally after the suppression window ends. xterm headless + a fake
-      # editor process, simulating vim's rmcup and terminal-response
-      # fragments.
-      - run: node --import tsx/esm scripts/repro-external-editor.tsx
-
-      # /effort slider + mode-indicator full-app regression (real Chat
-      # render): slider open/←/→ take effect live/Esc closes, the status-bar
-      # effort segment and mode segment, a full three-press backtab cycle.
-      - run: node scripts/verify-effort-slider-ui.mjs
-
-      # /thinking display-semantics regression (issue #317): the English/
-      # Chinese copy must make clear it only affects the display of the
-      # thinking process — switching takes effect immediately and must never
-      # change the model's reasoning effort.
-      - run: node --import tsx/esm scripts/verify-thinking-display.tsx
-
-      # Theme-parsing regression: built-in theme completeness,
-      # parseCustomTheme rejecting malformed/unsafe entries, flattening an
-      # embedded newline in displayName (the first line of defense for
-      # #160's windowed-list single-line-per-row contract). Note: must run
-      # via tsx — the script imports src/customTheme.ts directly.
-      - run: node --import tsx/esm scripts/verify-themes.mjs
-
-      # Text background-color regression (issue #166): the public themed Text
-      # and Box consistently support raw color values, and must write the
-      # corresponding ANSI background color to the terminal.
-      - run: node --import tsx/esm scripts/verify-text-background.tsx
-
-      # Trajectory-scene regression (issue #80 evolution, replaces
-      # repro-trace): xterm headless drives a real scene — ledger rows/
-      # duration/cursor, window scrolling, the inspector following the cursor
-      # at a constant height, query filtering, timeline⇄hotspot switching,
-      # and byte-identical restoration of the main screen after entering and
-      # leaving the alternate screen, zero scrollback growth, animation
-      # frames containing only SGR.
-      - run: node --import tsx/esm scripts/verify-trace-scene.tsx
-
-      # Max-effort thinking-ignition regression: the math layer (waveform/
-      # easing/envelope/per-column color contract) + the scene (headless
-      # xterm): three acts (dual-frame synchronized sweep/tier-name centering
-      # gather/fade to zero) asserting constant inter-frame text, zero
-      # row-level repaint, constant row count, an all-dark negative path.
-      - run: node --import tsx/esm scripts/verify-effort-ignition.tsx
-      # Prefix-charge regression: four states + real foreground-color
-      # sampling within the charge window (dim → full-value, monotonic).
-      - run: node --import tsx/esm scripts/verify-effort-accent.tsx
-
-      # Resize-reflow regression (real-machine feedback: maximizing the
-      # window after opening a long session): the criterion is final-state
-      # equivalence — the physical terminal after a resize must equal a
-      # fresh render of the same state at the new size. A resize invalidates
-      # the width every tree measurement was based on without marking any
-      # node dirty, so text nodes keep using measurements from the old width,
-      # and rows arbitrated by flex end up stitched together from two
-      # different layouts.
-      - run: node --import tsx/esm scripts/verify-resize-reflow.tsx
-
-      # Ctrl+T ownership regression: while the loaded-context panel is
-      # on-screen, that key belongs to the panel (it prints "Ctrl+T expand"
-      # right on screen itself); it only belongs to the trajectory scene once
-      # the transcript has rows. The two are never on-screen together — the
-      # panel only appears before the first message, which is exactly the
-      # window where the trajectory is empty.
-      - run: node --import tsx/esm scripts/verify-ctrl-t-scope.tsx
-
-      # Shrink-repaint regression: a frame taller than the viewport collapses
-      # within a single frame, and the screen must equal a fresh render of
-      # that same short state — no leftover old frame, no header printed
-      # twice. The largest step in the shrink-frame family (#38/#39/#19/#10),
-      # exercised directly against the renderer, bypassing Chat.
-      - run: node --import tsx/esm scripts/repro-collapse-shrink.tsx
-
-      # /provider wizard regression: the profile shape for both the catalog
-      # and custom branches, credential rollback (restoring the old key
-      # rather than deleting it on overwrite), skipping an env shadow, the
-      # rc.6 compat guard, per-question hideCustomInput marking.
-      - run: node scripts/verify-provider-wizard.mjs
-
-      # /login credential-status regression (issue #213): only exposes
-      # configured/source/writable via credentials.describe(); a managed key
-      # must never be misreported or leak its value.
-      - run: node --import tsx/esm scripts/verify-login-credentials.tsx
-
-      # Ask-panel hideCustomInput behavior regression: a pure multiple-choice
-      # question hides the input row and Tab/typing doesn't hijack focus, a
-      # pure free-text question ignores the hide marker, and a multi-select
-      # question's default behavior doesn't regress.
-      - run: node --import tsx/esm scripts/verify-askpanel-hide-custom-input.tsx
-
-      # Long-questionnaire-list regression: 36 two-line provider options in a
-      # 24-row terminal must window around focusIndex, with the focused
-      # label/radio marker staying visible both initially and after deep
-      # navigation.
-      - run: node --import tsx/esm scripts/verify-askpanel-long-list.tsx
-
-      # Plugin-scene render crash boundary: a Thrower scene must be caught by
-      # PluginSceneBoundary — onError fires exactly once, the crashed scene
-      # stops drawing, the process survives; healthy scenes are unaffected.
-      - run: node --import tsx/esm scripts/verify-plugin-scene-boundary.tsx
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          BUILD: ${{ needs.build.result }}
+          RENDER_SCROLL: ${{ needs.render-scroll.result }}
+          INPUT_TERMINAL: ${{ needs.input-terminal.result }}
+          SESSION_WORKSPACE: ${{ needs.session-workspace.result }}
+          CHANNEL_UI: ${{ needs.channel-ui.result }}
+        run: |
+          # 纯文档改动：期望每组都是 skipped。这里不能笼统地放行 skipped——
+          # build 失败时下游同样是 skipped，那种情况必须判失败。因此只对明确的
+          # code=false 放行 skipped；changes 自身失败时 CODE 为空串，一律按代码
+          # 严查（fail-closed），否则一个零测试的代码 PR 会在 gate 误绿下合并。
+          if [ "${CODE}" = "false" ]; then expected=skipped; else expected=success; fi
+          echo "code=${CODE}，要求每组结束状态为 ${expected}"
+          status=0
+          # changes 是全链路的分类源头：它自己失败时所有下游都是 skipped，
+          # 必须在这里显式判失败，不能指望上面的期望值兜住。
+          if [ "${CHANGES}" != "success" ]; then
+            echo "::error title=CI gate::changes 结束状态为 ${CHANGES}（要求 success，无法分类改动）"
+            status=1
+          fi
+          for pair in "build:${BUILD}" \
+                      "render-scroll:${RENDER_SCROLL}" \
+                      "input-terminal:${INPUT_TERMINAL}" \
+                      "session-workspace:${SESSION_WORKSPACE}" \
+                      "channel-ui:${CHANNEL_UI}"; do
+            name="${pair%%:*}"
+            result="${pair#*:}"
+            echo "${name}: ${result}"
+            if [ "${result}" != "${expected}" ]; then
+              echo "::error title=CI gate::${name} 结束状态为 ${result}（要求 ${expected}）"
+              status=1
+            fi
+          done
+          exit "${status}"

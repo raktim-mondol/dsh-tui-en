@@ -129,7 +129,8 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'keys-paste',
     group: 'keys',
-    en: 'Ctrl+V pastes text, file paths, or image attachments',
+    zh: 'Ctrl+V 或 Alt+V 粘贴文本、文件路径或图片附件；/settings 可改快捷键',
+    en: 'Ctrl+V or Alt+V pastes text, file paths, or image attachments; remappable in /settings',
   },
   {
     id: 'keys-slash-search',
@@ -139,7 +140,14 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'keys-mouse-click',
     group: 'keys',
-    en: 'Click a message row to expand it; click links to open the browser',
+    zh: '工具卡/thinking/摘要点击展开，子代理卡点击看详情；输入框点击定位光标',
+    en: 'Click tool/thinking/summary rows to fold; subagent cards open detail; click input to move caret',
+  },
+  {
+    id: 'keys-mouse-scenes',
+    group: 'keys',
+    zh: '轨迹与 /settings 支持鼠标：行点击跳转/编辑，滚轮移动光标或焦点',
+    en: 'Trajectory and /settings take the mouse: row clicks jump/edit, the wheel moves cursor or focus',
   },
 
   // ── Commands ──────────────────────────────────────────────
@@ -291,7 +299,8 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'cmd-permission',
     group: 'commands',
-    en: '/permission switches permission presets (read-only/workspace/full)',
+    zh: '/permission 弹出权限预设选择器（只读/工作区读写/完全访问）',
+    en: '/permission opens the permission-preset picker (read-only/workspace-write/full)',
   },
   {
     id: 'cmd-plan-goal',
@@ -314,6 +323,18 @@ export const TIPS: readonly Tip[] = [
     id: 'flow-rewind-fork',
     group: 'workflow',
     en: 'Rewind forks a session; your message returns to the input',
+  },
+  {
+    id: 'flow-tree',
+    group: 'workflow',
+    zh: '/tree 打开会话分叉树：悬停预览、点击回退/分叉/切分支',
+    en: '/tree opens the session tree: hover to preview, click to rewind/fork/adopt',
+  },
+  {
+    id: 'flow-fork-copy',
+    group: 'workflow',
+    zh: '/fork 把当前会话复制成可恢复副本，原会话不受影响',
+    en: '/fork copies the session into a resumable twin; the original is untouched',
   },
   {
     id: 'flow-resume',
@@ -361,6 +382,36 @@ export const TIPS: readonly Tip[] = [
     id: 'disp-statusbar',
     group: 'display',
     en: 'TPS, trajectory, context bars are off by default — enable in /settings',
+  },
+  {
+    id: 'disp-statusbar-session-id',
+    group: 'display',
+    zh: '底栏可显示短会话 ID（# 前 8 位），与日志文件名对应，/settings 里开',
+    en: 'Footer can show the short session id (# + 8 chars, matches the log filename) — enable in /settings',
+  },
+  {
+    id: 'disp-statusbar-title',
+    group: 'display',
+    zh: '底栏可显示会话标题；/rename 随时改',
+    en: 'Footer can show the session title; rename anytime with /rename',
+  },
+  {
+    id: 'disp-statusbar-fields',
+    group: 'display',
+    zh: '底栏字段逐项开关：token 总量、git 分支、模式、活动摘要…… /settings 里配',
+    en: 'Footer fields are per-field switches: token totals, git branch, mode, activity — set in /settings',
+  },
+  {
+    id: 'disp-statusbar-compact',
+    group: 'display',
+    zh: '底栏 compact 开=单行收纳；关=左右分组（指标在左、位置在右）',
+    en: 'Footer compact on = one merged line; off = metrics left, location right',
+  },
+  {
+    id: 'disp-statusbar-hint',
+    group: 'display',
+    zh: "空闲时 '? 查看快捷键' 常驻提示也是底栏开关（shortcutHint）",
+    en: 'The idle "? for shortcuts" reminder is itself a footer switch (shortcutHint)',
   },
   {
     id: 'disp-context-warn',
@@ -418,6 +469,12 @@ export const TIPS: readonly Tip[] = [
     en: 'Drag-select copies instantly in fullscreen; Esc cancels',
   },
   {
+    id: 'disp-hover-footer',
+    group: 'display',
+    zh: '悬停底栏字段：ctx 原地变等宽压力条，明细走常驻底行，布局不动',
+    en: 'Hover footer fields: ctx morphs in place into a same-width bar, details on a stable line',
+  },
+  {
     id: 'disp-wheel-sel',
     group: 'display',
     en: 'With a text selection, the wheel translates the selection, not the list',
@@ -437,7 +494,8 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'pit-esc',
     group: 'pitfalls',
-    en: 'Esc rejects approvals and cancels question batches',
+    zh: '审批条 Esc=拒绝；问卷第 2 题起 Esc=上一题，Ctrl+C=取消整批',
+    en: 'Esc rejects approvals; question batches use Esc for previous and Ctrl+C to cancel',
   },
   {
     id: 'pit-ctrl-c',
@@ -487,7 +545,8 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'pit-mouse-mode',
     group: 'pitfalls',
-    en: 'Mouse support only works in fullscreen mode',
+    zh: '主界面鼠标需开 fullscreen；轨迹/resume 整屏页两种模式都带鼠标',
+    en: 'Main-chat mouse needs fullscreen; full-page screens (trajectory, /resume) have it in both modes',
   },
   {
     id: 'pit-env-rename',

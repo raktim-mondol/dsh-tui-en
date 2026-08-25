@@ -1,6 +1,9 @@
 import React from 'react'
 import { Box, Text } from '../ui.js'
 import { stringWidth } from '../ink/stringWidth.js'
+import type { Color } from '../ink/styles.js'
+import type { Theme } from '../theme.js'
+import type { WheelEvent } from '../ink/events/wheel-event.js'
 
 /**
  * The rounded card shell shared by the `/` command menu and the `@` file
@@ -32,16 +35,28 @@ export function SuggestionCard({
   accent,
   footer,
   rows,
+  onRowPick,
+  onWheelStep,
 }: {
   /** The title embedded in the top border (already localized, includes the count). */
   title: string
   columns: number
-  /** Border color (a theme token); defaults to promptBorder. */
-  accent?: 'promptBorder' | 'planMode'
-  /** The dim hint row at the bottom (scroll indicator); not rendered when null/undefined. */
+  /** 边框色（主题 token 或裸色）；缺省 promptBorder。 */
+  accent?: keyof Theme | Color
+  /** 底部 dim 提示行（滚动指示）；null/undefined 时不渲染。 */
   footer?: string | null
   /** Already-rendered row content (one node per row); this component adds the left/right border to each row. */
   rows: readonly React.ReactNode[]
+  /**
+   * 鼠标点击行（fullscreen）：上报行索引——命令/文件补全用它接受该项
+   * （与 Tab/Enter 同路径）。未提供时行为不变。
+   */
+  onRowPick?: (index: number) => void
+  /**
+   * 滚轮在菜单上滚动（fullscreen）：每次滚动上报 ±1 步——补全菜单用它
+   * 移动选中行（窗口随之滚动）。位置路由保证只有菜单下的滚轮到达这里。
+   */
+  onWheelStep?: (step: 1 | -1) => void
 }): React.ReactNode {
   const inner = Math.max(0, columns - 2)
   const lead = `─ ${title} `
@@ -51,14 +66,36 @@ export function SuggestionCard({
     ? `╭${lead}${'─'.repeat(inner - stringWidth(lead))}╮`
     : `╭${'─'.repeat(inner)}╮`
   const borderColor = accent ?? 'promptBorder'
+  const [hoveredRow, setHoveredRow] = React.useState(-1)
+  const handleWheel = React.useCallback((e: WheelEvent) => {
+    if (e.deltaY !== 0) onWheelStep?.(e.deltaY > 0 ? 1 : -1)
+  }, [onWheelStep])
   return (
-    <Box flexDirection="column" width="100%" flexShrink={0}>
+    // onWheel 直接挂 ink-box host：ThemedBox/Box 是 react-compiler 编译
+    // 产物，只显式透传 onClick/hover/onKeyDown——onWheel 会落进 style
+    // rest 被丢弃（ScrollBox 同因直接写 host 元素）。
+    <ink-box
+      style={{ flexDirection: 'column', width: '100%', flexShrink: 0 }}
+      onWheel={onWheelStep !== undefined ? handleWheel : undefined}
+    >
       <Text color={borderColor} wrap="truncate-end">{top}</Text>
       {rows.map((row, index) => (
-        <Box key={index} flexDirection="row" width="100%">
+        <Box
+          key={index}
+          flexDirection="row"
+          width="100%"
+          onClick={onRowPick ? () => onRowPick(index) : undefined}
+          onMouseEnter={onRowPick ? () => setHoveredRow(index) : undefined}
+          onMouseLeave={onRowPick ? () => setHoveredRow(current => (current === index ? -1 : current)) : undefined}
+        >
           <Text color={borderColor}>│</Text>
-          {/* flexGrow pins the right-side │ to the last column; row content truncates itself per cardContentWidth. */}
-          <Box flexDirection="column" flexGrow={1} minWidth={0}>
+          {/* flexGrow 钉住右侧 │ 在最后一列；行内容自行按 cardContentWidth 截断。 */}
+          <Box
+            flexDirection="column"
+            flexGrow={1}
+            minWidth={0}
+            backgroundColor={onRowPick !== undefined && hoveredRow === index ? 'userMessageBackgroundHover' : undefined}
+          >
             {row}
           </Box>
           <Text color={borderColor}>│</Text>
@@ -74,7 +111,7 @@ export function SuggestionCard({
         </Box>
       ) : null}
       <Text color={borderColor} wrap="truncate-end">{`╰${'─'.repeat(inner)}╯`}</Text>
-    </Box>
+    </ink-box>
   )
 }
 

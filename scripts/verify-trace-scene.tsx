@@ -28,7 +28,7 @@ process.env.FORCE_COLOR = '3'
 // the assertions below all match English UI copy even with `zh` active.
 process.env.DSH_TUI_LANG = 'zh'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { TrajectoryScene }, { Chat }, { QuestionStore }, { stringWidth }] =
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { TrajectoryScene }, { Chat }, { QuestionStore }, { stringWidth }, { settle }] =
   await Promise.all([
     import('node:stream'),
     import('react'),
@@ -38,6 +38,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Traj
     import('../src/screens/Chat.js'),
     import('../src/dsh-adapter/questions.js'),
     import('../src/ink/stringWidth.js'),
+    import('./lib/term-test.mjs'),
   ])
 const { miniWakeWidth } = await import('../src/components/trajectory/MiniWake.js')
 const traj = await import('../src/dsh-adapter/trajectory/index.js')
@@ -192,6 +193,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
       tps: false,
       gitBranch: false,
       sessionTitle: false,
+      sessionId: false,
       mode: false,
       contextBar: false,
       activity: false,
@@ -235,7 +237,15 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     }),
     { stdout: stdout as never, stdin: stdin as never, stderr: stdout as never, exitOnCtrlC: false, patchConsole: false },
   )
-  await sleep(160)
+  // The ledger rows animate in (motion arrive): settle on the FULL asserted
+  // content — returning at the first painted rows would snapshot a frame that
+  // is still growing, and the stale mid-animation frames then poison every
+  // whole-buffer negative check later in this part.
+  await settle(() => {
+    const s = screen()
+    return s.includes('轨迹') && s.includes('read_file') && s.includes('grep_repo')
+      && /web_search\s*×4/.test(s) && (s.includes('RATE_LIMIT') || s.includes('RTY')) && s.includes('▸')
+  })
   const first = screen()
 
   check('scene shows its title and totals', first.includes('Trajectory') && /\d+\s*turns?/.test(first), first.split('\n')[0]?.trim())
@@ -259,10 +269,10 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   const before = hintRow(first)
   const rowAtStart = cursorRow(first)
   stdin.write('\x1b[A')
-  await sleep(240)
+  await settle(() => cursorRow(screen()) === rowAtStart - 1)
   const afterUp = screen()
   stdin.write('\x1b[A')
-  await sleep(240)
+  await settle(() => cursorRow(screen()) === rowAtStart - 2)
   const afterTwo = screen()
   check('cursor opens pinned to the newest row', rowAtStart >= 0, `row ${rowAtStart}`)
   check(
@@ -278,6 +288,12 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   )
 
   // Jump to the next failure, then confirm the inspector explains it.
+  // Fixed window kept: the assertion's condition ALREADY holds before the
+  // seek (the retry row prints RATE_LIMIT in the ledger), so a settle on it
+  // returns instantly — and the next `/` write then coalesces into the same
+  // stdin chunk as `]`, reaching useInput as one `']/'` string that matches
+  // neither key. The delay both lets the seek process and keeps the
+  // keystrokes in separate chunks.
   stdin.write(']')
   await sleep(140)
   const atFailure = screen()
@@ -287,12 +303,15 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   stdin.write('/')
   await sleep(80)
   stdin.write('tool:read_file')
-  await sleep(180)
+  await settle(() => {
+    const s = screen()
+    return s.includes('read_file') && !s.includes('grep_repo')
+  })
   const filtered = screen()
   check('query narrows the ledger', filtered.includes('read_file') && !filtered.includes('grep_repo'))
   check('query reports its match count', /\d+\/\d+/.test(filtered), /\d+\/\d+[^\n]*/.exec(filtered)?.[0])
   stdin.write('\x1b')
-  await sleep(140)
+  await settle(() => screen().includes('grep_repo'))
   check('esc clears the query', screen().includes('grep_repo'))
 
   // View switching. The hotspot rows animate in (motion arrive); a fixed
@@ -352,7 +371,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   // inline geometry — the alt-screen path, which is exactly what the two
   // safety assertions below exist to prove, would go untested.
   for (const value of instances.values()) instances.set(process.stdout, value)
-  await sleep(220)
+  await settle(() => screen().includes('conversation line'))
   const conversation = screen()
   const scrollbackBefore = rowsOf()
   check('conversation renders before the scene opens', conversation.includes('conversation line'))
@@ -379,6 +398,9 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     stdin.write('q')
     await sleep(round === 0 ? 200 : 70)
   }
+  // Fixed window kept: this is also the quiescence window for the scrollback
+  // accounting below — settling on the restored conversation would sample
+  // rowsOf() before the post-restore repaint lands and undercount per-trip.
   await sleep(200)
 
   const restored = screen()
@@ -471,10 +493,13 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   writes.length = 0
 
   stdin.write('\x14')
-  await sleep(250)
+  await settle(() => term.buffer.active.type === 'alternate')
   check('frame-restore probe enters the alternate screen', term.buffer.active.type === 'alternate')
   instances.get(process.stdout)?.resetPools()
   stdin.write('q')
+  // Fixed window kept (negative probe): the assertion below is that NOTHING
+  // repaints the marker after DEC 1049 restores the main screen — a wrong
+  // repaint needs this window to show up in the captured writes.
   await sleep(500)
 
   const roundTrip = writes.join('')
@@ -532,12 +557,20 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   await sleep(400)
 
   // The settle paint is throttled behind the ink frame clock — poll for the
-  // markers instead of racing a fixed sleep.
+  // markers instead of racing a fixed sleep. The ceiling is generous (~15s)
+  // on purpose: this check asserts the FINAL LAYOUT (no blank band between
+  // the two sections), not paint latency, and the old 4s window straddled
+  // the settle-paint latency distribution — it failed with first=-1/
+  // second=-1 (markers not yet on screen) in ~1/3 of local runs while the
+  // very next assertion passed 400ms later. Green paths break out early;
+  // only a real layout regression (or a paint that never lands) pays the
+  // full ceiling.
+  const settlePollStart = Date.now()
   let lines: string[] = []
   let firstIndex = -1
   let secondIndex = -1
   let gap = Number.POSITIVE_INFINITY
-  for (let attempt = 0; attempt < 50; attempt++) {
+  for (let attempt = 0; attempt < 187; attempt++) {
     const buffer = term.buffer.active
     lines = Array.from({ length: buffer.length }, (_, row) =>
       buffer.getLine(row)?.translateToString(true) ?? '',
@@ -556,17 +589,21 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     if (firstIndex >= 0 && secondIndex >= 0 && gap <= 1) break
     await sleep(80)
   }
+  const settleWaitedMs = Date.now() - settlePollStart
   check(
     'reasoning that settles in the trajectory leaves no blank answer gap',
     firstIndex >= 0 && secondIndex >= 0 && gap <= 1,
-    `first=${firstIndex}, second=${secondIndex}, blank=${gap}, buffer=${lines.length}`,
+    `first=${firstIndex}, second=${secondIndex}, blank=${gap}, buffer=${lines.length}, waited=${settleWaitedMs}ms` +
+      (firstIndex < 0 || secondIndex < 0
+        ? ' (markers never painted within the 15s window — hung or lost frame, not a layout gap)'
+        : ''),
   )
 
   stdin.write('\x0f') // Ctrl+O
-  await sleep(400)
+  await settle(() => screen().includes('reasoning line 79'))
   check('Ctrl+O expands settled reasoning after the round trip', screen().includes('reasoning line 79'))
   stdin.write('\x0f')
-  await sleep(400)
+  await settle(() => !screen().includes('reasoning line 79'))
   check('a second Ctrl+O folds settled reasoning again', !screen().includes('reasoning line 79'))
 
   instance.unmount()
@@ -618,7 +655,10 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
     { stdout: stdout as never, stdin: stdin as never, stderr: stdout as never, exitOnCtrlC: false, patchConsole: false },
   )
   for (const value of instances.values()) instances.set(process.stdout, value)
-  await sleep(600)
+  await settle(() => {
+    const s = screen()
+    return /ctrl\+t|⌘t/.test(s) && (s.match(/\? 查看快捷键/g) ?? []).length === 1
+  })
 
   const startup = screen()
   check('the startup tip teaches the trajectory key', /ctrl\+t|⌘t/.test(startup), '')

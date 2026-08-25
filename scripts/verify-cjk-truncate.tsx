@@ -11,7 +11,7 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ Writable }, React, { Terminal: XTerm }, { render }, { FileSuggestions }, { stringWidth }, { truncateToWidth }] = await Promise.all([
+const [{ Writable }, React, { Terminal: XTerm }, { render }, { FileSuggestions }, { stringWidth }, { truncateToWidth }, { settle, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -19,6 +19,7 @@ const [{ Writable }, React, { Terminal: XTerm }, { render }, { FileSuggestions }
   import('../src/components/FileSuggestions.js'),
   import('../src/ink/stringWidth.js'),
   import('../src/ink/truncateToWidth.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -88,14 +89,14 @@ const app = await render(
   React.createElement(FileSuggestions, { files, selectedIndex: 0, columns: COLS }),
   { stdout: new FakeStdout(), exitOnCtrlC: false, patchConsole: false },
 )
-await sleep(300)
+await settle(() => viewportLines(term, ROWS).some(line => line.includes('…')))
 app.unmount()
 await sleep(100)
 
-const buf = term.buffer.active
+const lines = viewportLines(term, ROWS)
 let sawEllipsis = false
 for (let y = 0; y < ROWS; y++) {
-  const line = buf.getLine(y)?.translateToString(true) ?? ''
+  const line = lines[y] ?? ''
   if (line.trim() === '') continue
   const w = stringWidth(line)
   assert(w <= COLS, `row ${y} width ${w} ≤ terminal width ${COLS}: '${line.trimEnd()}'`)

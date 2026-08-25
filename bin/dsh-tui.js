@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dsh-tui — a two-mode delegating launcher (0.8.8).
+ * dsh-tui — 双态启动器（delegating launcher，0.9.2）。
  *
  * The same file plays one of two roles depending on where it lives:
  *
@@ -38,7 +38,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ownDir = dirname(here)
@@ -123,22 +123,120 @@ const isVersionNewer = (a, b) => {
 // --- Messages (launcher runs before TUI boot, so it cannot reuse src/i18n.ts)
 // English only. DSH_TUI_LANG / CC_TUI_LANG are not consulted.
 const MSG = {
-  noDsh: '[dsh-tui] dsh CLI not found. Install the official client first:\n  npm install -g @deepseek-ai/dsh',
-  noPnpm: '[dsh-tui] The first-time setup needs pnpm (dsh plugin delegates installs to it):\n  npm install -g pnpm   (or via corepack: corepack enable pnpm)',
-  bootstrapStart: `[dsh-tui] First run — initializing the ${PROFILE} profile (${PACKAGE}@${ownVersion})…`,
-  bootstrapRetryW: '[dsh-tui] pnpm refused to add to the workspace root (ERR_PNPM_ADDING_TO_ROOT) — retrying with -w…',
-  installFailed: `[dsh-tui] Plugin install failed. Retry manually later:\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
-  bootstrapUnreadable: dir =>
-    `[dsh-tui] install reported success but the plugin package is still unreadable under:\n` +
-    `  ${dir}\n` +
-    `  pnpm treats this half-installed profile as already up to date, so every retry\n` +
-    `  reports success while boot keeps failing. Recovery:\n` +
-    `  rm -rf ${dir} && dsh-tui`,
-  launchFailed: err => `[dsh-tui] Failed to launch: ${err.message}`,
-  delegateFailed: path =>
-    `[dsh-tui] cannot launch the profile copy:\n  ${path}\nReinstall the global launcher:\n  npm install -g ${PACKAGE}@latest`,
-  profileExited: code => `[dsh-tui] dsh profile exited with code ${code}. Run it directly for diagnostics:\n  dsh --profile ${PROFILE}`,
-  legacyEnv: (oldName, newName) => `[dsh-tui] note: env ${oldName} was renamed to ${newName}; the old name no longer takes effect.`,
+  noDsh: {
+    en: '[dsh-tui] dsh CLI not found. Install the official client first:\n  npm install -g @deepseek-ai/dsh',
+    zh: '[dsh-tui] 未检测到 dsh CLI。请先安装官方客户端：\n  npm install -g @deepseek-ai/dsh',
+  },
+  noPnpm: {
+    en: '[dsh-tui] The first-time setup needs pnpm (dsh plugin delegates installs to it):\n  npm install -g pnpm   (or via corepack: corepack enable pnpm)',
+    zh: '[dsh-tui] 首次安装需要 pnpm（dsh plugin 会把安装转发给它）：\n  npm install -g pnpm   （或启用 corepack：corepack enable pnpm）',
+  },
+  bootstrapStart: {
+    en: `[dsh-tui] First run — initializing the ${PROFILE} profile (${PACKAGE}@${ownVersion})…`,
+    zh: `[dsh-tui] 首次运行，正在初始化 ${PROFILE} profile（${PACKAGE}@${ownVersion}）…`,
+  },
+  bootstrapRetryW: {
+    en: '[dsh-tui] pnpm refused to add to the workspace root (ERR_PNPM_ADDING_TO_ROOT) — retrying with -w…',
+    zh: '[dsh-tui] pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT）——带 -w 重试…',
+  },
+  installFailed: {
+    en: `[dsh-tui] Plugin install failed. Retry manually later:\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
+    zh: `[dsh-tui] 插件安装失败。可稍后手工重试：\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
+  },
+  bootstrapUnreadable: {
+    en: dir =>
+      `[dsh-tui] install reported success but the plugin package is still unreadable under:\n` +
+      `  ${dir}\n` +
+      `  pnpm treats this half-installed profile as already up to date, so every retry\n` +
+      `  reports success while boot keeps failing. Recovery:\n` +
+      `  rm -rf ${dir} && dsh-tui`,
+    zh: dir =>
+      `[dsh-tui] 安装报告成功，但插件包仍不可读：\n` +
+      `  ${dir}\n` +
+      `  pnpm 把半残的 profile 视为已装好，重试永远「成功」而启动照旧崩溃。\n` +
+      `  恢复方法：\n` +
+      `  rm -rf ${dir} 后重新运行 dsh-tui`,
+  },
+  launchFailed: {
+    en: err => `[dsh-tui] Failed to launch: ${err.message}`,
+    zh: err => `[dsh-tui] 启动失败：${err.message}`,
+  },
+  delegateFailed: {
+    en: path =>
+      `[dsh-tui] cannot launch the profile copy:\n  ${path}\nReinstall the global launcher:\n  npm install -g --legacy-peer-deps ${PACKAGE}@latest\n(--legacy-peer-deps avoids an npm 12 peer-resolution crash; the launcher is a thin shim, so skipping global peer resolution is safe.)`,
+    zh: path =>
+      `[dsh-tui] 无法启动 profile 内副本：\n  ${path}\n请重装全局启动器：\n  npm install -g --legacy-peer-deps ${PACKAGE}@latest\n（--legacy-peer-deps 可绕过 npm 12 的 peer 解析崩溃；启动器是瘦壳，跳过全局 peer 解析是安全的。）`,
+  },
+  profileExited: {
+    en: code => `[dsh-tui] dsh profile exited with code ${code}. Run it directly for diagnostics:\n  dsh --profile ${PROFILE}`,
+    zh: code => `[dsh-tui] dsh profile 已退出（退出码 ${code}）。可直接运行以下命令查看诊断：\n  dsh --profile ${PROFILE}`,
+  },
+  legacyEnv: {
+    en: (oldName, newName) => `[dsh-tui] note: env ${oldName} was renamed to ${newName}; the old name no longer takes effect.`,
+    zh: (oldName, newName) => `[dsh-tui] 提示：环境变量 ${oldName} 已更名为 ${newName}，旧名不再生效。`,
+  },
+  notInstalled: {
+    en: '(not installed)',
+    zh: '（未安装）',
+  },
+  doctorLabels: {
+    en: {
+      dshMissing: 'not found — install it first:  npm install -g @deepseek-ai/dsh',
+      pnpmMissing: 'not found — needed for install/update:  npm install -g pnpm',
+      profileMissing: 'not installed — run `dsh-tui` once to bootstrap it',
+      aligned: 'aligned',
+      profileNewer: v => `profile is newer — align the launcher:  npm install -g ${PACKAGE}@${v}`,
+      profileOlder: v => `profile is older — align it:  dsh plugin --profile ${PROFILE} add ${PACKAGE}@${v}`,
+      keySet: 'set',
+      keyMissing: 'not set — interactive launch reads DEEPSEEK_API_KEY',
+      missing: 'missing',
+    },
+    zh: {
+      dshMissing: '未找到——请先安装：  npm install -g @deepseek-ai/dsh',
+      pnpmMissing: '未找到——安装/升级需要它：  npm install -g pnpm',
+      profileMissing: '未安装——运行一次 `dsh-tui` 即可自举',
+      aligned: '已对齐',
+      profileNewer: v => `profile 较新——对齐启动器：  npm install -g ${PACKAGE}@${v}`,
+      profileOlder: v => `profile 较旧——对齐它：  dsh plugin --profile ${PROFILE} add ${PACKAGE}@${v}`,
+      keySet: '已设置',
+      keyMissing: '未设置——交互启动读取 DEEPSEEK_API_KEY',
+      missing: '缺失',
+    },
+  },
+  updateUnavailable: {
+    en:
+      `[dsh-tui] \`update\` needs the profile's compiled copy, but it is missing or too old to carry the CLI entry.\n` +
+      `Update manually instead:\n  dsh plugin --profile ${PROFILE} add ${PACKAGE}@latest`,
+    zh:
+      `[dsh-tui] \`update\` 需要 profile 的编译产物，但它缺失或版本过旧、不含 CLI 入口。\n` +
+      `请改用手工升级：\n  dsh plugin --profile ${PROFILE} add ${PACKAGE}@latest`,
+  },
+  helpText: {
+    en:
+      `Usage: dsh-tui [command] [options] [path|url]\n\n` +
+      `Commands:\n` +
+      `  update                 Update the ${PROFILE} profile to the latest release\n` +
+      `  doctor                 Pre-flight environment checks (dsh/pnpm/profile/key)\n` +
+      `  version                Show launcher and profile versions\n` +
+      `  help                   Show this help\n\n` +
+      `Options:\n` +
+      `  --resume [id]          Resume the last (or the given) session\n` +
+      `  -c, --continue         Same as --resume\n` +
+      `  <path|url>             Open with the given workspace target\n\n` +
+      `Any other argument is forwarded to \`dsh --profile ${PROFILE}\`.`,
+    zh:
+      `用法：dsh-tui [命令] [选项] [路径|URL]\n\n` +
+      `命令：\n` +
+      `  update                 将 ${PROFILE} profile 升级到最新版本\n` +
+      `  doctor                 启动前环境诊断（dsh/pnpm/profile/密钥）\n` +
+      `  version                显示启动器与 profile 版本\n` +
+      `  help                   显示本帮助\n\n` +
+      `选项：\n` +
+      `  --resume [id]          恢复上次（或指定 id 的）会话\n` +
+      `  -c, --continue         同 --resume\n` +
+      `  <路径|URL>             以指定工作区目标启动\n\n` +
+      `其余参数原样转发给 \`dsh --profile ${PROFILE}\`。`,
+  },
 }
 const msg = key => MSG[key]
 
@@ -161,6 +259,78 @@ const profilePkgDir = join(profileDir, 'node_modules', '@deepseek-harness-tui', 
 const profileBin = join(profilePkgDir, 'bin', 'dsh-tui.js')
 const installedPkgPath = join(profilePkgDir, 'package.json')
 const runningInsideProfile = sameDir(ownDir, profilePkgDir)
+
+// ─── 子命令：version / help ──────────────────────────────────────────────────
+// 只认第一个参数，且在角色分支之前应答：两种角色都不经过委托与自举——
+// `dsh-tui --help` 在没装 dsh、profile 残缺时也必须能出（否则求助命令
+// 本身先触发一轮安装）。后续位置的同名字符串不截获，保持既有透传与
+// 工作区目标嗅探行为不变。
+const subcommand = process.argv[2]
+if (subcommand === 'version' || subcommand === '--version' || subcommand === '-v') {
+  const role = runningInsideProfile ? 'profile' : 'launcher'
+  console.log(`${PACKAGE} ${ownVersion ?? 'unknown'} (${role})`)
+  const profileVersion = readJson(installedPkgPath)?.version
+  console.log(`profile: ${profileVersion ?? msg('notInstalled')}  ${profilePkgDir}`)
+  process.exit(0)
+}
+if (subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
+  console.log(msg('helpText'))
+  process.exit(0)
+}
+// ─── 子命令：doctor ──────────────────────────────────────────────────────────
+// 启动前环境诊断——针对「TUI 起不来」的故障域（装不上、update 后版本不
+// 同步、密钥没配），与 TUI 内 /doctor 的会话内诊断互补。零 lib 依赖、
+// 不委托、不自举：profile 残缺时它必须还能跑。密钥红线：只报告是否已
+// 设置，绝不输出值。仅 dsh 缺失记为硬失败（其余检查全部照常打印后再
+// 以退出码 1 收束）。
+if (subcommand === 'doctor') {
+  const L = msg('doctorLabels')
+  let hardFailure = false
+  const report = (ok, label, detail) => console.log(`${ok ? '✓' : '✗'} ${label}: ${detail}`)
+  console.log(`dsh-tui doctor · ${PACKAGE} ${ownVersion ?? 'unknown'}`)
+  report(true, 'node', `${process.version} · ${process.platform} ${process.arch}`)
+  const probeVersion = command => {
+    const probe = spawnSync(...cmd(command, ['--version']), { stdio: 'pipe', encoding: 'utf8', ...shellOpt })
+    if (probe.error || probe.status !== 0) return undefined
+    // 白名单校验：只回显版本号形状的首行。诊断输出的红线是绝不泄露密钥，
+    // 而 PATH 上的 wrapper 理论上可以把任意环境变量 echo 进 --version——
+    // 不匹配版本形状的输出一律不转印。
+    const line = String(probe.stdout ?? '').trim().split('\n')[0] ?? ''
+    return /^v?\d[\w.+-]*$/.test(line) ? line : '(version unreadable)'
+  }
+  const dshVersion = probeVersion('dsh')
+  if (dshVersion === undefined) {
+    hardFailure = true
+    report(false, 'dsh', L.dshMissing)
+  } else {
+    report(true, 'dsh', dshVersion)
+  }
+  const pnpmVersion = probeVersion('pnpm')
+  report(pnpmVersion !== undefined, 'pnpm', pnpmVersion ?? L.pnpmMissing)
+  const profileVersion = readJson(installedPkgPath)?.version
+  if (profileVersion === undefined) {
+    report(false, 'profile', `${L.profileMissing}  (${profileDir})`)
+  } else {
+    report(true, 'profile', `${profileVersion}  (${profileDir})`)
+    if (ownVersion !== undefined && !runningInsideProfile) {
+      if (profileVersion === ownVersion) {
+        report(true, 'launcher ↔ profile', L.aligned)
+      } else if (isVersionNewer(profileVersion, ownVersion)) {
+        report(false, 'launcher ↔ profile', L.profileNewer(profileVersion))
+      } else {
+        report(false, 'launcher ↔ profile', L.profileOlder(ownVersion))
+      }
+    }
+  }
+  // truthiness 而非 !== undefined：空字符串的 key 同样发不了请求，且 TUI 内
+  // /doctor（channel.doctorInfo）按 truthiness 报告——两个 doctor 不许分叉。
+  const keySet = Boolean(process.env.DEEPSEEK_API_KEY)
+  report(keySet, 'DEEPSEEK_API_KEY', keySet ? L.keySet : L.keyMissing)
+  for (const candidate of [join(homedir(), '.dsh-tui', 'cordis.yml'), join(profileDir, 'cordis.patch.yml')]) {
+    report(existsSync(candidate), 'config', `${candidate}${existsSync(candidate) ? '' : `  ${L.missing}`}`)
+  }
+  process.exit(hardFailure ? 1 : 0)
+}
 
 const forwardExit = child => {
   child.on('error', err => {
@@ -227,10 +397,40 @@ const bootstrapProfile = () => {
   }
 }
 
-// ─── Global copy: thin-shell role ──────────────────────────────────────────
-// DSH_TUI_NO_DELEGATE=1 is a test/debug escape hatch: forces the full logic
-// path (verify-launcher's sandbox drives the full path with it directly;
-// also useful when diagnosing the delegation chain in the field).
+// ─── 子命令：update ──────────────────────────────────────────────────────────
+// 顶层处理、两种角色同一条路径——不放进委托链。委托会把 update 交给
+// profile 内的旧 bin：旧副本不认识这个词，只会当参数透传，恰好是「profile
+// 落后、最需要升级」的用户永远到不了新入口。这里统一动态 import **profile
+// 的**编译产物（不是本副本的——DSH_TUI_NO_DELEGATE 下两者不同包，读本副本
+// 会拿全局包版本误判 already-latest/half-updated）；瘦壳零 lib 静态依赖的
+// 迁移契约不变。profile 未初始化时先走既有自举（dsh/pnpm 预检在其中）；
+// 编译产物缺失或没有 cliUpdate 导出（半更新的旧版）给手工升级指引退出 1。
+// 判定先于工作区目标嗅探：cwd 里名为 update 的文件不再被当成路径。
+if (subcommand === 'update') {
+  if (!profileReady()) bootstrapProfile()
+  {
+    const probe = spawnSync(...cmd('dsh', ['--version']), { stdio: 'pipe', ...shellOpt })
+    if (probe.error || probe.status !== 0) {
+      console.error(msg('noDsh'))
+      process.exit(1)
+    }
+  }
+  let cliUpdate
+  try {
+    ;({ cliUpdate } = await import(pathToFileURL(join(profilePkgDir, 'lib', 'types', 'update.js')).href))
+  } catch {
+    cliUpdate = undefined
+  }
+  if (typeof cliUpdate !== 'function') {
+    console.error(msg('updateUnavailable'))
+    process.exit(1)
+  }
+  process.exit(await cliUpdate(PROFILE))
+}
+
+// ─── 全局副本：瘦壳角色 ───────────────────────────────────────────────────────
+// DSH_TUI_NO_DELEGATE=1 是测试/调试逃生口：强制走完整逻辑（verify-launcher
+// 的沙箱用它直接驱动全量路径；现场排查委托链时同样可用）。
 if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_DELEGATE !== '1') {
   if (!profileReady()) bootstrapProfile()
   // Delegate to the profile-internal copy for the rest of the launch logic.
@@ -259,6 +459,7 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
       process.exit(1)
     }
   }
+
   let installedVersion
   try {
     installedVersion = JSON.parse(readFileSync(installedPkgPath, 'utf8')).version
@@ -291,7 +492,8 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
     if (installedNewer) {
       console.error(
         `[dsh-tui] note: the profile is already v${installedVersion}; this launcher copy is v${ownVersion}.\n` +
-          `  npm install -g ${PACKAGE}@${installedVersion}`,
+          `  npm install -g --legacy-peer-deps ${PACKAGE}@${installedVersion}\n` +
+          `(--legacy-peer-deps avoids an npm 12 peer-resolution crash, see issue #459)`,
       )
     } else {
       // The profile is older but same minor (a patch-level mismatch):

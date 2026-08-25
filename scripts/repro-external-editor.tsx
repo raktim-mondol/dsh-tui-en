@@ -31,7 +31,7 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { writeFileSync, mkdtempSync, rmSync }, { tmpdir }, { join }, { render }, { Chat }, { QuestionStore }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { writeFileSync, mkdtempSync, rmSync }, { tmpdir }, { join }, { render }, { Chat }, { QuestionStore }, termTest] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -41,6 +41,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { writeFileSync, m
   import('../src/ui.js'),
   import('../src/screens/Chat.js'),
   import('../src/dsh-adapter/questions.js'),
+  import('./lib/term-test.mjs'),
 ])
 
 const COLS = 100
@@ -76,14 +77,11 @@ class FakeStdin extends PassThrough {
   unref() { return this }
 }
 const stdinObj = new FakeStdin()
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-function screenHas(s: string): boolean {
-  const buf = term.buffer.active
-  for (let y = 0; y < ROWS; y++) {
-    if ((buf.getLine(y)?.translateToString(true) ?? '').includes(s)) return true
-  }
-  return false
-}
+// 等待/读屏走公共辅助（issue #532）：settle 轮询到预期状态再断言——固定
+// sleep 在慢 runner 上会断言到旧屏幕；inline 模式有 scrollback 时视口从
+// baseY 起，getLine(0..ROWS) 直扫会混入已滚出的行。
+const { sleep, settle, writeParsed } = termTest
+const screenHas = (s: string): boolean => termTest.screenHas(term, s)
 
 const listeners = new Set<() => void>()
 let rowId = 0
@@ -147,12 +145,12 @@ const check = (name: string, ok: boolean, extra = '') => {
 // target — it's the one that goes blank), and a draft in the input box.
 channel.rows.push({ id: rowId++, kind: 'user', text: 'transcript-anchor-history-message' })
 bump()
-await sleep(300)
-check('setup: transcript history message visible', screenHas('transcript-anchor'))
+await settle(() => screenHas('transcript-anchor'))
+check('预备: transcript 历史消息可见', screenHas('transcript-anchor'))
 
-stdinObj.write('what is cordis')
-await sleep(300)
-check('setup: draft is in the input box', screenHas('what is cordis'))
+stdinObj.write('什么是cordis')
+await settle(() => screenHas('什么是cordis'))
+check('预备: 草稿已入输入框', screenHas('什么是cordis'))
 
 // Ctrl+G → fake editor (writes to disk and exits after 600ms)
 stdinObj.write('\x07')
@@ -161,10 +159,9 @@ await sleep(250)
 // double-Esc after resume = clear input, then Esc on empty input = open the rewind picker.
 stdinObj.write('\x1b\x1b')
 await sleep(100)
-// Simulates nvim's rmcup: the terminal gets bounced back to the main
-// screen, so our subsequent 2J lands there too. The write callback fires
-// after xterm finishes parsing, guaranteeing ordering with the following 2J.
-await new Promise<void>(resolve => term.write('\x1b[?1049l', resolve))
+// 模拟 nvim 的 rmcup：终端被弹回主屏，随后我们的 2J 将落在主屏上。
+// write 回调在 xterm 解析完毕后触发，保证与后续 2J 的先后顺序。
+await writeParsed(term, '\x1b[?1049l')
 
 // Wait for the fill-back to complete (editor's 600ms disk write + round trip)
 let roundTripped = false
@@ -172,8 +169,10 @@ for (let i = 0; i < 100; i++) {
   await sleep(50)
   if (screenHas('what is cordis EDITED')) { roundTripped = true; break }
 }
-check('round trip: edit result filled back into the input box', roundTripped)
-// Let the late garbled bytes (injected by FakeStdout) and any delayed side effects settle
+check('往返: 编辑结果回填输入框', roundTripped)
+// 让晚到乱码（FakeStdout 注入）与任何延迟副作用落定。
+// 稳定性探针（不得改变）：下面的 bug1-3 断言的是"东西仍在/没被触发"，
+// 对已成立条件轮询会立即返回等于没测——保留固定窗口。
 await sleep(600)
 
 check('bug1: transcript history message still visible (full redraw)', screenHas('transcript-anchor'))
@@ -183,8 +182,8 @@ check('bug3: no terminal-response fragment leaked into the UI', !screenHas('48;9
 
 // Liveness: normal input must work again once the suppression window has passed
 stdinObj.write('X')
-await sleep(300)
-check('liveness: input works normally after the suppression window ends', screenHas('what is cordis EDITEDX'))
+await settle(() => screenHas('什么是cordis EDITEDX'))
+check('活性: 抑制窗口结束后输入正常', screenHas('什么是cordis EDITEDX'))
 
 if (savedEditor === undefined) delete process.env.EDITOR
 else process.env.EDITOR = savedEditor
