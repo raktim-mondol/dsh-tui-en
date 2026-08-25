@@ -1,30 +1,33 @@
 # Contributing
 
-[Documentation index](README.md)
 
 Thanks for considering contributing to dsh-TUI! This guide is the shared
 development contract for humans and coding agents working on `@deepseek-harness-tui/dsh-tui`.
 
 ## How To Contribute
 
-- **报告 bug**：用 bug 表单提交 issue，填写版本、终端环境与最短复现步骤。
-- **提功能建议**：发到 [Discussions Ideas](https://github.com/ccch1mneyyy/dsh-TUI/discussions/new?category=ideas)。
-  Issues 不接受功能请求。维护者认可后会开一个 issue 跟踪实现，实现由该 issue
-  的 assignee 负责。**拿到认可之前不要开始写代码**——被否的提案里已经有 OAuth、
-  `/cost`、通知、插件 API、remote runtime 几套写完整才被关掉的实现。
-  发出后 14 天没有维护者回应，可以直接提 PR，会被打上 `unreviewed-proposal`
-  标签，按未经审阅处理。
-- **提交 PR**：base 指向 `main`。保持改动聚焦——一个 PR 只做一个逻辑改动，
-  标题用中文或中英对照，描述写清动机、改动点与验证方式。
-- **请求 review 前先跑验证矩阵**：CI 运行的就是下面这些命令。
-- 新功能应附带或扩展一个聚焦的回归脚本。
+- **Report bugs** through the bug issue form: version, terminal environment,
+  and a minimal reproduction.
+- **Request features** in [Discussions Ideas](https://github.com/ccch1mneyyy/dsh-TUI/discussions/new?category=ideas).
+  Issues do not accept feature requests. Accepted proposals get a tracking issue,
+  and its assignee owns the implementation. **Do not start writing code before the
+  proposal is accepted** — OAuth, `/cost`, notifications, a plugin API and a remote
+  runtime were each written in full and then closed.
+  If a maintainer has not responded within 14 days, you may open a PR directly; it
+  gets the `unreviewed-proposal` label and is treated as unreviewed.
+- **Open a pull request** against `main`. Keep changes focused: one logical
+  change per PR, with a Chinese or bilingual title and a description that
+  covers motivation, what changed, and how it was verified.
+- **Run the verification matrix** below before requesting a review; CI runs
+  the same commands.
+- New features should include or extend a focused regression script.
 
-### 功能提案流程的生效时间
+### When the feature proposal flow takes effect
 
-该流程只对 2026-08-24 起新建的 PR 生效。在此之前开着的 PR 按旧规则处理，
-不需要补 Discussion 或跟踪 issue。
+It applies only to pull requests opened on or after 2026-08-24. Pull requests
+already open before that date follow the previous rules and need no Discussion
+or tracking issue.
 
-## 范围（Scope）
 
 
 ## Scope
@@ -38,44 +41,17 @@ owns the TUI, its local command surface, packaged skills, and a ported Ink/Yoga
 renderer. DeepSeek Harness owns the agent, session, model, tool, persistence,
 and policy domains that the TUI consumes.
 
-- `src/index.ts`：公共 Cordis 插件入口、配置 Schema，与对运行时插件的惰性移交。
-- `src/dsh-adapter/plugin.ts`：TTY 校验、服务注册、Agent 创建/恢复、React 树挂载，以及
-  终端/进程的收尾清理。
-- `src/dsh-adapter/channel.ts`：事件到视图的投影 + 非 React 的动作面。把 DSH 会话事件
-  翻译成 transcript 行，实现 submit、steer、rewind、resume、模型/preset 切换、
-  本地报告及相关状态迁移。
-- `src/screens/Chat.tsx`：顶层交互协调器。负责模态优先级、全局键盘、滚动/
-  搜索/选区状态、slash 命令分发与聊天屏组装。
-- `src/screens/StatusLine.tsx` 与 `src/screens/StatusMetrics.ts`：底部状态栏
-  呈现与指标推导。
-- `src/components/`：功能组件。`components/design-system/` 是主题感知原语；
-  `components/messages/` 是 transcript 行；`components/questions/` 是
-  `ask_user_question` 的 UI。
-- `src/ui.ts`：本地渲染器、主题化 `Box`/`Text`、hooks 与公共 TUI 原语的
-  首选门面。
-- `src/ink/`：移植的低层 Ink 渲染器与终端实现。**敏感基础设施**：改动要聚焦，
-  并附渲染器专用回归覆盖。
-- `src/native-ts/yoga-layout/`：渲染器使用的移植布局引擎。
-- `src/cc/`：为 Claude Code 风格 UI 适配的终端格式化与呈现辅助。
-- `src/*Prefs.ts`、`src/customTheme.ts`、`src/sessionHistory.ts`：持久化的
-  用户偏好与 `~/.dsh-tui` 下的本地会话元数据。
-- `skills/*/SKILL.md`：随 npm 包分发的技能，由 `src/dsh-adapter/packaged-skills.ts` 注册。
-- `cordis.patch.yml`：profile 安装时使用的包级 bundle 覆盖层。行的顺序、行 ID、
-  被禁用的 host 行、insert/override 语义都很关键。
-- `cordis.yml`：直接 Cordis/DSH 启动的完整裸组合示例。
-- `scripts/`：无头回归、复现环境、探针与诊断。运行前先读脚本头部说明。
-- `lib/`：由 `src/` 生成、忽略入库并随 npm 分发的 JavaScript、声明与声明映射。
-  `./invariant` 也直接使用 `lib/types/dsh-adapter/invariant.js` 的编译结果。
-- `README.md` 与 `README_EN.md`：中英文用户文档。行为、配置、快捷键与限制
-  必须两版同步。
+Before making a broad change, read `package.json`, the relevant README section,
+and every source file being edited. Prefer the repository's existing service
+boundaries and helpers over introducing parallel abstractions.
 
 ## Repository Map
 
 - `src/index.ts`: public Cordis plugin entry point, configuration schema, and
   lazy handoff to the runtime plugin.
-- `src/plugin.ts`: TTY validation, service registration, agent creation/resume,
+- `src/dsh-adapter/plugin.ts`: TTY validation, service registration, agent creation/resume,
   React tree mounting, and terminal/process teardown.
-- `src/channel.ts`: event-to-view projection and the non-React action surface.
+- `src/dsh-adapter/channel.ts`: event-to-view projection and the non-React action surface.
   It translates DSH session events into transcript rows and implements submit,
   steering, rewind, resume, model/preset switching, local reports, and related
   state transitions.
@@ -98,7 +74,7 @@ and policy domains that the TUI consumes.
 - `src/*Prefs.ts`, `src/customTheme.ts`, and `src/sessionHistory.ts`: persisted
   user preferences and local session metadata under `~/.dsh-tui`.
 - `skills/*/SKILL.md`: skills shipped in the npm package and registered by
-  `src/packaged-skills.ts`.
+  `src/dsh-adapter/packaged-skills.ts`.
 - `cordis.patch.yml`: package bundle overlay used by profile installation.
   Ordering, row IDs, disabled host rows, and insert/override semantics matter.
 - `cordis.yml`: full bare-composition example for direct Cordis/DSH startup.
@@ -107,9 +83,9 @@ and policy domains that the TUI consumes.
 - `lib/`: ignored JavaScript, declarations, and declaration maps generated from
   `src/` and shipped to npm. `./invariant` uses the compiled
   `lib/types/dsh-adapter/invariant.js` entry as well.
-- `README.md` and `docs/`: English user documentation. Keep behavior,
-  configuration, shortcuts, and limitations synchronized across the README
-  and the guides under `docs/`.
+- `README.md` and `README_EN.md`: Chinese and English user documentation. Keep
+  behavior, configuration, shortcuts, and limitations synchronized between
+  them.
 
 ## Runtime Shape
 
@@ -306,16 +282,20 @@ the required credentials.
 
 ### Cordis Lifecycle And Configuration
 
-- 保持 `src/index.ts` 是小的公共插件契约、`src/dsh-adapter/plugin.ts` 是运行时实现。
-  除非任务有意改插件加载契约，否则保留惰性移交。
-- 资源通过 Cordis 注册，用 `ctx.effect` 或既有单一退出漏斗清理。渲染失败必须
-  响亮且非零退出；正常退出必须在进程退出前恢复终端状态。
-- `cordis.patch.yml` 叠加在 `dsh-base` 上。不要重复 base 已挂载的服务行。
-  区分 ID 覆盖与 `insert`，一个服务依赖另一个时保持顺序。
-- profile 覆盖会替换整个 `config` 块。文档展示覆盖时，包含替换后必须存活的
-  每个键。
-- 新增或重命名插件选项时，同步更新 `src/index.ts` 的 `Config` 接口与 Schema、
-  运行时消费、`cordis.patch.yml` 与 `cordis.yml` 的相应行，以及双 README。
+- Keep `src/index.ts` as the small public plugin contract and `src/dsh-adapter/plugin.ts`
+  as the runtime implementation. Preserve the lazy handoff unless the task
+  intentionally changes the plugin-loading contract.
+- Register resources through Cordis and clean them up through `ctx.effect` or
+  the existing single exit funnel. A render failure must remain loud and
+  non-zero; normal exit must restore terminal state before process exit.
+- `cordis.patch.yml` is layered over `dsh-base`. Do not duplicate a service row
+  that the base already mounts. Distinguish an ID override from an `insert`,
+  and preserve ordering when one service depends on another.
+- A profile override replaces an entire `config` block. When documentation
+  shows an override, include every key that must survive the replacement.
+- When adding or renaming a plugin option, update the `Config` interface and
+  Schema in `src/index.ts`, its consumption in runtime code, the applicable
+  rows in `cordis.patch.yml` and `cordis.yml`, and both READMEs.
 
 ### Session And Channel State
 
@@ -395,31 +375,38 @@ the required credentials.
 
 | If you change | Keep these in sync |
 | --- | --- |
-| 插件配置或环境行为 | `src/index.ts`、运行时消费、`cordis.patch.yml`、`cordis.yml`、`README.md`、`README_EN.md` |
-| Slash 命令或快捷键 | `src/commands.ts`、`src/screens/Chat.tsx`、帮助/输入组件、双 README、相关技能映射/测试 |
-| 主题契约或持久化主题行为 | `src/theme.ts`、所有色板、主题 provider/picker、自定义主题解析器、主题验证、双 README |
-| 会话/channel 行为 | `src/dsh-adapter/channel.ts`、受影响的 UI 投影、编译产物、聚焦 channel/回放回归 |
-| 渲染器/布局行为 | `src/ink/` 或 Yoga 源、编译产物、CI 回归、聚焦滚动/resize/PTY 探针 |
-| 打包技能 | `skills/<name>/SKILL.md`、`src/dsh-adapter/packaged-skills.ts` 假设、暴露为 slash 命令时的提示/映射 |
-| 用户可见的文档化行为 | 中英文 README，外加适用的配置注释/帮助文本 |
-| 包版本或依赖 | `package.json`、`pnpm-lock.yaml`、适用时的生成/发布产物；不要顺手搅动旧 npm 锁文件 |
+| Plugin config or environment behavior | `src/index.ts`, runtime consumer, `cordis.patch.yml`, `cordis.yml`, `README.md`, `README_EN.md` |
+| Slash commands or shortcuts | `src/commands.ts`, `src/screens/Chat.tsx`, help/input components, both READMEs, relevant skill mapping/tests |
+| Theme contract or persisted theme behavior | `src/theme.ts`, all palettes, theme provider/picker, custom-theme parser, theme verification, both READMEs |
+| Session/channel behavior | `src/dsh-adapter/channel.ts`, affected UI projections, compiled output, focused channel/replay regression |
+| Renderer/layout behavior | `src/ink/` or Yoga source, compiled output, CI regressions, focused scroll/resize/PTY probe |
+| Packaged skill | `skills/<name>/SKILL.md`, `src/dsh-adapter/packaged-skills.ts` assumptions, command prompt/mapping if exposed as a slash command |
+| User-facing documented behavior | Chinese and English READMEs, plus config comments/help text where applicable |
+| Package version or dependency | `package.json`, `pnpm-lock.yaml`, generated/published artifacts as applicable; do not churn the legacy npm lock incidentally |
 
 ## Git And Release Safety
 
-- 工作树可能含有他人的改动。编辑前检查 `git status` 与相关 diff，保留无关
-  改动，绝不丢弃不是你创建的工作。
-- 不要运行破坏性清理命令（`git reset --hard`、`git checkout .`、
-  `git clean -fd`）。不要用 `git stash` 隐藏他人会话的工作。
-- 只暂存显式路径，绝不在共享工作树用 `git add .` 或 `git add -A`。
-- 未经用户要求，不 commit、不打 tag、不 push、不发布、不建 Release。
-- 发布由 tag 驱动：`.github/workflows/publish.yml` 要求 `v*` tag 与
-  `package.json` 版本完全一致，随后构建、跑聚焦回归并发布 npm。版本变更与
-  tag 是发布操作，不是日常清理。
-- Release note 带贡献者署名：建 GitHub Release 用
-  `gh release create vX.Y.Z --notes-file notes.md --generate-notes`——手写摘要
-  在前，GitHub 在后面自动追加 What's Changed（PR 标题 + 作者 + 链接）、
-  New Contributors 与 Full Changelog；`.github/release.yml` 从自动清单里排除
-  bot。手写摘要中来自外部贡献者的条目在末尾标 `（#PR号 by @用户名）`，维护者
-  自己的条目不标；裸写 `#123` 与 `@user`，GitHub 渲染成链接。
-- 移交代码改动前检查 `git diff --check`、源码 diff、生成 diff 与 `git status`，
-  并如实报告跑了哪些验证、哪些平台/凭证相关的检查没跑。
+- The worktree may contain another person's changes. Inspect `git status` and
+  relevant diffs before editing, preserve unrelated changes, and never discard
+  work you did not create.
+- Do not run destructive cleanup commands such as `git reset --hard`,
+  `git checkout .`, or `git clean -fd`. Do not use `git stash` to hide another
+  session's work.
+- Stage explicit paths only; never use `git add .` or `git add -A` in a shared
+  worktree.
+- Do not commit, tag, push, publish, or create a release unless the user asks.
+- Publishing is tag-driven. `.github/workflows/publish.yml` requires a `v*`
+  tag whose version exactly matches `package.json`, then builds, runs focused
+  regressions, and publishes to npm. Treat version changes and tags as release
+  operations, not routine cleanup.
+- Release notes credit contributors. Create GitHub Releases with
+  `gh release create vX.Y.Z --notes-file notes.md --generate-notes`: the
+  hand-written summary comes first, and GitHub appends What's Changed (PR
+  title + author + link), New Contributors, and the Full Changelog;
+  `.github/release.yml` excludes bots from the generated list. In the
+  hand-written summary, entries from external contributors end with
+  `(#PR by @user)`; the maintainer's own entries are unmarked. Write bare
+  `#123` and `@user` — GitHub renders them as links.
+- Before handing off a code change, inspect `git diff --check`, the source diff,
+  the generated diff, and `git status`. Report exactly which verification ran
+  and any platform or credential-dependent checks that could not run.

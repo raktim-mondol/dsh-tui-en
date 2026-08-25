@@ -21,8 +21,9 @@ fi
 
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
 echo
-echo "Install complete. Start with: dsh --profile dsh-tui"
-echo "On Windows you can also use dsh-tui.cmd in the repo root (--resume restores the last session)."
+echo "Install complete. Start with: dsh-tui-en"
+echo "Equivalent: dsh --profile dsh-tui"
+echo "On Windows you can also use dsh-tui-en.cmd in the repo root (--resume restores the last session)."
 echo
 echo "Note: do not also \`add dsh-working-activity\` on the same profile — it is already mounted by the dsh-tui patch layer, and adding it again produces duplicate lines. To tune settings (e.g. publishIntervalMs) override by id in \$DSH_HOME/profiles/dsh-tui/cordis.patch.yml:"
 echo "  - id: working-activity"

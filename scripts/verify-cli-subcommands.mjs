@@ -69,7 +69,7 @@ const run = (args, env = {}) =>
 // --- help ---------------------------------------------------------------------
 for (const alias of ['help', '--help', '-h']) {
   const r = run([alias])
-  check(`${alias} 退出 0 且打印用法（无 dsh、空 profile）`, r.status === 0 && r.stdout.includes('用法'), `status=${r.status}`)
+  check(`${alias} exits 0 and prints usage (no dsh, empty profile)`, r.status === 0 && r.stdout.includes('Usage'), `status=${r.status}`)
 }
 {
   const r = run(['--help'], { DSH_TUI_LANG: 'en' })
@@ -83,7 +83,7 @@ for (const alias of ['version', '--version', '-v']) {
 }
 {
   const r = run(['version'])
-  check('profile 未安装时打印中文缺失标记', r.stdout.includes('（未安装）'))
+  check('missing profile prints English missing marker (DSH_TUI_LANG=zh ignored)', r.stdout.includes('(not installed)'))
 }
 {
   const r = run(['version'], { DSH_TUI_LANG: 'en' })
@@ -199,16 +199,16 @@ for (const alias of ['version', '--version', '-v']) {
   const r = run(['doctor'], { PATH: stubDir, DEEPSEEK_API_KEY: SECRET })
   check('doctor 有 dsh/pnpm 时退出 0 并打印版本', r.status === 0 && r.stdout.includes('9.9.9-dsh-stub') && r.stdout.includes('9.9.9-pnpm-stub'), `status=${r.status}`)
   check('doctor 报告 profile 版本', r.stdout.includes('1.2.3-stub'))
-  check('doctor 报告密钥已设置', r.stdout.includes('已设置'))
+  check('doctor reports API key set', r.stdout.includes('set'))
   check('doctor 绝不输出密钥值（红线）', !r.stdout.includes(SECRET) && !r.stderr.includes(SECRET))
   const r2 = run(['doctor'], { PATH: stubDir })
-  check('doctor 报告密钥未设置', r2.status === 0 && r2.stdout.includes('未设置'))
+  check('doctor reports API key not set', r2.status === 0 && r2.stdout.includes('not set'))
   // 版本错位提示：profile(1.2.3-stub) vs 启动器(ownVersion)——不对齐时给指引。
   check('doctor 报告启动器与 profile 版本错位', r2.stdout.includes('launcher ↔ profile') && r2.stdout.includes('✗'))
   // 空字符串密钥：发不了请求，且 TUI 内 /doctor 按 truthiness 报未配置——
   // 两个 doctor 结论必须一致。
   const r3 = run(['doctor'], { PATH: stubDir, DEEPSEEK_API_KEY: '' })
-  check('doctor 空字符串密钥按未设置报告', r3.stdout.includes('未设置'))
+  check('doctor treats empty API key as not set', r3.stdout.includes('not set'))
   // 探针输出白名单：PATH 上的 wrapper 把环境变量 echo 进 --version 时，
   // 非版本形状的首行不得转印（密钥红线的探针侧）。
   const leakDir = join(tmp, 'doctor-leak-stub')

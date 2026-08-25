@@ -9,19 +9,14 @@
  *   4. the OS locale guess (`LC_ALL` / `LC_MESSAGES` / `LANG`)
  *   5. `en`
  *
- * `/lang` switches at runtime and hot-swaps the whole UI. The dictionary is
- * a flat key → per-language text map; `t(key, params)` substitutes
- * `{{name}}` placeholders with the given params. A per-language value is
- * either a plain template or `{ one, other }` plural forms selected via
- * `Intl.PluralRules` on the `count` param (zh has no grammatical number and
- * always resolves to `other`). Missing keys render the key itself so a typo
- * is visible in the UI instead of silently blank.
+ * This fork is English-only. A persisted `zh` preference is accepted so it
+ * does not error, but `t()` always resolves English. Dictionary values may
+ * be a plain English string, `{ one, other }` plural forms, or a bilingual
+ * `{ zh, en }` map (kept for easier upstream merges). Missing keys render
+ * the key itself so a typo is visible in the UI instead of silently blank.
  *
- * The dictionary shape is enforced at compile time (`satisfies` below):
- * every entry carries zh, and en is optional only for the `cmd-desc-*`
- * family whose en truth lives in the command registry (see {@link tOr}).
  * scripts/verify-i18n.ts adds the checks types cannot express: placeholder
- * parity between languages, single-brace typos, and dead keys.
+ * typos and dead keys.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -973,7 +968,7 @@ const dict = {
     en: '**j/k** page · **enter/esc** collapse · **q** exit',
   },
   'traj-hint-failure': { zh: '{{key}} 看完整轨迹', en: '{{key}} for the full trajectory' },
-} as const satisfies Record<string, { zh: I18nText; en?: I18nText }>
+} as const satisfies Record<string, I18nText | { zh?: I18nText; en?: I18nText }>
 
 
 export type I18nKey = keyof typeof dict
@@ -1004,8 +999,10 @@ export function getLang(): Lang {
 }
 
 /** Switch the active language and notify subscribers. */
-export function setLang(lang: Lang): void {
-  activeLang = lang
+export function setLang(_lang: Lang): void {
+  // This fork's UI is English-only. `/lang zh` is accepted so existing
+  // prefs and scripts do not error, but the active language stays `en`.
+  activeLang = 'en'
   for (const listener of listeners) listener()
 }
 
@@ -1022,8 +1019,7 @@ export function isLang(value: unknown): value is Lang {
  * @param params - Placeholder values.
  */
 export function t(key: I18nKey, params: I18nParams = {}): string {
-  const entry = dict[key] as Partial<Record<Lang, I18nText>> | undefined
-  return substitute(pickText(entry?.[activeLang], params) ?? key, params)
+  return substitute(pickEnglish(dict[key], params) ?? key, params)
 }
 
 // Cached per shipped language; CLDR-backed and built into Node, so zh always
@@ -1037,8 +1033,23 @@ const pluralRules: Record<Lang, Intl.PluralRules> = {
 function pickText(text: I18nText | undefined, params: I18nParams): string | undefined {
   if (text === undefined || typeof text === 'string') return text
   const count = Number(params.count)
-  const category = pluralRules[activeLang].select(Number.isFinite(count) ? count : 0)
+  const category = pluralRules.en.select(Number.isFinite(count) ? count : 0)
   return category === 'one' ? text.one : text.other
+}
+
+/** Always English in this fork. Plain strings and `{one,other}` forms are
+ *  treated as English; bilingual `{ zh, en }` maps use `en` (then `zh` only
+ *  if English is missing, which should not happen outside `cmd-desc-*`). */
+function pickEnglish(entry: unknown, params: I18nParams): string | undefined {
+  if (entry === undefined || entry === null) return undefined
+  if (typeof entry === 'string') return entry
+  if (typeof entry !== 'object') return undefined
+  const rec = entry as Record<string, unknown>
+  if ('en' in rec || 'zh' in rec) {
+    return pickText(rec.en as I18nText | undefined, params)
+  }
+  if ('one' in rec && 'other' in rec) return pickText(entry as I18nText, params)
+  return undefined
 }
 
 /** Substitute `{{name}}` placeholders, leaving unknown names visible. */
@@ -1058,12 +1069,20 @@ function substitute(template: string, params: I18nParams): string {
  * @param params - Placeholder values substituted into whichever text wins.
  */
 export function tOr(key: string, fallback: string, params: I18nParams = {}): string {
-  const entry = (dict as Record<string, Partial<Record<Lang, I18nText>>>)[key]
-  return substitute(pickText(entry?.[activeLang], params) ?? fallback, params)
+  const entry = (dict as Record<string, unknown>)[key]
+  // Do not fall back to `zh` — command descriptions use LOCAL_COMMANDS English.
+  if (entry !== undefined && typeof entry === 'object' && entry !== null && 'en' in entry) {
+    const text = pickText((entry as { en?: I18nText }).en, params)
+    if (text !== undefined) return substitute(text, params)
+  } else if (typeof entry === 'string') {
+    return substitute(entry, params)
+  }
+  return substitute(fallback, params)
 }
 
 /** Read-only view of the dictionary for audits (scripts/verify-i18n.ts). */
-export const i18nDict: Readonly<Record<string, { readonly zh?: I18nText; readonly en?: I18nText }>> = dict
+export const i18nDict: Readonly<Record<string, I18nText | { readonly zh?: I18nText; readonly en?: I18nText }>> =
+  dict as Readonly<Record<string, I18nText | { readonly zh?: I18nText; readonly en?: I18nText }>>
 
 // ── persistence (~/.dsh-tui/lang.json) ─────────────────────────────────
 
@@ -1103,40 +1122,19 @@ export function writeLangPref(lang: Lang, dir: string = PREFS_DIR): boolean {
 }
 
 /**
- * Guess the user's language from the OS locale (`LC_ALL`, `LC_MESSAGES`,
- * `LANG`). Only consulted when nothing else (env var, cordis.yml `lang`,
- * persisted `/lang` choice) pinned a language. `zh*` maps to zh; every
- * other stated locale (en, but also fr/de/ja/…) maps to en — English is
- * the lingua-franca fallback for a locale we don't ship, and a German
- * user must not get a Chinese UI. The POSIX/C locale means "no locale
- * selected" and conventionally maps to English — importantly it is what
- * CI runners (LANG=C.UTF-8) report, so tests asserting English UI copy
- * stay deterministic. Only an ABSENT locale (typical on Windows, where
- * these POSIX vars don't exist and imply nothing about the user) keeps
- * the zh default.
+ * Guess the user's language from the OS locale. This build is English-only,
+ * so every locale — including an absent variable — resolves to `en`.
  */
 export function detectLocaleLang(): Lang {
-  // `||` (not `??`): an EMPTY locale variable means "unset" and must fall
-  // through to the next one — runners and shells sometimes export LC_ALL=''.
-  const raw =
-    process.env.LC_ALL ||
-    process.env.LC_MESSAGES ||
-    process.env.LANG ||
-    ''
-  const locale = raw.split('.')[0]?.toLowerCase() ?? ''
-  if (locale === '') return 'zh'
-  return locale.startsWith('zh') ? 'zh' : 'en'
+  // This build is English-only: every locale, including an absent locale
+  // variable (typical on Windows) or the POSIX/C locale, resolves to `en`.
+  return 'en'
 }
 
 /**
- * Resolve the startup language: `DSH_TUI_LANG` when it holds a valid value
- * (pinned at process start — the repro/verify scripts rely on this for
- * deterministic UI copy), else the persisted `/lang` choice, else the OS
- * locale guess, else `en`. The cordis.yml `lang` precedence lives in
- * plugin.apply.
+ * Resolve the startup language. This fork always starts in English; `/lang zh`
+ * remains a stored alias that does not change the UI.
  */
 export function resolveStartupLang(): Lang {
-  const envLang = process.env.DSH_TUI_LANG
-  if (isLang(envLang)) return envLang
-  return readLangPref() ?? detectLocaleLang()
+  return 'en'
 }

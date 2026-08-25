@@ -1,6 +1,5 @@
 # Getting Started
 
-[Documentation index](README.md)
 
 ## Prerequisites
 
@@ -11,7 +10,7 @@
   leaving `dsh-working-activity` unresolvable inside the profile — the TUI
   then exits right after startup with almost no error output (issue #60,
   see Troubleshooting below).
-- An interactive terminal TTY. `dsh-tui` cannot start with stdout redirected.
+- An interactive terminal TTY. `dsh-tui-en` cannot start with stdout redirected.
 - `DEEPSEEK_API_KEY`. Set `DEEPSEEK_BASE_URL` as well when using a compatible
   custom endpoint.
 
@@ -110,7 +109,7 @@ registry services. The plugin patch overrides or inserts the TUI, agent-preset
 roster, SQLite session persistence, and live activity row.
 
 `dsh-working-activity` is already a dependency of this package and is inserted
-by the `dsh-tui` patch. Do not separately add `dsh-working-activity` to the
+by the `dsh-tui-en` patch. Do not separately add `dsh-working-activity` to the
 same profile or duplicate rows may be mounted.
 
 ## Start the TUI
@@ -125,8 +124,8 @@ workspace. Change into the target project before starting it.
 On Windows, the checkout also provides:
 
 ```bat
-dsh-tui.cmd
-dsh-tui.cmd --resume
+dsh-tui-en-en.cmd
+dsh-tui-en-en.cmd --resume
 ```
 
 `--resume` reads `%USERPROFILE%\.dsh-tui\resume.txt` and restores the session
@@ -166,7 +165,7 @@ $DSH_HOME/profiles/dsh-tui/cordis.patch.yml
 
 When overriding a row, its `config` block is replaced as a whole rather than
 deep-merged. Repeat every key you want to keep. See
-[Configuration](configuration.md) for examples.
+[Configuration](configuration.en.md) for examples.
 
 The root `cordis.yml` is a bare-composition example. A normal npm/profile
 installation uses `cordis.patch.yml`; do not copy the root configuration into
@@ -205,8 +204,8 @@ pnpm dev
 the OS-managed file ACL. `pnpm dev` uses isolated `HOME`, `DSH_HOME`, and session
 directories, leaving the normal `~/.dsh/profiles/dsh-tui`, `~/.dsh-tui`, and
 sessions untouched. The test root defaults to
-`$XDG_CACHE_HOME/dsh-tui-dev` on Unix (`~/.cache/dsh-tui-dev` when unset) and
-`%LOCALAPPDATA%\dsh-tui-dev` on Windows. Override it with `DSH_TUI_DEV_ROOT`.
+`$XDG_CACHE_HOME/dsh-tui-en-dev` on Unix (`~/.cache/dsh-tui-en-dev` when unset) and
+`%LOCALAPPDATA%\dsh-tui-en-dev` on Windows. Override it with `DSH_TUI_DEV_ROOT`.
 
 To verify only the build, pack, and install path without launching the TUI, run:
 
@@ -231,7 +230,7 @@ the same profile installation path as an end-user install.
 
 ## Troubleshooting
 
-### `dsh-tui requires an interactive terminal`
+### `dsh-tui-en requires an interactive terminal`
 
 stdout is not a TTY. Start the process directly in a terminal rather than
 redirecting its main output to another command or file.
@@ -261,12 +260,12 @@ Check `DEEPSEEK_BASE_URL` too when using a custom endpoint.
 ### The activity row appears twice
 
 Check whether `dsh-working-activity` was added separately to the profile. Keep
-the row inserted by the dsh-tui patch and remove the duplicate bundle entry.
+the row inserted by the dsh-tui-en patch and remove the duplicate bundle entry.
 
 ### The TUI is misaligned or leaves terminal state behind
 
 Run `/doctor`, record the terminal and mode, then consult
-[Interaction and commands](interaction.md) and
-[Architecture and limitations](architecture.md). `DSH_TUI_RENDER_LOG` can
+[Interaction and commands](interaction.en.md) and
+[Architecture and limitations](architecture.en.md). `DSH_TUI_RENDER_LOG` can
 capture raw frames for rendering bugs, but those frames may contain visible
 conversation content and should be handled as sensitive data.

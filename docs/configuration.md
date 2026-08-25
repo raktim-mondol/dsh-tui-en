@@ -1,6 +1,5 @@
 # Configuration
 
-[Documentation index](README.md)
 
 ## Profiles and patch layers
 
@@ -26,7 +25,7 @@ service.
 A complete common override looks like this:
 
 ```yaml
-- id: dsh-tui
+- id: dsh-tui-en
   config:
     provider: deepseek-official
     model: deepseek-v4-flash
@@ -98,7 +97,7 @@ Usage rules:
   preference, then the roster default `standard`.
 - Resuming a session restores the preset recorded in that session's log and
   does not overwrite it with the current default.
-- Liangshen mode ships with dsh-tui and is installed into the user preset root
+- Liangshen mode ships with dsh-tui-en and is installed into the user preset root
   at startup. An existing unmanaged directory with the same id is preserved.
 - Liangshen mode's first-round `bash` on Windows runs an auto-discovered Git
   Bash: candidates are the installation tree of a `git.exe` found on PATH
@@ -162,11 +161,11 @@ for the complete field reference.
 | `DSH_TUI_THEME` | Pin a built-in (`auto`/`light`/`dark`/`dark-ansi`) or custom theme ahead of persisted selection |
 | `DSH_TUI_DISABLE_MOUSE` | Temporarily disable mouse handling in fullscreen mode |
 | `DSH_TUI_RESUME_SESSION` | Resume a session at startup, normally set by a launcher |
-| `DSH_TUI_WORKSPACE_TARGET` | Workspace path or URI resolved at startup, normally set by `dsh-tui <target>` |
+| `DSH_TUI_WORKSPACE_TARGET` | Workspace path or URI resolved at startup, normally set by `dsh-tui-en <target>` |
 | `DSH_TUI_SESSION_ROOT` | Override the JSONL session root; profile default `$DSH_HOME/sessions`, bare `cordis.yml` default `~/.dsh-tui/sessions` |
 | `DSH_PERMISSION_MODE` | Override non-Windows sandbox policy, such as `workspace-write` or `danger-full-access` |
-| `DSH_TUI_WORKSPACE` | Working directory used by the Windows `dsh-tui.cmd` launcher |
-| `DSH_TUI_DEBUG` | Enable dsh-tui diagnostics on stderr |
+| `DSH_TUI_WORKSPACE` | Working directory used by the Windows `dsh-tui-en-en.cmd` launcher |
+| `DSH_TUI_DEBUG` | Enable dsh-tui-en diagnostics on stderr |
 | `DSH_TUI_RENDER_LOG` | File path for raw ANSI frame capture |
 
 The old `CC_TUI_*` and `DSH_CC_*` names no longer take effect as of this
@@ -227,5 +226,5 @@ models.
 defaults to `$DSH_HOME/sessions` (normally `~/.dsh/sessions/`); direct
 `dsh --config cordis.yml` defaults to `~/.dsh-tui/sessions/`.
 
-See [Architecture and limitations](architecture.md#permissions-and-security-boundary)
+See [Architecture and limitations](architecture.en.md#permissions-and-security-boundary)
 for permission behavior and platform differences.

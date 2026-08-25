@@ -1,6 +1,5 @@
 # Themes
 
-[Documentation index](README.md)
 
 ## Built-in themes
 
@@ -17,12 +16,14 @@ Without an explicit choice, the TUI queries the terminal background with OSC
 11 and selects `light` or `dark`. It falls back to `dark` when the terminal does
 not answer.
 
-`auto` 把这次性启动检测变成常驻选择：它在 `/theme`、`DSH_TUI_THEME`、
-`~/.dsh-tui/theme.json` 中都是合法值。选中 `auto` 时立即应用上次检测结果，并
-在后台重新查询 OSC 11——跟随系统主题的终端切换深浅色后，再次选择 `auto`（或
-重启）即可跟上。`/theme status` 会显示 `auto` 当前解析到的色板。解析结果通过
-`getTheme('auto')` 对所有消费方生效。注意：用户自定义主题若命名为 `auto` 会被
-内置伪主题遮蔽（选择器中不列出）。
+`auto` turns that one-shot startup detection into a standing choice: it is a
+valid value for `/theme`, `DSH_TUI_THEME`, and `~/.dsh-tui/theme.json`. Selecting
+`auto` applies the last detected base immediately and re-queries OSC 11 in the
+background — on terminals that follow the system theme, picking `auto` again
+(or restarting) catches up after a system light/dark switch. `/theme status`
+shows which palette `auto` currently resolves to, and `getTheme('auto')` serves
+that palette to every consumer. A user theme named `auto` is shadowed by the
+built-in pseudo-theme (not listed in the picker).
 
 Selection precedence is:
 
@@ -137,5 +138,5 @@ When developing the theme subsystem, run:
 node --import tsx/esm scripts/verify-themes.mjs
 ```
 
-See [Architecture and limitations](architecture.md) for terminal capability
+See [Architecture and limitations](architecture.en.md) for terminal capability
 and renderer details.

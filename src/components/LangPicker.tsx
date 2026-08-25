@@ -31,8 +31,8 @@ export function LangPicker({
         <Select
           options={LANGS.map(lang => ({
             value: lang,
-            label: lang === 'zh' ? '中文' : 'English',
-            description: t(lang === 'zh' ? 'lang-zh-desc' : 'lang-en-desc'),
+            label: 'English',
+            description: t(lang === 'en' ? 'lang-en-desc' : 'lang-zh-desc'),
           }))}
           focusIndex={focusIndex}
           selectedValue={currentLang}

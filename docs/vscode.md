@@ -1,6 +1,6 @@
 # Using dsh-TUI in VS Code
 
-[Documentation index](README.md)
+[Documentation index](README.md) · [中文](vscode.md)
 
 dsh-TUI is a terminal program: it writes ANSI into a PTY and reads keys back
 from the PTY, so any compatible terminal can host it — including the **VS Code
@@ -17,16 +17,17 @@ integrated terminal** (xterm.js). This page covers two ways to use it:
 2. **Run directly in the built-in terminal** — zero install, seconds to
    start; for when you do not want the extension.
 
-> 版本说明：本页中的 `dsh-tui` 指本仓库（TUI 插件，当前 **0.9.0**，建议
-> 0.7.0+）；`dsh-tui-vscode` 指 companion 扩展（当前 **0.5.1**）。两者版本
-> 独立、各自发布。扩展的完整说明见其仓库
+> Version note: `dsh-tui-en` on this page refers to this repository (the TUI
+> plugin, currently **0.9.0**; 0.7.0+ recommended); `dsh-tui-vscode` refers
+> to the companion extension (currently **0.5.1**). The two version and
+> release independently. See the
 > [baobaolaodie/dsh-tui-vscode](https://github.com/baobaolaodie/dsh-tui-vscode)
 > README for the extension's full documentation.
 
 ## Option 1: the dsh-tui-vscode companion extension (recommended)
 
 [`baobaolaodie/dsh-tui-vscode`](https://github.com/baobaolaodie/dsh-tui-vscode)
-runs dsh-tui inside a REAL VS Code integrated terminal — the same shape as the
+runs dsh-tui-en inside a REAL VS Code integrated terminal — the same shape as the
 official Claude Code extension's terminal mode (`createTerminal` + run the CLI
 inside it), with no webview and no xterm emulation. It does not touch the
 TUI's rendering core — it only **hosts** it and adds editor integration.
@@ -47,8 +48,8 @@ TUI's rendering core — it only **hosts** it and adds editor integration.
 ### Prerequisites
 
 - VS Code >= 1.90;
-- Global `dsh` CLI and `dsh-tui` (**dsh-tui 0.7.0+ recommended**, see
-  [Getting started](getting-started.md)):
+- Global `dsh` CLI and `dsh-tui-en` (**dsh-tui-en 0.7.0+ recommended**, see
+  [Getting started](getting-started.en.md)):
 
   ```sh
   npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
@@ -60,7 +61,7 @@ TUI's rendering core — it only **hosts** it and adds editor integration.
 ### Install
 
 **From the VS Code extension panel (recommended)**: press `Ctrl+Shift+X`,
-search for **`dsh-tui`** and install with one click (publisher
+search for **`dsh-tui-en`** and install with one click (publisher
 `baobaolaodie`), or open the
 [Marketplace page](https://marketplace.visualstudio.com/items?itemName=baobaolaodie.dsh-tui-vscode)
 directly.
@@ -78,35 +79,35 @@ npm run package && code --install-extension dsh-tui-vscode-0.5.1.vsix --force
 ### Quick start
 
 1. Click the **editor-title whale button** (or the command-palette entry
-   `dsh-tui: Start new session`) — a **DeepSeek** terminal opens
-   on the Beside column and runs dsh-tui automatically; the **activity-bar
+   `dsh-tui-en: Start new session / 启动新会话`) — a **DeepSeek** terminal opens
+   on the Beside column and runs dsh-tui-en automatically; the **activity-bar
    whale icon** opens the sidebar session history (its welcome view offers
    start/resume buttons);
 2. Click again = **another concurrent session**; older sessions keep running
    in their own terminals;
-3. **Resume the last session**: `dsh-tui: Resume last session`;
+3. **Resume the last session**: `dsh-tui-en: Resume last session / 恢复上次会话`;
 4. **Resume a specific session**: expand a project group in the sidebar
-   "Session History" and click the session entry;
+   "会话历史" and click the session entry;
 5. **Terminate**: close the terminal tab (ends only that session), or double
    `Ctrl+C` inside the TUI; the command
-   `dsh-tui: Terminate session` sends Ctrl+C to the most recent
+   `dsh-tui-en: Terminate session / 终止会话` sends Ctrl+C to the most recent
    terminal.
 
-While sessions are running, a **status-bar** item (`dsh-tui`, bottom-left)
+While sessions are running, a **status-bar** item (`dsh-tui-en`, bottom-left)
 appears; clicking it starts a new session (`dsh-tui-vscode.open`).
 
 ### Command reference
 
 | Command ID | Title | Action |
 | --- | --- | --- |
-| `dsh-tui-vscode.open` | Open panel | Start a new session (same as the editor-title button) |
-| `dsh-tui-vscode.start` | Start new session | Start a new session |
-| `dsh-tui-vscode.resume` | Resume last session | Resume via `--resume` |
-| `dsh-tui-vscode.focus` | Focus session panel | Focus the most recent terminal, else start one |
-| `dsh-tui-vscode.kill` | Terminate session | Send Ctrl+C to the most recent terminal |
-| `dsh-tui-vscode.refreshSessions` | Refresh sessions | Manually refresh the sidebar |
-| `dsh-tui-vscode.resumeSession` | Resume session | Resume a specific session (sidebar click) |
-| `dsh-tui-vscode.insertAtMention` | Insert @-mention | With editor focus press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) or the editor context menu: inserts the current file / selection as `@absolute/path Lstart-end` into the dsh-tui input box (the absolute path is independent of the dsh-tui session cwd; whole file when nothing is selected; falls back to the clipboard with no running session) |
+| `dsh-tui-vscode.open` | Open panel / 打开会话面板 | Start a new session (same as the editor-title button) |
+| `dsh-tui-vscode.start` | Start new session / 启动新会话 | Start a new session |
+| `dsh-tui-vscode.resume` | Resume last session / 恢复上次会话 | Resume via `--resume` |
+| `dsh-tui-vscode.focus` | Focus session panel / 聚焦会话面板 | Focus the most recent terminal, else start one |
+| `dsh-tui-vscode.kill` | Terminate session / 终止会话 | Send Ctrl+C to the most recent terminal |
+| `dsh-tui-vscode.refreshSessions` | Refresh sessions / 刷新会话列表 | Manually refresh the sidebar |
+| `dsh-tui-vscode.resumeSession` | Resume session / 恢复会话 | Resume a specific session (sidebar click) |
+| `dsh-tui-vscode.insertAtMention` | Insert @-mention / 插入 @文件引用 | With editor focus press `Ctrl+Alt+K` (macOS `Cmd+Alt+K`) or the editor context menu: inserts the current file / selection as `@absolute/path Lstart-end` into the dsh-tui-en input box (the absolute path is independent of the dsh-tui-en session cwd; whole file when nothing is selected; falls back to the clipboard with no running session) |
 
 ### Architecture
 
@@ -126,7 +127,7 @@ terminal.show()
 // or a 1.2s fallback delay)
 ```
 
-The launch command comes from `dsh-tui-vscode.command` (default `dsh-tui`).
+The launch command comes from `dsh-tui-vscode.command` (default `dsh-tui-en`).
 The extension first resolves a bare command to an ABSOLUTE path against the
 HOST PATH (quoting it for the shell when it contains spaces) — the terminal
 shell's PATH is not trustworthy (login shells rebuild it; verified
@@ -150,9 +151,9 @@ boot (`sessionId: !!js process.env.DSH_TUI_RESUME_SESSION ??
 process.env.DSH_CC_RESUME_SESSION ?? undefined` — the reader prefers the new
 name and still accepts the old one) and the TUI resumes the session. Passing a
 bare `--resume` (or `-c`/`--continue`) would make the launcher
-(`bin/dsh-tui.js`) overwrite the env from `~/.dsh-tui/resume.txt` — that is
+(`bin/dsh-tui-en.js`) overwrite the env from `~/.dsh-tui/resume.txt` — that is
 the "resume last session" path; the two do not interfere (verified in the
-launcher source). CLI users can also use **`dsh-tui --resume <id>`** or
+launcher source). CLI users can also use **`dsh-tui-en --resume <id>`** or
 `--resume=<id>` (supported since 0.7.0) to resume a specific session — same
 effect as the extension's env channel.
 
@@ -162,7 +163,7 @@ effect as the extension's env channel.
   the web session list's titles), and the TUI's last-used map
   (`~/.dsh-tui/last-used.json`);
 - Title precedence: log `session/title` event → storage-ledger title → first
-  user message → "Untitled session"; the full cwd path and session id go into the
+  user message → "未命名会话"; the full cwd path and session id go into the
   item tooltip;
 - Grouped by project (cwd short name), most recently active project first;
   within a group, most recently used first;
@@ -179,9 +180,9 @@ background daemons.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `dsh-tui-vscode.command` | `dsh-tui` | Launch command (resolved to an absolute path against the host PATH) |
+| `dsh-tui-vscode.command` | `dsh-tui-en` | Launch command (resolved to an absolute path against the host PATH) |
 | `dsh-tui-vscode.extraArgs` | `[]` | Extra CLI args, e.g. `["--lang","en"]` |
-| `dsh-tui-vscode.lang` | `""` | `""`/`en`/`zh`, exported as `DSH_TUI_LANG` (`zh` is a compatibility alias; the UI stays English) |
+| `dsh-tui-vscode.lang` | `""` | `""`/`zh`/`en`, exported as `DSH_TUI_LANG` |
 | `dsh-tui-vscode.injectEditor` | `true` | Export `$VISUAL` when unset |
 | `dsh-tui-vscode.editorCommand` | `code -w` | Value exported as `$VISUAL` |
 | `dsh-tui-vscode.dshHome` | `""` | `$DSH_HOME` override (empty = inherit) |
@@ -199,7 +200,7 @@ npm run package     # compile + build the .vsix
 The e2e suite covers: command registration, real terminal creation with env
 injection, input round-trip, multiple sessions, Ctrl+C termination,
 `--resume` resume, specific-session resume (env channel, no `--resume`), and a
-**guarded REAL dsh-tui resume test** (a successful resume creates no new
+**guarded REAL dsh-tui-en resume test** (a successful resume creates no new
 session — observable).
 
 The extension repository's CI (GitHub Actions) additionally runs a test
@@ -215,7 +216,7 @@ shipped in the repository's `.githooks/`.
 - Session content is terminal content: scrollback is managed by the VS Code
   terminal (same as Claude Code's terminal mode);
 - Specific-session resume requires this profile's `cordis.patch.yml`
-  (dsh-tui 0.7.0+);
+  (dsh-tui-en 0.7.0+);
 - For logs without a `session` header, the project name comes from decoding
   the cwd-encoded group dir, which is lossy for hyphenated project names
   (e.g. `flow-comet` → `flow\comet`); the real cwd is still available in the
@@ -223,24 +224,24 @@ shipped in the repository's `.githooks/`.
 
 ## Option 2: run directly in the VS Code integrated terminal
 
-When you do not want the extension, run dsh-tui directly in the integrated
-terminal. Prerequisites match [Getting started](getting-started.md): global
-`dsh` CLI and `dsh-tui` (the first run bootstraps the profile; pnpm is
+When you do not want the extension, run dsh-tui-en directly in the integrated
+terminal. Prerequisites match [Getting started](getting-started.en.md): global
+`dsh` CLI and `dsh-tui-en` (the first run bootstraps the profile; pnpm is
 required).
 
 1. Open the VS Code integrated terminal (`` Ctrl+` ``) and run:
 
    ```sh
-   dsh-tui
+   dsh-tui-en
    ```
 
 2. Resume the last session:
 
    ```sh
-   dsh-tui --resume
+   dsh-tui-en --resume
    ```
 
-   > `-c` / `--continue` is equivalent to `--resume`; `dsh-tui --resume <id>`
+   > `-c` / `--continue` is equivalent to `--resume`; `dsh-tui-en --resume <id>`
    > (or `--resume=<id>`, since 0.7.0) resumes a specific session.
 
 dsh-TUI has dedicated compatibility paths for xterm.js (VS Code / Cursor /
@@ -270,9 +271,8 @@ The TUI's `Ctrl+G` uses `$VISUAL`/`$EDITOR`. To edit in VS Code, export
 
 ### UI language
 
-The TUI is English. `DSH_TUI_LANG` still accepts `en` or `zh` (`zh` is a
-compatibility alias and still shows English). Leave the env unset unless you
-need to pin the stored language code.
+`DSH_TUI_LANG` defaults to Chinese; for the English UI, add
+`"DSH_TUI_LANG": "en"` to the env block above.
 
 ### Known differences (built-in terminal)
 
@@ -296,7 +296,7 @@ WezTerm / iTerm2 / tmux).
 
 ## Acceptance baseline
 
-Per [Contributing](contributing.md), VS Code is a supported terminal
+Per [Contributing](contributing.en.md), VS Code is a supported terminal
 platform: any rendering change should be walked through inside the VS Code
 integrated terminal in both inline and fullscreen modes at narrow widths —
 startup, resize, scroll, input, cancel, and clean exit.

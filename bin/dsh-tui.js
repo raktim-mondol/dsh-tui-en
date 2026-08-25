@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * dsh-tui — 双态启动器（delegating launcher，0.9.2）。
+ * dsh-tui-en — two-mode delegating launcher (0.9.2).
  *
  * The same file plays one of two roles depending on where it lives:
  *
- *   Global install copy (the `dsh-tui` command from `npm i -g`) → thin shell:
+ *   Global install copy (the `dsh-tui-en` command from `npm i -g`) → thin shell:
  *     1. Locate the same package's bin inside $DSH_HOME/profiles/dsh-tui;
  *     2. Readable → forward argv as-is and delegate to it (the full launch
  *        logic always lives in the profile copy, its version advances with
@@ -124,56 +124,56 @@ const isVersionNewer = (a, b) => {
 // English only. DSH_TUI_LANG / CC_TUI_LANG are not consulted.
 const MSG = {
   noDsh: {
-    en: '[dsh-tui] dsh CLI not found. Install the official client first:\n  npm install -g @deepseek-ai/dsh',
-    zh: '[dsh-tui] 未检测到 dsh CLI。请先安装官方客户端：\n  npm install -g @deepseek-ai/dsh',
+    en: '[dsh-tui-en] dsh CLI not found. Install the official client first:\n  npm install -g @deepseek-ai/dsh',
+    zh: '[dsh-tui-en] 未检测到 dsh CLI。请先安装官方客户端：\n  npm install -g @deepseek-ai/dsh',
   },
   noPnpm: {
-    en: '[dsh-tui] The first-time setup needs pnpm (dsh plugin delegates installs to it):\n  npm install -g pnpm   (or via corepack: corepack enable pnpm)',
-    zh: '[dsh-tui] 首次安装需要 pnpm（dsh plugin 会把安装转发给它）：\n  npm install -g pnpm   （或启用 corepack：corepack enable pnpm）',
+    en: '[dsh-tui-en] The first-time setup needs pnpm (dsh plugin delegates installs to it):\n  npm install -g pnpm   (or via corepack: corepack enable pnpm)',
+    zh: '[dsh-tui-en] 首次安装需要 pnpm（dsh plugin 会把安装转发给它）：\n  npm install -g pnpm   （或启用 corepack：corepack enable pnpm）',
   },
   bootstrapStart: {
-    en: `[dsh-tui] First run — initializing the ${PROFILE} profile (${PACKAGE}@${ownVersion})…`,
-    zh: `[dsh-tui] 首次运行，正在初始化 ${PROFILE} profile（${PACKAGE}@${ownVersion}）…`,
+    en: `[dsh-tui-en] First run — initializing the ${PROFILE} profile (${PACKAGE}@${ownVersion})…`,
+    zh: `[dsh-tui-en] 首次运行，正在初始化 ${PROFILE} profile（${PACKAGE}@${ownVersion}）…`,
   },
   bootstrapRetryW: {
-    en: '[dsh-tui] pnpm refused to add to the workspace root (ERR_PNPM_ADDING_TO_ROOT) — retrying with -w…',
-    zh: '[dsh-tui] pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT）——带 -w 重试…',
+    en: '[dsh-tui-en] pnpm refused to add to the workspace root (ERR_PNPM_ADDING_TO_ROOT) — retrying with -w…',
+    zh: '[dsh-tui-en] pnpm 拒绝写入 workspace 根（ERR_PNPM_ADDING_TO_ROOT）——带 -w 重试…',
   },
   installFailed: {
-    en: `[dsh-tui] Plugin install failed. Retry manually later:\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
-    zh: `[dsh-tui] 插件安装失败。可稍后手工重试：\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
+    en: `[dsh-tui-en] Plugin install failed. Retry manually later:\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
+    zh: `[dsh-tui-en] 插件安装失败。可稍后手工重试：\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${ownVersion}`,
   },
   bootstrapUnreadable: {
     en: dir =>
-      `[dsh-tui] install reported success but the plugin package is still unreadable under:\n` +
+      `[dsh-tui-en] install reported success but the plugin package is still unreadable under:\n` +
       `  ${dir}\n` +
       `  pnpm treats this half-installed profile as already up to date, so every retry\n` +
       `  reports success while boot keeps failing. Recovery:\n` +
-      `  rm -rf ${dir} && dsh-tui`,
+      `  rm -rf ${dir} && dsh-tui-en`,
     zh: dir =>
-      `[dsh-tui] 安装报告成功，但插件包仍不可读：\n` +
+      `[dsh-tui-en] 安装报告成功，但插件包仍不可读：\n` +
       `  ${dir}\n` +
       `  pnpm 把半残的 profile 视为已装好，重试永远「成功」而启动照旧崩溃。\n` +
       `  恢复方法：\n` +
       `  rm -rf ${dir} 后重新运行 dsh-tui`,
   },
   launchFailed: {
-    en: err => `[dsh-tui] Failed to launch: ${err.message}`,
-    zh: err => `[dsh-tui] 启动失败：${err.message}`,
+    en: err => `[dsh-tui-en] Failed to launch: ${err.message}`,
+    zh: err => `[dsh-tui-en] 启动失败：${err.message}`,
   },
   delegateFailed: {
     en: path =>
-      `[dsh-tui] cannot launch the profile copy:\n  ${path}\nReinstall the global launcher:\n  npm install -g --legacy-peer-deps ${PACKAGE}@latest\n(--legacy-peer-deps avoids an npm 12 peer-resolution crash; the launcher is a thin shim, so skipping global peer resolution is safe.)`,
+      `[dsh-tui-en] cannot launch the profile copy:\n  ${path}\nReinstall the global launcher:\n  npm install -g --legacy-peer-deps ${PACKAGE}@latest\n(--legacy-peer-deps avoids an npm 12 peer-resolution crash; the launcher is a thin shim, so skipping global peer resolution is safe.)`,
     zh: path =>
-      `[dsh-tui] 无法启动 profile 内副本：\n  ${path}\n请重装全局启动器：\n  npm install -g --legacy-peer-deps ${PACKAGE}@latest\n（--legacy-peer-deps 可绕过 npm 12 的 peer 解析崩溃；启动器是瘦壳，跳过全局 peer 解析是安全的。）`,
+      `[dsh-tui-en] 无法启动 profile 内副本：\n  ${path}\n请重装全局启动器：\n  npm install -g --legacy-peer-deps ${PACKAGE}@latest\n（--legacy-peer-deps 可绕过 npm 12 的 peer 解析崩溃；启动器是瘦壳，跳过全局 peer 解析是安全的。）`,
   },
   profileExited: {
-    en: code => `[dsh-tui] dsh profile exited with code ${code}. Run it directly for diagnostics:\n  dsh --profile ${PROFILE}`,
-    zh: code => `[dsh-tui] dsh profile 已退出（退出码 ${code}）。可直接运行以下命令查看诊断：\n  dsh --profile ${PROFILE}`,
+    en: code => `[dsh-tui-en] dsh profile exited with code ${code}. Run it directly for diagnostics:\n  dsh --profile ${PROFILE}`,
+    zh: code => `[dsh-tui-en] dsh profile 已退出（退出码 ${code}）。可直接运行以下命令查看诊断：\n  dsh --profile ${PROFILE}`,
   },
   legacyEnv: {
-    en: (oldName, newName) => `[dsh-tui] note: env ${oldName} was renamed to ${newName}; the old name no longer takes effect.`,
-    zh: (oldName, newName) => `[dsh-tui] 提示：环境变量 ${oldName} 已更名为 ${newName}，旧名不再生效。`,
+    en: (oldName, newName) => `[dsh-tui-en] note: env ${oldName} was renamed to ${newName}; the old name no longer takes effect.`,
+    zh: (oldName, newName) => `[dsh-tui-en] 提示：环境变量 ${oldName} 已更名为 ${newName}，旧名不再生效。`,
   },
   notInstalled: {
     en: '(not installed)',
@@ -183,7 +183,7 @@ const MSG = {
     en: {
       dshMissing: 'not found — install it first:  npm install -g @deepseek-ai/dsh',
       pnpmMissing: 'not found — needed for install/update:  npm install -g pnpm',
-      profileMissing: 'not installed — run `dsh-tui` once to bootstrap it',
+      profileMissing: 'not installed — run `dsh-tui-en` once to bootstrap it',
       aligned: 'aligned',
       profileNewer: v => `profile is newer — align the launcher:  npm install -g ${PACKAGE}@${v}`,
       profileOlder: v => `profile is older — align it:  dsh plugin --profile ${PROFILE} add ${PACKAGE}@${v}`,
@@ -205,15 +205,15 @@ const MSG = {
   },
   updateUnavailable: {
     en:
-      `[dsh-tui] \`update\` needs the profile's compiled copy, but it is missing or too old to carry the CLI entry.\n` +
+      `[dsh-tui-en] \`update\` needs the profile's compiled copy, but it is missing or too old to carry the CLI entry.\n` +
       `Update manually instead:\n  dsh plugin --profile ${PROFILE} add ${PACKAGE}@latest`,
     zh:
-      `[dsh-tui] \`update\` 需要 profile 的编译产物，但它缺失或版本过旧、不含 CLI 入口。\n` +
+      `[dsh-tui-en] \`update\` 需要 profile 的编译产物，但它缺失或版本过旧、不含 CLI 入口。\n` +
       `请改用手工升级：\n  dsh plugin --profile ${PROFILE} add ${PACKAGE}@latest`,
   },
   helpText: {
     en:
-      `Usage: dsh-tui [command] [options] [path|url]\n\n` +
+      `Usage: dsh-tui-en [command] [options] [path|url]\n\n` +
       `Commands:\n` +
       `  update                 Update the ${PROFILE} profile to the latest release\n` +
       `  doctor                 Pre-flight environment checks (dsh/pnpm/profile/key)\n` +
@@ -238,7 +238,7 @@ const MSG = {
       `其余参数原样转发给 \`dsh --profile ${PROFILE}\`。`,
   },
 }
-const msg = key => MSG[key]
+const msg = key => MSG[key].en
 
 // The React development build piles every render's performance.measure()
 // into an unbounded buffer and OOMs long sessions — match the repo-root
@@ -483,7 +483,7 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
     const [ownMajor, ownMinor] = majorMinor(ownVersion)
     if (installedMajor < ownMajor || (installedMajor === ownMajor && installedMinor < ownMinor)) {
       console.error(
-        `[dsh-tui] cannot start: the profile runs v${installedVersion} but this launcher is v${ownVersion}.\n` +
+        `[dsh-tui-en] cannot start: the profile runs v${installedVersion} but this launcher is v${ownVersion}.\n` +
           `  dsh plugin --profile ${PROFILE} add ${PACKAGE}@${ownVersion}`,
       )
       process.exit(1)
@@ -491,7 +491,7 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
     const installedNewer = installedVersion !== undefined && ownVersion !== undefined && isVersionNewer(installedVersion, ownVersion)
     if (installedNewer) {
       console.error(
-        `[dsh-tui] note: the profile is already v${installedVersion}; this launcher copy is v${ownVersion}.\n` +
+        `[dsh-tui-en] note: the profile is already v${installedVersion}; this launcher copy is v${ownVersion}.\n` +
           `  npm install -g --legacy-peer-deps ${PACKAGE}@${installedVersion}\n` +
           `(--legacy-peer-deps avoids an npm 12 peer-resolution crash, see issue #459)`,
       )
@@ -501,7 +501,7 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
       // launcher's exact version (@latest could overshoot the alignment
       // point).
       console.error(
-        `[dsh-tui] note: the profile is running v${installedVersion} but this launcher is v${ownVersion}.\n` +
+        `[dsh-tui-en] note: the profile is running v${installedVersion} but this launcher is v${ownVersion}.\n` +
           `  dsh plugin --profile ${PROFILE} add ${PACKAGE}@${ownVersion}`,
       )
     }

@@ -2587,7 +2587,7 @@ export function createChannel(
             ...LANGS.map((lang) => ({
               name: lang,
               description: `Switch the UI language to ${lang}`,
-              descriptionKey: 'sugg-lang-en-desc' as const,
+              descriptionKey: (lang === 'en' ? 'sugg-lang-en-desc' : 'sugg-lang-zh-desc') as 'sugg-lang-en-desc' | 'sugg-lang-zh-desc',
               ...(getLang() === lang ? { tag: 'current' } : {}),
             })),
           ]

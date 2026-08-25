@@ -27,7 +27,7 @@ import { ensureLegacySessionEventTypes } from './compat/index.js'
 import { clearResumeTarget, writeResumeTarget } from '../sessionHistory.js'
 import { resolveSessionCwd } from '../utils/workspaceRoot.js'
 import { beginRestartAttempt, checkForTuiUpdate, installedTuiVersion, isBootDeadlockTarget, isVersionNewer, logRestartEvent, resolveDshProfileName, resolveTuiUpdateTarget, restartTui, updateTuiAndRestart, writeHandoffNotice } from '../update.js'
-import { getLang, isLang, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js'
+import { getLang, isLang, LANGS, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js'
 import { DEFAULT_STATUS_BAR, normalizeScrollGutter, normalizeStatusBar, normalizeToolBackground, type ScrollGutterMode, type StatusBarConfig, type ToolBackground } from '../tuiDisplayPrefs.js'
 import {
   draftComboConflicts,

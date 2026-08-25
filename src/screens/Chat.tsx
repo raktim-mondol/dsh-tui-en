@@ -1060,7 +1060,7 @@ export function Chat({
         setHelpOpen(false)
         dispatchOverlay({
           type: 'open',
-          overlay: { kind: 'lang', index: getLang() === 'zh' ? 0 : 1 },
+          overlay: { kind: 'lang', index: Math.max(0, LANGS.indexOf(getLang() as typeof LANGS[number])) },
         })
         return true
       }
@@ -2529,7 +2529,7 @@ export function Chat({
     }
     if (overlay.kind === 'lang') {
       if (key.upArrow || key.downArrow) {
-        dispatchOverlay({ type: 'move', delta: key.upArrow ? -1 : 1, count: 2 })
+        dispatchOverlay({ type: 'move', delta: key.upArrow ? -1 : 1, count: LANGS.length })
       } else if (plainReturn) {
         const lang = LANGS[overlay.index]
         dispatchOverlay({ type: 'close' })

@@ -334,17 +334,17 @@ function family() {
   )
   await sleep(600)
 
-  check('screen: 标题渲染', text().includes('会话树'))
+  check('screen: 标题渲染', text().includes('Session tree'))
   check('screen: 树行渲染（根问句）', text().includes('u0-问根'))
   check('screen: fork 分支渲染（新方向）', text().includes('f1-新方向'))
   check('screen: 连接线渲染', text().includes('├─') || text().includes('└─'))
-  check('screen: 预览面板渲染', text().includes('预览'))
+  check('screen: 预览面板渲染', text().includes('Preview'))
 
   // Enter 打开操作菜单（焦点在活动叶 = live 会话，无切换选项）
   stdin.write('\r')
   await sleep(250)
-  check('screen: Enter 打开操作菜单', text().includes('回退到这里') && text().includes('从这分叉'))
-  check('screen: live 会话不提供切换选项', !text().includes('切换到该分支'))
+  check('screen: Enter 打开操作菜单', text().includes('Rewind here') && text().includes('Fork here'))
+  check('screen: live 会话不提供切换选项', !text().includes('Adopt this branch') && !text().includes('Adopt'))
   // Esc 关菜单，移到死分支（F2:14）再开：切换选项出现
   stdin.write('\x1b')
   await sleep(150)
@@ -352,7 +352,7 @@ function family() {
   await sleep(200)
   stdin.write('\r')
   await sleep(250)
-  check('screen: 死分支提供切换选项', text().includes('切换到该分支'))
+  check('screen: 死分支提供切换选项', text().includes('Adopt this branch') || text().includes('Adopt'))
 
   // 字母直达：f = 从这分叉（焦点在 F2:14，经 channel 记录并关屏）
   stdin.write('f')
