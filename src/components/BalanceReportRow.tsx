@@ -95,8 +95,8 @@ export function BalanceReportRow({
       const rateIndex = peakNow ? 1 : 0
       lines.push(t('balance-current-rate', {
         name: peakNow ? t('cost-peak-name') : t('cost-idle-name'),
-        input: cnyToUsd(price.inputMiss[rateIndex]).toFixed(3),
-        output: cnyToUsd(price.output[rateIndex]).toFixed(3),
+        input: price.inputMiss[rateIndex].toFixed(3),
+        output: price.output[rateIndex].toFixed(3),
       }))
     }
     if (estimate !== undefined) {

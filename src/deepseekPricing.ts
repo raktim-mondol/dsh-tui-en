@@ -1,51 +1,51 @@
 /**
- * DeepSeek 官方定价与"本会话花费"估算（人民币口径）。
+ * DeepSeek official pricing and session-cost estimates (USD).
  *
- * 数据来源：DeepSeek 官方文档「模型 & 价格」页（2026-08 快照），单位为人民
- * 币/百万 tokens。DeepSeek 官方 API 只返回 token 用量、不返回金额，本模块按
- * 官方公开单价把会话累计 token 换算成金额 —— 这是**估算**，不是账单：
- * 定价可能变动，且余额扣费发生在 DeepSeek 侧（以平台账单为准）。
+ * Source: DeepSeek "Model details" pricing table (USD / million tokens).
+ * The API returns token usage, not money; this module applies the published
+ * rates. The result is an estimate, not a bill — rates can change, and
+ * DeepSeek's platform invoice is authoritative.
  *
- * 计价规则（来自官方页面）：
- *  - 扣减费用 = token 消耗量 × 模型单价；
- *  - 缓存命中的输入按命中价计费，其余输入（含写入缓存）按未命中价计费；
- *  - 高峰时段为北京时间周一至周五 9:00-12:00、14:00-18:00，其余为空闲时段
- *    （空闲价为高峰价的一半）。
+ * Rules from that page:
+ *  - cost = tokens × list price
+ *  - cache-hit input uses the hit rate; remaining input (including cache
+ *    writes) uses the miss rate
+ *  - peak hours are Beijing time Mon–Fri 09:00–12:00 and 14:00–18:00;
+ *    everything else is off-peak (half the peak rate)
  */
 
-/** 单价对：`[空闲价, 高峰价]`，单位 元/百万 tokens。 */
-export type CnyPerMillion = readonly [number, number]
+/** `[off-peak, peak]` USD per million tokens. */
+export type UsdPerMillion = readonly [number, number]
 
-/** 一个官方模型的完整价目（人民币/百万 tokens）。 */
+/** One official model's published USD rates. */
 export interface DeepSeekModelPrice {
-  /** 输入（缓存未命中，含写入缓存部分）。 */
-  inputMiss: CnyPerMillion
-  /** 输入（缓存命中）。 */
-  inputHit: CnyPerMillion
-  /** 输出。 */
-  output: CnyPerMillion
+  /** Input (cache miss, including tokens written to cache). */
+  inputMiss: UsdPerMillion
+  /** Input (cache hit). */
+  inputHit: UsdPerMillion
+  /** Output. */
+  output: UsdPerMillion
 }
 
 /**
- * 在售模型价目表，按 API model id 前缀匹配（最长前缀优先）。
- * 新模型上线而本表未收录时，估算返回 undefined，界面不显示金额（只显示
- * token 用量），不会给出错误数字。
+ * In-stock list prices, matched by API model-id prefix (longest prefix
+ * wins). Unknown models return undefined so the UI shows tokens only.
  */
 export const DEEPSEEK_MODEL_PRICES: Readonly<Record<string, DeepSeekModelPrice>> = {
   'deepseek-v4-flash': {
-    inputMiss: [1.5, 3.0],
-    inputHit: [0.05, 0.10],
-    output: [4.5, 9.0],
+    inputMiss: [0.22, 0.44],
+    inputHit: [0.007, 0.014],
+    output: [0.66, 1.32],
   },
   'deepseek-v4-pro': {
-    inputMiss: [4.5, 9.0],
-    inputHit: [0.15, 0.30],
-    output: [13.5, 27.0],
+    inputMiss: [0.66, 1.32],
+    inputHit: [0.022, 0.044],
+    output: [1.98, 3.96],
   },
   'deepseek-v4-flash-vision-exp': {
-    inputMiss: [1.5, 3.0],
-    inputHit: [0.05, 0.10],
-    output: [4.5, 9.0],
+    inputMiss: [0.22, 0.44],
+    inputHit: [0.007, 0.014],
+    output: [0.66, 1.32],
   },
 }
 
@@ -116,7 +116,7 @@ const EMPTY_TOTALS: Readonly<CostTokenTotals> = Object.freeze({
   cacheWrite: 0,
 })
 
-/** 按高峰/空闲单价分别计价，返回 [高峰元, 空闲元]（未除 1e6）。 */
+/** Peak/off-peak costs in USD (not yet divided by 1e6). */
 function costSplit(
   tokens: CostTokenBuckets,
   price: DeepSeekModelPrice,
@@ -140,16 +140,13 @@ function costSplit(
 }
 
 /**
- * 估算本会话花费拆分（人民币，元）：高峰桶按高峰价、空闲桶按空闲价。
- * 公式（每桶）：(input − cacheRead) × 输入未命中价 + cacheRead × 输入命中价
- * + output × 输出价；cacheWrite 不单独计价（写入缓存的 token 已计入 input
- * 的未命中部分）。模型未收录或所有 token 均为零时返回 undefined（调用方
- * 不显示金额）。这是**估算**，不是账单——定价可能变动，以 DeepSeek 平台
- * 账单为准。
- * @param tokens - 按计价时段分桶的会话累计 token。
- * @param model - 当前模型 id（前缀匹配价目）。
+ * Session cost split in USD: peak bucket at peak rates, off-peak at
+ * off-peak rates. Per bucket: (input − cacheRead) × miss + cacheRead × hit
+ * + output × output. cacheWrite is not billed separately (those tokens
+ * already sit in the miss portion of input). Unknown model or zero tokens
+ * → undefined. Estimate, not a bill.
  */
-export function estimateSessionCostSplitCny(
+export function estimateSessionCostSplitUsd(
   tokens: CostTokenBuckets,
   model: string,
 ): { total: number; peak: number; idle: number } | undefined {
@@ -168,21 +165,16 @@ export function estimateSessionCostSplitCny(
   }
 }
 
-/**
- * 估算本会话花费（人民币，元）——estimateSessionCostSplitCny 的总价捷径。
- */
-export function estimateSessionCostCny(
+export function estimateSessionCostUsd(
   tokens: CostTokenBuckets,
   model: string,
 ): number | undefined {
-  return estimateSessionCostSplitCny(tokens, model)?.total
+  return estimateSessionCostSplitUsd(tokens, model)?.total
 }
 
 /**
- * Display FX for the English UI. Official DeepSeek list prices and the
- * default balance unit are CNY; session cost and CNY-only balances are
- * converted at this peg. Native USD balances from the API are shown as-is.
- * This is not a live FX quote.
+ * Display FX for CNY-only wallets from the balance API. Session cost uses
+ * the USD list prices above and does not go through this peg.
  */
 export const CNY_PER_USD = 7.2
 
@@ -192,24 +184,4 @@ export function cnyToUsd(cny: number): number {
 
 export function formatUsd(usd: number, digits = 2): string {
   return `$${usd.toFixed(digits)}`
-}
-
-export function estimateSessionCostSplitUsd(
-  tokens: CostTokenBuckets,
-  model: string,
-): { total: number; peak: number; idle: number } | undefined {
-  const split = estimateSessionCostSplitCny(tokens, model)
-  if (split === undefined) return undefined
-  return {
-    total: cnyToUsd(split.total),
-    peak: cnyToUsd(split.peak),
-    idle: cnyToUsd(split.idle),
-  }
-}
-
-export function estimateSessionCostUsd(
-  tokens: CostTokenBuckets,
-  model: string,
-): number | undefined {
-  return estimateSessionCostSplitUsd(tokens, model)?.total
 }

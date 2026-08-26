@@ -31,7 +31,7 @@ const [
   { settle, screenHas, findText, viewportLines, sleep },
   { stringWidth },
   { fetchBalance },
-  { CNY_PER_USD, cnyToUsd, estimateSessionCostCny, estimateSessionCostSplitCny, isDeepSeekOfficialProvider, isPeakHour, priceForModel },
+  { CNY_PER_USD, cnyToUsd, estimateSessionCostUsd, estimateSessionCostSplitUsd, isDeepSeekOfficialProvider, isPeakHour, priceForModel },
 ] = await Promise.all([
   import('node:stream'),
   import('react'),
@@ -179,9 +179,11 @@ check('isPeakHour 周日北京 10:00 → 空闲', !isPeakHour(new Date('2026-08-
 
 {
   const flash = priceForModel('deepseek-v4-flash')
-  check('priceForModel 精确匹配 flash', flash !== undefined && flash.output[1] === 9.0)
+  check('priceForModel 精确匹配 flash', flash !== undefined && flash.output[1] === 1.32)
   const vision = priceForModel('deepseek-v4-flash-vision-exp')
-  check('priceForModel 最长前缀匹配 vision（flash 价）', vision !== undefined && vision.output[1] === 9.0)
+  check('priceForModel 最长前缀匹配 vision（flash 价）', vision !== undefined && vision.output[1] === 1.32)
+  const pro = priceForModel('deepseek-v4-pro')
+  check('priceForModel 精确匹配 pro', pro !== undefined && pro.output[1] === 3.96)
   check('priceForModel 未知模型', priceForModel('gpt-4o') === undefined)
 }
 
@@ -194,46 +196,44 @@ const buckets = (peak: Partial<import('../src/deepseekPricing.js').CostTokenTota
 })
 
 {
-  // 高峰桶 1M 输入（未命中）→ 3.0 元（flash 高峰未命中价）
-  const cost = estimateSessionCostCny(buckets({ input: 1_000_000 }), 'deepseek-v4-flash')
-  check('估算 高峰桶 1M 输入未命中 = 3.0', cost !== undefined && Math.abs(cost - 3.0) < 1e-9, `cost=${cost}`)
+  // Peak 1M input miss → $0.44 (flash peak miss)
+  const cost = estimateSessionCostUsd(buckets({ input: 1_000_000 }), 'deepseek-v4-flash')
+  check('估算 高峰桶 1M 输入未命中 = 0.44', cost !== undefined && Math.abs(cost - 0.44) < 1e-9, `cost=${cost}`)
 }
 {
-  // 空闲桶 1M 输入（未命中）→ 1.5 元（flash 空闲未命中价）
-  const cost = estimateSessionCostCny(buckets({}, { input: 1_000_000 }), 'deepseek-v4-flash')
-  check('估算 空闲桶 1M 输入未命中 = 1.5', cost !== undefined && Math.abs(cost - 1.5) < 1e-9, `cost=${cost}`)
+  // Off-peak 1M input miss → $0.22
+  const cost = estimateSessionCostUsd(buckets({}, { input: 1_000_000 }), 'deepseek-v4-flash')
+  check('估算 空闲桶 1M 输入未命中 = 0.22', cost !== undefined && Math.abs(cost - 0.22) < 1e-9, `cost=${cost}`)
 }
 {
-  // 跨时段会话：高峰 0.2M + 空闲 0.8M 输入 → 0.2×3.0 + 0.8×1.5 = 1.8
-  const cost = estimateSessionCostCny(buckets({ input: 200_000 }, { input: 800_000 }), 'deepseek-v4-flash')
-  check('估算 跨时段分桶各按对应单价 = 1.8', cost !== undefined && Math.abs(cost - 1.8) < 1e-9, `cost=${cost}`)
+  // Cross-window: peak 0.2M + off-peak 0.8M input → 0.2×0.44 + 0.8×0.22 = 0.264
+  const cost = estimateSessionCostUsd(buckets({ input: 200_000 }, { input: 800_000 }), 'deepseek-v4-flash')
+  check('估算 跨时段分桶各按对应单价 = 0.264', cost !== undefined && Math.abs(cost - 0.264) < 1e-9, `cost=${cost}`)
 }
 {
-  // 缓存命中计价：高峰桶 1M 输入其中 0.8M 命中 → 0.2×3.0 + 0.8×0.10 = 0.68
-  const cost = estimateSessionCostCny(buckets({ input: 1_000_000, cacheRead: 800_000 }), 'deepseek-v4-flash')
-  check('估算 缓存命中按命中价 = 0.68', cost !== undefined && Math.abs(cost - 0.68) < 1e-9, `cost=${cost}`)
+  // Cache hit: peak 1M input with 0.8M hit → 0.2×0.44 + 0.8×0.014 = 0.0992
+  const cost = estimateSessionCostUsd(buckets({ input: 1_000_000, cacheRead: 800_000 }), 'deepseek-v4-flash')
+  check('估算 缓存命中按命中价 = 0.0992', cost !== undefined && Math.abs(cost - 0.0992) < 1e-9, `cost=${cost}`)
 }
 {
-  // 输出计价：空闲桶 0.5M 输出 → 0.5×4.5 = 2.25（vision 同 flash 价）
-  const cost = estimateSessionCostCny(buckets({}, { output: 500_000 }), 'deepseek-v4-flash-vision-exp')
-  check('估算 输出按输出价（vision 前缀）= 2.25', cost !== undefined && Math.abs(cost - 2.25) < 1e-9, `cost=${cost}`)
+  // Output: off-peak 0.5M → 0.5×0.66 = 0.33 (vision shares flash rates)
+  const cost = estimateSessionCostUsd(buckets({}, { output: 500_000 }), 'deepseek-v4-flash-vision-exp')
+  check('估算 输出按输出价（vision 前缀）= 0.33', cost !== undefined && Math.abs(cost - 0.33) < 1e-9, `cost=${cost}`)
 }
 {
-  // 拆分函数：高峰/空闲各自金额
-  const split = estimateSessionCostSplitCny(buckets({ input: 1_000_000 }, { input: 1_000_000 }), 'deepseek-v4-flash')
-  check('估算拆分 peak=3.0 idle=1.5 total=4.5', split !== undefined && Math.abs(split.peak - 3.0) < 1e-9 && Math.abs(split.idle - 1.5) < 1e-9 && Math.abs(split.total - 4.5) < 1e-9, `split=${JSON.stringify(split)}`)
+  const split = estimateSessionCostSplitUsd(buckets({ input: 1_000_000 }, { input: 1_000_000 }), 'deepseek-v4-flash')
+  check('估算拆分 peak=0.44 idle=0.22 total=0.66', split !== undefined && Math.abs(split.peak - 0.44) < 1e-9 && Math.abs(split.idle - 0.22) < 1e-9 && Math.abs(split.total - 0.66) < 1e-9, `split=${JSON.stringify(split)}`)
 }
 {
-  // 缓存写超 input 的异常值钳制（防御）
-  const cost = estimateSessionCostCny(buckets({ input: 100, cacheRead: 10_000 }), 'deepseek-v4-flash')
+  const cost = estimateSessionCostUsd(buckets({ input: 100, cacheRead: 10_000 }), 'deepseek-v4-flash')
   check('估算 cacheRead 超 input 时钳制', cost !== undefined && cost >= 0, `cost=${cost}`)
 }
 {
-  const cost = estimateSessionCostCny(buckets({}, {}), 'deepseek-v4-flash')
+  const cost = estimateSessionCostUsd(buckets({}, {}), 'deepseek-v4-flash')
   check('估算 零 token → undefined', cost === undefined, `cost=${cost}`)
 }
 {
-  const cost = estimateSessionCostCny(buckets({ input: 1_000 }), 'gpt-4o')
+  const cost = estimateSessionCostUsd(buckets({ input: 1_000 }), 'gpt-4o')
   check('估算 未知模型 → undefined', cost === undefined, `cost=${cost}`)
 }
 {

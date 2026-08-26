@@ -275,11 +275,10 @@ export function StatusLine({
           ),
         }]
       : []),
-    // Estimated session spend (USD): official DeepSeek list prices are CNY
-    // and converted at CNY_PER_USD. Only for official providers whose model
-    // has a known price, and only once the estimate is non-zero (a fresh
-    // session showing $0.00 is noise). The trailing peak/idle marker shows
-    // the current billing window. Hover shows the breakdown.
+    // Estimated session spend (USD list prices). Only for official providers
+    // whose model has a known price, and only once the estimate is non-zero
+    // (a fresh session showing $0.00 is noise). The trailing peak/idle marker
+    // shows the current billing window. Hover shows the breakdown.
     ...(statusBar.cost && isDeepSeekOfficialProvider(channel.provider)
       ? (() => {
         const estimate = estimateSessionCostUsd(channel.tokens, channel.model)
