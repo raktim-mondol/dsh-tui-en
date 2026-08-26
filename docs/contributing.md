@@ -1,6 +1,5 @@
 # Contributing
 
-
 Thanks for considering contributing to dsh-TUI! This guide is the shared
 development contract for humans and coding agents working on `@deepseek-harness-tui/dsh-tui`.
 
@@ -321,18 +320,24 @@ the required credentials.
 
 ### Interaction And Commands
 
-- 按键优先级是行为，不是偶然的控制流。聚焦的问卷或模态先于全局处理器消费
-  按键；鼠标文本选区先于 rewind/clear 消费 Escape；提示词只在无浮层时拥有
-  文本编辑。
-- 不要在单个组件里硬编码新快捷键就完事。同步更新相关帮助 UI 与双 README
-  快捷键表，并为与既有模式的冲突新增或扩展回归。
-- 本地 slash 命令在 `src/commands.ts` 声明、`Chat.tsx` 分发；注册表命令运行时
-  合并。新增命令时同步更新声明、分发、帮助/文档与 i18n 描述（`src/i18n.ts` 的
-  `cmd-desc-<name>`，只写 zh——en 回退声明原文）。
-- 内置技能命令不进本地名单：打包技能经注册表注册为确定性直调命令（#496），
-  命令名必须等于 SKILL.md 的注册名（kebab-case），否则会被撞名过滤拦下。
-- `ask_user_question` 必须经 `QuestionStore` 串行化；并发问题刻意 FIFO 呈现，
-  结束后汇总。
+- Keyboard precedence is behavior, not incidental control flow. A focused
+  questionnaire or modal consumes its keys before global handlers; mouse text
+  selection consumes Escape before rewind/clear behavior; the prompt owns text
+  editing only when no overlay is active.
+- Do not hardcode a new shortcut in one component and stop there. Update the
+  relevant help UI and both README shortcut tables, and add or extend a
+  regression for conflicts with existing modes.
+- Local slash commands are declared in `src/commands.ts` and dispatched in
+  `Chat.tsx`; registry commands are merged at runtime. When adding a command,
+  update declaration, dispatch, help/documentation, the i18n description
+  (`cmd-desc-<name>` in `src/i18n.ts`, zh only — en falls back to the
+  declaration), and any packaged skill mapping together.
+- Built-in skill commands stay out of LOCAL_COMMANDS: packaged skills register
+  through the registry as deterministically dispatched commands (#496), and the
+  command name must equal the SKILL.md registration name (kebab-case) or the
+  collision filter drops it.
+- Keep `ask_user_question` serialized through `QuestionStore`; concurrent
+  questions are intentionally presented FIFO and summarized after completion.
 
 ### Terminal Rendering
 

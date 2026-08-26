@@ -1,6 +1,5 @@
 # Architecture and Limitations
 
-
 ## Runtime path
 
 ```text

@@ -1,6 +1,5 @@
 # Getting Started
 
-
 ## Prerequisites
 
 - Node.js `^22.19 || >=24`; CI uses Node 24.
@@ -204,8 +203,8 @@ pnpm dev
 the OS-managed file ACL. `pnpm dev` uses isolated `HOME`, `DSH_HOME`, and session
 directories, leaving the normal `~/.dsh/profiles/dsh-tui`, `~/.dsh-tui`, and
 sessions untouched. The test root defaults to
-`$XDG_CACHE_HOME/dsh-tui-en-dev` on Unix (`~/.cache/dsh-tui-en-dev` when unset) and
-`%LOCALAPPDATA%\dsh-tui-en-dev` on Windows. Override it with `DSH_TUI_DEV_ROOT`.
+`$XDG_CACHE_HOME/dsh-tui-dev` on Unix (`~/.cache/dsh-tui-dev` when unset) and
+`%LOCALAPPDATA%\dsh-tui-dev` on Windows. Override it with `DSH_TUI_DEV_ROOT`.
 
 To verify only the build, pack, and install path without launching the TUI, run:
 
@@ -260,7 +259,7 @@ Check `DEEPSEEK_BASE_URL` too when using a custom endpoint.
 ### The activity row appears twice
 
 Check whether `dsh-working-activity` was added separately to the profile. Keep
-the row inserted by the dsh-tui-en patch and remove the duplicate bundle entry.
+the row inserted by the dsh-tui patch and remove the duplicate bundle entry.
 
 ### The TUI is misaligned or leaves terminal state behind
 

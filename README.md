@@ -20,38 +20,18 @@
 English TypeScript fork of `dsh-TUI`. The command is `dsh-tui-en`. This is
 the original Ink/Cordis plugin, not a Rust rewrite.
 
+
 `dsh-TUI` is an interactive terminal front door for DeepSeek Harness. It is
 mounted as a Cordis plugin and provides a Claude Code-style conversation, tool,
 session, and fullscreen terminal experience while continuing to use the
 official DSH agent, model, tool, session, and persistence services.
 
-<div align="center">
-  <table>
-    <tr>
-      <td align="center" valign="middle" width="50%">
-        <img src="screenshots/wechat-official.png" alt="DeepSeek Harness 官方公众号推文收录 dsh-TUI" width="480">
-        <br>
-        <strong>DeepSeek Harness 官方公众号推文收录</strong>
-      </td>
-      <td align="center" valign="middle" width="50%">
-        <a href="https://dshfind.com/ccch1mneyyy/dsh-TUI"><img src="https://dshfind.com/api/card/ccch1mneyyy/dsh-TUI?lang=zh" alt="dsh-TUI on dshfind" width="420"></a>
-        <br>
-        <strong>dshfind 插件目录收录</strong>
-        <br><br>
-        <a href="https://trendshift.io/repositories/146168" title="GitHub Trending 日榜 #7 · TypeScript 口径"><img alt="Trendshift" src="https://trendshift.io/api/badge/trendshift/repositories/146168/daily?language=TypeScript"></a>
-         <br>
-        <strong>dshfind Github Treding榜第七 </strong>
-      </td>
-    </tr>
-  </table>
-</div>
+The project does not patch DeepSeek Harness core. Installing the plugin enables
+the interface, and removing it leaves no core modifications behind.
 
-## 核心能力
-
-  - **终端交互**：低资源占用，长会话稳定可靠；多种主题切换，样式美观，实时显示工作状态、TPS、缓存命中率等
-    推理等级、输入/输出 token 与 Git/会话信息；终端卡多行命令可经 `/settings` 折叠为首行 + 计数提示（Ctrl+O 或点击卡片展开）。
-  - **功能全面**：`/resume`、`/new`、`/compact`、`/export`、`/btw`，模型热切换，原生subagent，会话fork，自动更新；可在vs code中[以vscode插件形式启动](docs/vscode.md)，已上架 VS Code Marketplace。
-  - **扩展丰富**：原生浏览器交互，compter use等大量附属功能性扩展
+> Status: public beta. It is suitable for daily use and extension work. Read
+> [Architecture and limitations](docs/architecture.md) before relying on its
+> permission model or terminal-specific behavior.
 
 <p align="center">
   <a href="https://dshfind.com/en/plugins/ccch1mneyyy/dsh-TUI"><img src="https://dshfind.com/api/card/ccch1mneyyy/dsh-TUI?lang=en" alt="dsh-TUI on dshfind"></a>
@@ -59,8 +39,9 @@ official DSH agent, model, tool, session, and persistence services.
 
 ## Highlights
 
-- **Terminal-native interaction**: streaming Markdown, structured tool cards,
-  command and file completion, `@` file references (complete anywhere; text
+- **Terminal-native interaction**: streaming Markdown, structured tool cards
+  (terminal-card multi-line command headers fold to the first line plus a
+  count via `/settings`; Ctrl+O or a card click expands), command and file completion, `@` file references (complete anywhere; text
   files attach content, directories attach listings, and PNG/JPEG/WebP/GIF are
   sent as durable image blocks; `@path#L12-14` line ranges attach only the
   requested lines, clamping past-EOF ranges or falling back to the whole file
@@ -134,7 +115,7 @@ commands), then `dsh-tui-en` and `dsh --profile dsh-tui` are equivalent.
 > `/update` and `dsh-tui-en update` seed this configuration automatically —
 > no manual step needed.
 
-`dsh-tui-en --resume` restores the most recently selected session; on Windows
+`dsh-tui-en` with `--resume` restores the most recently selected session; on Windows
 the repository's `dsh-tui-en.cmd` works the same way.
 
 CLI subcommands (`dsh-tui-en help` prints the full usage):
@@ -158,7 +139,7 @@ Run `dsh-tui-en` directly in a [Herdr](https://herdr.dev) pane; no extra setup i
 required. dsh-TUI reports `idle`, `working`, and `blocked` through Herdr's local
 integration API and marks questionnaires and tool approvals as `blocked`. The
 integration is completely inactive outside Herdr. `herdr agent start --kind
-dsh-tui-en`, session identity, and automatic restoration after a Herdr server
+dsh-tui`, session identity, and automatic restoration after a Herdr server
 restart still require a native dsh-TUI agent kind upstream; manually launched
 panes already retain, reconnect, and expose their live state.
 
@@ -175,7 +156,7 @@ The TUI checks the configured registry for newer versions in the background
 after startup (the check never blocks the first frame and silently ignores
 offline or registry errors). When an update is available, just type `/update`
 for a one-shot upgrade: it updates the runtime actually running in the current
-`dsh-tui` profile, verifies the install result, then restarts automatically and
+`dsh-tui-en` profile, verifies the install result, then restarts automatically and
 resumes the current session.
 
 When launched through the global `dsh-tui-en` command, newer versions
@@ -200,7 +181,7 @@ For migration from the former `dsh-cc-tui` package and `cc-tui` profile, see
 | `Ctrl+Enter` (⌘Enter) | **Interrupt the current turn and send immediately** (interrupt) |
 | `Alt+Up` | Pull the last unhandled message back into the input for editing (without interrupting the turn) |
 | `Tab` | Complete `/` commands or `@` files (keep drilling into directories); **while the model is working = follow-up** (queued after the current turn) |
-| `Ctrl+C` | Interrupt the current turn; press twice while idle to exit |
+| `Ctrl+C` | Interrupt the current turn; press again while the interrupt is still settling to force-exit; press twice while idle to exit |
 | `Esc` | Close the command/file menu; double-press while idle clears the input; **double-press on empty input = time rewind** |
 | `Ctrl+O` | Expand/collapse details (full thinking text, tool arguments and output) |
 | `Ctrl+R` | History search |
@@ -217,7 +198,7 @@ For migration from the former `dsh-cc-tui` package and `cc-tui` profile, see
 
 **Three delivery modes while the model is working**: `Enter` = steer (inject a next-step boundary, no interruption) · `Tab` = follow-up (queued after the current turn) · `Ctrl+Enter` = interrupt (break in and send immediately).
 
-**Custom keybindings**: the action shortcuts above (paste, history search, external editor, transcript expand, trajectory, subagent dashboard, loaded-context panel, show-all, redraw, todo fold) are remappable in `/settings` → `dsh-tui-en` → `Shortcuts`: enter combos like `alt+v` or `ctrl+shift+v`, comma-separate several, leave blank to restore the default; saves apply live with no restart. Combos that clash with the fixed editing keys (`Ctrl+A/E/U/K/W`, `Ctrl+←/→`) or with another action are rejected. Deployments can also pin them statically via `shortcuts.<action>` in cordis.yml (the settings user layer wins).
+**Custom keybindings**: the action shortcuts above (paste, history search, external editor, transcript expand, trajectory, subagent dashboard, loaded-context panel, show-all, redraw, todo fold) are remappable in `/settings` → `dsh-tui` → `Shortcuts`: enter combos like `alt+v` or `ctrl+shift+v`, comma-separate several, leave blank to restore the default; saves apply live with no restart. Combos that clash with the fixed editing keys (`Ctrl+A/E/U/K/W`, `Ctrl+←/→`) or with another action are rejected. Deployments can also pin them statically via `shortcuts.<action>` in cordis.yml (the settings user layer wins).
 
 **macOS modifier keys**: the `Ctrl+<key>` bindings above also work with `⌘<key>`
 on macOS (e.g. `⌘V` paste, `⌘O` expand details, `⌘Enter` send immediately);
@@ -258,10 +239,10 @@ so keep using `Ctrl`.
 | Group | Commands |
 |---|---|
 | Session | `/new` new session · `/resume` session browser (search, preview, cross-project, sub-agent runs folded) · `/rename` rename session · `/recap` session recap (apply the suggested title in one key; `/settings` can enable an auto-summary on session open — on by default: a divider + `Recap:` line appears at the bottom of the transcript when resuming, and bows out once you send a new message) · `/workspace resume|rename|open` manage workspaces · `/clear` clear screen · `/compact` compact · `/export` export Markdown · `/trace` trace timeline (or `Ctrl+T`) · `/rewind` rewind picker (same as double-`Esc` on empty input) · `/tree` session family tree (every fork branch stitched together; hover previews a node, click opens a rewind/fork-here/adopt-branch menu) · `/fork` copy the current session into a resumable twin (the original is untouched) · `/btw <question>` side question (never interrupts the main turn, writes no history) |
-| Status | `/context` loaded-context details · `/status` session info · `/cost` token usage · `/doctor` environment self-check · `/config` configuration sources · `/init` create AGENTS.md · `/settings` settings panel (namespace read/edit) |
-| Model | `/model` two-level picker (a pinned **Recently used** group first — the last 10 switched models, persisted at `~/.dsh-tui/model-recents.json` — then provider groups; Enter drills into a group's models; a single provider with no recents skips straight to the list; **switching = fork continuation, history preserved**) · `/effort` reasoning effort (slider / `status` / `<id>`) · `/preset` agent preset (**cannot switch once the session has started** — blank-only) · `/thinking` thinking display · `/tokens` token details · `/activity` working animation (`frames <name>` / `status`) · `/theme` theme picker · `/color` (bare opens the palette picker; `<name>` sets directly; `status`/`reset`) session accent color (input border + session-name chip at the top-right, per-session; chip off by default, enable in `/settings`) · `/lang` English UI (`zh` is accepted as a compatibility alias) |
+| Status | `/context` loaded-context details · `/status` session info · `/cost` token usage · `/balance` DeepSeek account balance and this-session spend · `/doctor` environment self-check · `/config` configuration sources · `/init` create AGENTS.md · `/settings` settings panel (namespace read/edit, autosave) |
+| Model | `/model` two-level picker (a pinned **Recently used** group first — the last 10 switched models, persisted at `~/.dsh-tui/model-recents.json` — then provider groups; Enter drills into a group's models; a single provider with no recents skips straight to the list; **switching = fork continuation, history preserved**) · `/effort` reasoning effort (slider / `status` / `<id>`) · `/preset` agent preset (**cannot switch once the session has started** — blank-only) · `/thinking` thinking display · `/tokens` token details · `/activity` working animation (`frames <name>` / `status`) · `/theme` theme picker · `/color` (bare opens the palette picker; `<name>` sets directly; `status`/`reset`) session accent color (input border + session-name chip at the top-right, per-session; chip off by default, enable in `/settings`) · `/lang` zh/en UI switch (also selectable in `/settings`) |
 | Accounts/Policy | `/provider` add a model provider (includes the bundled dsh-auth **subscription OAuth sign-in** branch — ChatGPT / Claude / Grok, no API key; same source as `/auth status\|login\|logout`) · `/login` credential & account status · `/logout` logout notes · `/permissions` permission notes · `/add-dir` file-policy scope · `/hooks` · `/mcp` |
-| Skills | `/audit` code audit · `/bug` bug report · `/review` code review · `/practice` coding practice · `/pr_comments` PR comments · `/release-notes` release notes · `/vuln-check` vulnerability check |
+| Skills | `/audit` code audit · `/bug` bug report · `/review` code review · `/practice` coding practice · `/pr-comments` PR comments · `/release-notes` release notes · `/vuln-check` vulnerability check |
 | Other | `/agents` subagent list · `/skills` skills directory · `/plugins check <path>` plugin diagnostics · `/update` auto-update and restart · `/vim` · `/terminal-setup` · `/connect` · `/help` · `/exit` (aliases `/quit` `/q`) |
 | Registry | `/plan` `/goal` `/feedback` `/permission` (DSH command-registry plugins, merged into the `/` menu automatically with the plugin) |
 
@@ -276,11 +257,11 @@ so keep using `Ctrl`.
 | [Themes](docs/themes.md) | Built-in themes, background detection, custom JSON themes, validation |
 | [Interaction and commands](docs/interaction.md) | Keyboard, mouse, questionnaires, slash commands, session workflows |
 | [Architecture and limitations](docs/architecture.md) | Runtime path, rendering, persistence, security boundary, known limitations |
-| [VS Code guide](docs/vscode.md) | Running dsh-tui-en in the VS Code integrated terminal; the `dsh-tui-vscode` companion extension offers an experience almost identical to the official Claude Code extension (on the Marketplace) |
+| [VS Code guide](docs/vscode.md) | Running dsh-tui in the VS Code integrated terminal; the `dsh-tui-vscode` companion extension offers an experience almost identical to the official Claude Code extension (on the Marketplace) |
 | [Contributing](docs/contributing.md) | Contribution workflow, repository map, build artifacts, verification matrix, change rules |
 | [Plugin admission & development](https://github.com/T-Auto/dsh-ecosystem-spec/blob/main/docs/plugin-admission-and-development.md) | Interface & compatibility agreement / plugin admission spec / seams / contracts / verification checklist (merged into dsh-ecosystem-spec) |
 
-The documentation index is [`docs/README.md`](docs/README.md).
+The complete bilingual index is [`docs/README.md`](docs/README.md).
 
 ## Configuration & Extensions
 

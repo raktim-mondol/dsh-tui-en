@@ -233,7 +233,7 @@ const MSG = {
   },
   helpText: {
     en:
-      `Usage: dsh-tui|dst [command] [options] [path|url]\n\n` +
+      `Usage: dsh-tui-en [command] [options] [path|url]\n\n` +
       `Commands:\n` +
       `  update                 Update the ${PROFILE} profile to the latest release\n` +
       `  doctor                 Pre-flight environment checks (dsh/pnpm/profile/key)\n` +
@@ -245,7 +245,7 @@ const MSG = {
       `  <path|url>             Open with the given workspace target\n\n` +
       `Any other argument is forwarded to \`dsh --profile ${PROFILE}\`.`,
     zh:
-      `用法：dsh-tui|dst [命令] [选项] [路径|URL]\n\n` +
+      `用法：dsh-tui-en [命令] [选项] [路径|URL]\n\n` +
       `命令：\n` +
       `  update                 将 ${PROFILE} profile 升级到最新版本\n` +
       `  doctor                 启动前环境诊断（dsh/pnpm/profile/密钥）\n` +

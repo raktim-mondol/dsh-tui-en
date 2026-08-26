@@ -1,6 +1,5 @@
 # Themes
 
-
 ## Built-in themes
 
 dsh-TUI provides three Gentle Mist Blue palettes, plus an `auto` pseudo-theme:

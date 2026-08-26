@@ -1,6 +1,5 @@
 # Configuration
 
-
 ## Profiles and patch layers
 
 After an npm/profile installation, user configuration lives at:
@@ -97,7 +96,7 @@ Usage rules:
   preference, then the roster default `standard`.
 - Resuming a session restores the preset recorded in that session's log and
   does not overwrite it with the current default.
-- Liangshen mode ships with dsh-tui-en and is installed into the user preset root
+- Liangshen mode ships with dsh-tui and is installed into the user preset root
   at startup. An existing unmanaged directory with the same id is preserved.
 - Liangshen mode's first-round `bash` on Windows runs an auto-discovered Git
   Bash: candidates are the installation tree of a `git.exe` found on PATH
@@ -165,7 +164,7 @@ for the complete field reference.
 | `DSH_TUI_SESSION_ROOT` | Override the JSONL session root; profile default `$DSH_HOME/sessions`, bare `cordis.yml` default `~/.dsh-tui/sessions` |
 | `DSH_PERMISSION_MODE` | Override non-Windows sandbox policy, such as `workspace-write` or `danger-full-access` |
 | `DSH_TUI_WORKSPACE` | Working directory used by the Windows `dsh-tui-en.cmd` launcher |
-| `DSH_TUI_DEBUG` | Enable dsh-tui-en diagnostics on stderr |
+| `DSH_TUI_DEBUG` | Enable dsh-tui diagnostics on stderr |
 | `DSH_TUI_RENDER_LOG` | File path for raw ANSI frame capture |
 
 The old `CC_TUI_*` and `DSH_CC_*` names no longer take effect as of this

@@ -1,32 +1,31 @@
 # Interaction and Commands
 
-
 ## Input and global shortcuts
 
 | Key | Behavior |
 | --- | --- |
-| `Enter` | 空闲时发送；模型工作时把文本 steer 到当前回合的下一步边界；菜单打开时确认选项 |
-| `Tab` | 补全 `/` 命令或 `@` 文件；模型工作且输入非空时排入当前回合之后的 follow-up |
-| `Ctrl+Enter` | 打断当前回合并立即处理输入消息 |
-| `Shift+Enter` / `Ctrl+J` | 在光标处插入换行；终端无法上报 Shift 修饰键时可用 `Ctrl+J`（LF）兜底，macOS Terminal.app 用 `Option+Enter` |
-| `Shift+Tab` | 在配置的会话模式间循环（默认：默认 → 计划模式 → 完全访问） |
-| `Alt/Option+Up` | 把最后一条尚未处理的消息取回输入框编辑 |
-| `Up/Down` | 菜单选择；普通输入中浏览历史或在多行文本间移动 |
-| `Ctrl+V` / `Alt+V` | 从系统剪贴板插入文本或文件；图片作为持久附件发送。终端拦截 `Ctrl+V` 时用 `Alt+V` |
-| `Ctrl+G` | 用外部编辑器（`$VISUAL` → `$EDITOR`）编辑当前输入，保存退出后回填；`:cq` 或非零退出保留原稿；未设置变量时提示配置，无 `vi` 兜底 |
-| `Esc` | 层级：关帮助 → 关命令菜单 → 关文件菜单（仅当前 `@` token）→ 中断回合并重投 pending 消息 → 有输入时清空 → 空输入连续两次 = 时间回溯 rewind；fullscreen 下有鼠标选区时优先取消选区（不复制） |
-| `Ctrl+C` | 工作时中断；中断迟迟不收敛时再按一次强制退出；空闲且有输入时清空；空输入时连续两次退出 |
-| `Ctrl+D` | 与 `Ctrl+C` 同阶梯：工作中=中断（未收敛时再按=强制退出）；空闲时连续两次退出 |
-| `Ctrl+O` | 切换 transcript/verbose 详情，展开思考与完整工具参数/输出 |
-| `Ctrl+P` | 切换启动时加载的 loaded-context 面板（面板在屏时有效） |
-| `Ctrl+T` | 打开轨迹场景（等同 `/trace`）；场景内 `q`/`Esc` 返回对话 |
-| `Ctrl+R` | 打开输入历史搜索；重复按或 `Down` 移到下一项 |
-| `Ctrl+L` | 强制清理并重绘物理终端 |
-| `?` | 输入框为空时打开快捷键和命令帮助 |
-| Help 内 `↑/↓`、`PgUp/PgDn`、`Home/End` | 逐行滚动、翻页或跳到命令列表首尾；`Esc` 关闭 |
-| `Shift+Up` | 进入消息选择模式；方向键移动，`Enter` 展开单条，`Esc` 退出 |
+| `Enter` | Send while idle; steer text into the running turn at its next step boundary; confirm an open menu |
+| `Tab` | Complete a `/` command or `@` file; while the model is working, queue non-empty input as a post-turn follow-up |
+| `Ctrl+Enter` | Interrupt the running turn and process the input immediately |
+| `Shift+Enter` / `Ctrl+J` | Insert a newline at the caret; `Ctrl+J` (LF) is the fallback when the terminal cannot report the Shift modifier; macOS Terminal.app uses `Option+Enter` |
+| `Shift+Tab` | Cycle the configured session modes (default: default → plan → full-access) |
+| `Alt/Option+Up` | Pull the latest undelivered message back into the editor |
+| `Up/Down` | Select menu items; in ordinary input, browse history or move through multiline text |
+| `Ctrl+V` / `Alt+V` | Insert clipboard text or files; images are sent as durable attachments. Use `Alt+V` when the terminal intercepts `Ctrl+V` |
+| `Ctrl+G` | Edit the current input in an external editor (`$VISUAL` → `$EDITOR`); saving and quitting fills it back, `:cq`/non-zero exit keeps the draft; with neither variable set the TUI asks you to configure one (no `vi` fallback) |
+| `Esc` | Ladder: close help → close the command menu → close the file menu (only the current `@` token) → interrupt the turn and redeliver pending messages → clear non-empty input → double-tap on empty input = rewind; in fullscreen, an active mouse selection is cleared first (not copied) |
+| `Ctrl+C` | Interrupt while working; press again while the interrupt is still settling to force-exit; clear non-empty idle input; press twice on empty input to exit |
+| `Ctrl+D` | Same ladder as `Ctrl+C`: interrupt while working (press again to force-exit if the interrupt stalls); press twice while idle to exit |
+| `Ctrl+O` | Toggle transcript/verbose detail, including full reasoning and tool arguments/output |
+| `Ctrl+P` | Toggle the loaded-context panel shown at startup (while it is on screen) |
+| `Ctrl+T` | Open the trajectory scene (same as `/trace`); `q`/`Esc` returns to the conversation |
+| `Ctrl+R` | Open input-history search; repeat or press `Down` for the next result |
+| `Ctrl+L` | Clear and force a physical terminal redraw |
+| `?` | Open shortcut and command help when the input is empty |
+| In Help: `↑/↓`, `PgUp/PgDn`, `Home/End` | Scroll by line, page, or jump to either end; `Esc` closes |
+| `Shift+Up` | Enter message selection; arrows move, `Enter` expands one row, `Esc` exits |
 
-The action shortcuts (paste, history search, external editor, `Ctrl+O/T/P/R/L`, subagent dashboard, show-all, todo fold) are remappable in `/settings` → `dsh-tui-en` → `Shortcuts`: enter combos such as `alt+v`, comma-separate several, leave blank to restore defaults — saves apply live. Combos clashing with the fixed editing keys or another action are rejected. Deployments can also pin them via `shortcuts.<action>` in cordis.yml.
+The action shortcuts (paste, history search, external editor, `Ctrl+O/T/P/R/L`, subagent dashboard, show-all, todo fold) are remappable in `/settings` → `dsh-tui` → `Shortcuts`: enter combos such as `alt+v`, comma-separate several, leave blank to restore defaults — saves apply live. Combos clashing with the fixed editing keys or another action are rejected. Deployments can also pin them via `shortcuts.<action>` in cordis.yml.
 
 `/` has two meanings. In normal input it opens slash-command completion. In
 the `Ctrl+O` transcript view it opens full-session search; use `n` and `N` to
@@ -76,9 +75,9 @@ the prompt sends a real image block. The prompt never contains base64.
 ## Interface language
 
 `/lang` toggles the UI between Simplified Chinese and English (affects all UI
-strings); the choice persists across restarts (0.3.7+). The **dsh-tui-en →
+strings); the choice persists across restarts (0.3.7+). The **dsh-tui →
 Language** select in `/settings` switches it too (applies immediately and saves
-to `dsh-tui-en.lang` in `~/.dsh/settings.yaml`; the `DSH_TUI_LANG` env var always
+to `dsh-tui.lang` in `~/.dsh/settings.yaml`; the `DSH_TUI_LANG` env var always
 wins).
 
 ## Message delivery semantics
@@ -334,38 +333,45 @@ zh; unmapped registry commands fall back to the registry's own text.
 
 | Group | Commands |
 | --- | --- |
-| 会话 | `/new`、`/resume`、`/rename`、`/recap`（最近活动摘要 + 建议标题一键应用；设置 `recapOnOpen` 开启时打开会话自动出分隔线 + `回顾：` 摘要行，发送新消息后消失，默认开）、`/workspace resume|rename|open`、`/clear`、`/compact`、`/export`、`/btw`、`/trace`（轨迹场景，亦可 `Ctrl+T`）、`/rewind`（时间回溯，同空输入双击 `Esc`） |
-| 状态 | `/context`、`/status`、`/cost`、`/balance`（DeepSeek 官方余额：摘要行 + hover 明细，点击刷新）、`/config`、`/doctor`、`/init`、`/agents`、`/settings` |
-| 模型与显示 | `/model`、`/effort`、`/thinking`、`/tokens`、`/activity`、`/preset`、`/theme`、`/color`（会话强调色：无参打开调色板选择器，`<名>` 直接设置，`status`/`reset`；输入框边框 + 右上角会话名标签，按会话保存；标签默认关闭，`/settings` 可开）、`/lang` |
-| 账号与策略 | `/provider`、`/login`、`/logout`、`/permissions`、`/add-dir`、`/hooks`、`/mcp`、`/skills`、`/plugins`（`check <路径>` 校验插件清单） |
-| 打包 Skills | `/audit`、`/bug`、`/practice`、`/review`、`/pr-comments`、`/release-notes`、`/vuln-check` |
-| 其他 | `/update`、`/vim`、`/terminal-setup`、`/connect`、`/help`、`/exit`（别名 `/quit`、`/q`） |
-| 注册表 | `/plan`、`/goal`，以及当前 DSH 组合注册的其他命令 |
+| Sessions | `/new`, `/resume`, `/rename`, `/recap` (recent-activity summary + one-key suggested title), `/workspace resume|rename|open`, `/clear`, `/compact`, `/export`, `/btw`, `/trace` (trajectory scene, also `Ctrl+T`), `/rewind` (time travel, same as double-`Esc` on an empty input) |
+| Status | `/context`, `/status`, `/cost`, `/balance` (official DeepSeek balance: summary row + hover details, click to refresh), `/config`, `/doctor`, `/init`, `/agents`, `/settings` |
+| Model and display | `/model`, `/effort`, `/thinking`, `/tokens`, `/activity`, `/preset`, `/theme`, `/color` (session accent color: bare opens the palette picker, `<name>` sets directly, `status`/`reset`; input border + session-name chip at the top-right, per-session; chip off by default, enable in `/settings`), `/lang` |
+| Account and policy | `/provider`, `/login`, `/logout`, `/permissions`, `/add-dir`, `/hooks`, `/mcp`, `/skills`, `/plugins` (`check <path>` validates a plugin manifest) |
+| Packaged skills | `/audit`, `/bug`, `/practice`, `/review`, `/pr-comments`, `/release-notes`, `/vuln-check` |
+| Other | `/update`, `/vim`, `/terminal-setup`, `/connect`, `/help`, `/exit` (aliases `/quit`, `/q`) |
+| Registry | `/plan`, `/goal`, and any other command registered by the DSH composition |
 
 Additional forms:
 
-- `/activity` 打开动画选择器；`/activity frames <name>` 直接设置（帧名
-  30 个：`random` 随机 + `claude` `star2` `sand` `triangle` `box` `box2`
-  `corners` `point` `layer` `flip` `aesthetic` `hamburger` `moon` `moon8`
-  `comet` `breathe` `dots` `arrow` `spark` `bar` `braille` `arc` `circle`
-  `grow` `noise` `bounce` `rainbow` `dqpb` `toggle`，默认 `moon8`）；
-  `/activity status` 查看当前选择。
-- `/preset <id>` 与 `/preset status` 见配置文档。
-- `/effort` 打开推理强度滑杆（←/→ 实时调整）；`/effort <id>` 直接设定，
-  `/effort status` 查看当前档位。
-- `/theme <name>` 与 `/theme status` 见主题文档。
-- `/lang` 切换中英界面语言（见「界面语言」）。
-- `/compact` 压缩会话历史；minimal preset（仅 bash+编辑器）下不可用。
-- `/thinking` 扩展思考显示开关，仅本次界面状态、**不持久化**。
-- 启动后会后台检查 npm 新版本；发现更新时会提示。检测遵循 npm registry
-  配置（`NPM_CONFIG_REGISTRY` 或 `~/.npmrc`），镜像源用户看到的就是安装源
-  的最新版。`/update` 更新已安装的
-  `@deepseek-harness-tui/dsh-tui`，然后自动重启并恢复当前会话；当前回合运行时需等待完成。
-  仅在 `dsh --profile <name>` 启动时可用（源码运行等场景会提示不可用）；
-  已是最新版时直接提示，不会重启。
-- `/plan [off|message]` 与 `/goal ...` 由 DSH 命令插件处理并写入会话事件。
-- Skill 命令由 host 注入对应 `SKILL.md` 的技能正文后执行，参数原样随行；
-  包内 `skills/` 会在插件启动时自动注册，也可用项目或用户目录中的同名 skill 覆盖。
+- `/activity` opens the animation picker; `/activity frames <name>` selects
+  directly (30 frame names: `random` + `claude` `star2` `sand` `triangle`
+  `box` `box2` `corners` `point` `layer` `flip` `aesthetic` `hamburger`
+  `moon` `moon8` `comet` `breathe` `dots` `arrow` `spark` `bar` `braille`
+  `arc` `circle` `grow` `noise` `bounce` `rainbow` `dqpb` `toggle`; default
+  `moon8`); `/activity status` reports the current choice.
+- `/preset <id>` and `/preset status` are described in the configuration guide.
+- `/effort` opens the reasoning-effort slider (←/→ adjusts live);
+  `/effort <id>` sets a level directly; `/effort status` reports the current one.
+- `/theme <name>` and `/theme status` are described in the theme guide.
+- `/lang` toggles the interface language (see “Interface language”).
+- `/compact` compresses the session history; unavailable under the minimal
+  preset (bash + editor only).
+- `/thinking` toggles extended reasoning display; UI state only — **not
+  persisted**.
+- After startup, the TUI checks npm for a newer version in the background and
+  shows a notification when one is available. The check follows the npm
+  registry configuration (`NPM_CONFIG_REGISTRY` or `~/.npmrc`), so mirror
+  users see the versions their package manager actually installs. `/update`
+  updates the installed `@deepseek-harness-tui/dsh-tui`, then restarts and
+  resumes the current session automatically; wait for an active turn to finish first. It is only
+  available under a `dsh --profile <name>` launch (source checkouts get an
+  unavailable notice), and an already-latest install is reported as such
+  without restarting.
+- `/plan [off|message]` and `/goal ...` are handled by DSH command plugins and
+  recorded as session events.
+- Skill commands are executed by the host injecting the corresponding
+  `SKILL.md` body, with arguments passed through unchanged. Packaged `skills/`
+  register at startup and may be overridden by same-name project or user skills.
 
 `/vim`, `/connect`, and `/hooks` are currently compatibility
 placeholders. When the DSH composition has no matching capability, each

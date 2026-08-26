@@ -94,13 +94,13 @@ dsh-tui-en
 
 | Key | Action |
 |---|---|
-| `Ctrl+C` | 工作中=中断；中断未收敛时再按=强制退出；空闲有输入=清空输入；空闲空输入=双击退出（3s 窗口） |
-| `Ctrl+D` | 工作中=中断（中断未收敛时再按=强制退出）；空闲时双击退出 |
-| `Ctrl+L`（⌘L） | 清屏并强制重绘 |
-| `Ctrl+O`（⌘O） | 展开/收起详情（思考全文、工具参数与输出） |
-| `Ctrl+E` | 输入框=光标到行尾；转录中=展开/折叠隐藏的旧消息 |
-| `Ctrl+P` | 切换启动时 loaded-context 面板（面板在屏时有效） |
-| `?` | 输入框为空时打开快捷键/命令帮助菜单 |
+| `Ctrl+C` | While working = interrupt; if the interrupt never settles, press again to force-exit; idle with input = clear the input; idle with empty input = double-press to exit (3s window) |
+| `Ctrl+D` | Double-press while idle to exit |
+| `Ctrl+L` (⌘L) | Clear the screen and force a redraw |
+| `Ctrl+O` (⌘O) | Expand/collapse details (full thinking text, tool arguments and output) |
+| `Ctrl+E` | In the input box = jump to end of line; while transcribing = expand/collapse hidden older messages |
+| `Ctrl+P` | Toggle the startup loaded-context panel (effective while the panel is on screen) |
+| `?` | Opens the keybinding/command help menu when the input is empty |
 
 ### 2.3 Search
 
@@ -251,16 +251,16 @@ still shows English.
 
 | Command | Arguments | Effect |
 |---|---|---|
-| `/context` | 无 | 已加载上下文明细（指令/运行时上下文/技能/工具等） |
-| `/status` | 无 | 模型+effort、工作/空闲、会话 id、目录+git 分支、token、缓存命中率、上下文百分比、会话标题 |
-| `/cost` | 无 | token 用量 + 缓存命中率（DSH 不提供费用计量） |
-| `/balance` | 无 | DeepSeek 官方账户余额（免费只读接口）：摘要行 + hover 明细（各币种赠送/充值拆分、当前计费时段与单价、本会话 token 与花费估算），点击刷新、`×` 关闭。密钥经 DSH 凭据解析（`DEEPSEEK_API_KEY`，环境变量兜底），仅在请求头中使用 |
-| `/config` | 无 | 配置来源：`cordis.patch.yml` 路径、启动方式、模型路由 |
-| `/doctor` | 无 | 环境自检 |
-| `/init` | 无 | 在工作目录创建 `AGENTS.md`（created / exists / failed 三态提示） |
-| `/agents` | 无 | 本会话子代理列表 |
-| `/settings` | 无 | 打开插件设置编辑器（命名空间读取/编辑） |
-| `/help` | 无 | 快捷键 + 命令帮助菜单（`?` 同款） |
+| `/context` | none | Loaded-context breakdown (instructions/runtime context/skills/tools, etc.) |
+| `/status` | none | Model+effort, working/idle, session id, directory+git branch, tokens, cache hit rate, context percentage, session title |
+| `/cost` | none | Token usage + cache hit rate |
+| `/balance` | none | DeepSeek account balance and this-session spend estimate |
+| `/config` | none | Configuration sources: `cordis.patch.yml` path, launch method, model routing |
+| `/doctor` | none | Environment self-check |
+| `/init` | none | Create `AGENTS.md` in the working directory (created / exists / failed states) |
+| `/agents` | none | List of this session's subagents |
+| `/settings` | none | Open the plugin settings editor (namespaced read/edit) |
+| `/help` | none | Keybinding + command help menu (same as `?`) |
 
 ### 3.3 Model / Display
 
@@ -295,16 +295,16 @@ still shows English.
 
 | Command | Effect |
 |---|---|
-| `/audit` | 代码审计 |
-| `/bug` | Bug 报告 |
-| `/practice` | 编程练习 |
-| `/review` | 代码评审 |
-| `/pr-comments` | PR 评论 |
-| `/release-notes` | 发布说明 |
-| `/vuln-check` | 漏洞检查 |
+| `/audit` | Code audit |
+| `/bug` | Bug report |
+| `/practice` | Coding practice |
+| `/review` | Code review |
+| `/pr_comments` | PR comments (note: the skill's registered name is `pr-comments`, so both entries may appear in the menu) |
+| `/release-notes` | Release notes |
+| `/vuln-check` | Vulnerability check |
 
-技能命令由 host 注入对应 `SKILL.md` 的技能正文后执行，参数原样随行
-（详见 §4.8）；`/skills` 浏览技能目录。
+Skill commands send an activation prompt to the model, which loads and
+executes the matching `SKILL.md` from the `skills/` directory.
 
 ### 3.6 Placeholder Commands
 
@@ -334,14 +334,14 @@ still shows English.
 
 | Action | Command/Key | Notes |
 |---|---|---|
-| 新建 | `/new` | 无二次确认——旧会话已持久化，随时可 `/resume` 找回；顺带清空 resume 标记 |
-| 恢复 | `/resume` | 全屏会话浏览器：打字实时搜索（标题/目录/分支/模型），`Enter` 恢复；`Tab` 预览；`⌘A` 全部项目 / `Ctrl+B` 本分支 / `Ctrl+S` 折叠子 agent / `Ctrl+R` 重命名 / `Ctrl+D` 删除 / `Ctrl+X` 清理空壳；`Esc` 先清搜索再退出 |
-| 重命名 | `/rename <标题>` | 立即改名并持久化（写入 session/title 事件，浏览器可读回） |
-| 压缩 | `/compact` | 手动触发 DSH compaction；**回合运行中拒绝**；minimal preset 下不可用；压缩点以 Divider 摘要行呈现 |
-| 导出 | `/export` | 从完整 session log 导出 Markdown（含 thinking 与工具调用分节），文件 `dsh-tui-export-<时间戳>.md` 落在当前会话 cwd |
-| 清屏 | `/clear` | 只清视图，不动会话日志 |
-| 删除 | `/resume` 里 `Ctrl+D` | 删除日志目录与 MRU 条目（有确认） |
-| 退出 | `/exit`（或 `/quit` `/q`） | 空闲 `Ctrl+C` 双击或 `Ctrl+D` 双击也可退出；工作中中断迟迟不收敛时再按 `Ctrl+C`/`Ctrl+D` 强制退出 |
+| Create | `/new` | No confirmation — the old session is already persisted and recoverable any time via `/resume`; also clears the resume marker |
+| Resume | `/resume` | Fullscreen session browser: live search while typing (title/directory/branch/model), `Enter` resumes; `Tab` previews; `⌘A` all projects / `Ctrl+B` current branch / `Ctrl+S` fold subagent runs / `Ctrl+R` rename / `Ctrl+D` delete / `Ctrl+X` clean up empty shells; `Esc` clears the search first, then exits |
+| Rename | `/rename <title>` | Renames immediately and persists it (writes a session/title event, readable back by the browser) |
+| Compact | `/compact` | Manually triggers DSH compaction; **refused while a turn is running**; unavailable under the minimal preset; the compaction point renders as a divider summary row |
+| Export | `/export` | Exports Markdown from the full session log (including thinking and tool-call sections); the file `dsh-tui-en-export-<timestamp>.md` lands in the session's current working directory |
+| Clear view | `/clear` | Clears only the view, leaves the session log untouched |
+| Delete | `Ctrl+D` in `/resume` | Deletes the log directory and its MRU entry (with confirmation) |
+| Exit | `/exit` (or `/quit` `/q`) | Double-press `Ctrl+C` or double-press `Ctrl+D` while idle also exits |
 
 Command-line resume: `dsh-tui-en --resume` (most recent session) /
 `dsh-tui-en --resume <id>` (a specific session); `-c` / `--continue` are
@@ -451,12 +451,18 @@ priority**; the protocol only has "allow once / deny", no "always allow".
 
 ### 4.8 Skills / Registry / Goals-Todos
 
-- 打包技能（`/audit` 代码审计 · `/bug` bug 报告 · `/review` 评审 · `/practice` 练习 ·
-  `/pr-comments` PR 评论 · `/release-notes` 发布说明 · `/vuln-check` 漏洞检查）：
-  命令由 host 注入技能正文后执行，参数原样随行；`/skills` 浏览技能目录。
-- `/plan` `/goal` `/feedback` `/permission`：来自 DSH 命令注册表，随组合并入 `/` 菜单。
-- **Goals/Todos 面板自动出现**：模型写入 goal/todo 时在输入框上方实时渲染（🎯 目标 + phase 徽章 +
-  树形 todo 最多 8 行），无需任何操作；agent 空闲时自动隐藏已完成项。
+- Bundled skills (`/audit` code audit · `/bug` bug report · `/review`
+  review · `/practice` practice ·
+  `/pr_comments` PR comments · `/release-notes` release notes ·
+  `/vuln-check` vulnerability check): the command sends an activation
+  prompt, and the model loads and runs `SKILL.md`; `/skills` browses the
+  skill catalog.
+- `/plan` `/goal` `/feedback` `/permission`: come from the DSH command
+  registry, merged into the `/` menu with the composition.
+- **The Goals/Todos panel appears automatically**: when the model writes a
+  goal/todo, it renders live above the input box (🎯 goal + phase badge +
+  a tree of up to 8 todo lines) with no action needed; it auto-hides
+  completed items once the agent is idle.
 
 ### 4.9 MCP / Workspace / Other
 
@@ -507,11 +513,16 @@ thinking brand blue / tools light blue,
 with a right-edge readout like `ctx 12.3k/1.0M 1.2% 988.9k` (auto-shortened
 on narrow terminals).
 
-**Row 2 — 状态字段行**（每个字段独立开关，见 `/settings`）
-- 左组：模型 → TPS → thinking 推理等级 → mode 会话模式 → ctx 上下文占用 → cache 缓存命中率 → tokens（`1.2k→340` 输入→输出）→ cost 本会话花费估算（`≈¥0.05 谷`：`≈¥` + 当前计费时段短标记 峰/谷；仅 DeepSeek 官方 provider 且模型有已知单价时显示；hover 查看高峰/空闲拆分与输入/输出/缓存明细）。估算按每次请求的发生时刻分高峰/空闲桶、各按官方对应单价计（高峰期 = 梁文峰，低谷期 = 梁文谷），跨时段会话不会被整段按当前时段计价；估算非账单，以 DeepSeek 平台为准
-- 右组：git 分支 → 工作目录（紧凑模式仅 basename）→ 会话标题 → 短会话 ID（`#` + 前 8 位，与日志文件名对应，方便 `--resume` 定位）
-- `statusBar.compact` 时左右合并为单行。
-- 默认开：compact / model / thinking / cwd / contextUsage / cache / cost；默认关：tokens / tps / gitBranch / sessionTitle / sessionId / mode / contextBar / activity / trajectory。
+**Row 2 — status field row** (each field has its own toggle, see
+`/settings`)
+- Left group: model → TPS → thinking effort level → mode (session mode) →
+  ctx (context usage) → cache (hit rate) → tokens (`1.2k→340` in→out)
+- Right group: git branch → working directory (basename only in compact
+  mode) → session title
+- With `statusBar.compact`, left and right merge into a single line.
+- On by default: compact / model / thinking / cwd / contextUsage / cache;
+  off by default: tokens / tps / gitBranch / sessionTitle / mode /
+  contextBar / activity / trajectory.
 
 **Row 3 — hint / working activity + mini trajectory bar**
 - Shows `? for shortcuts` while idle, `esc to interrupt` while a turn is
@@ -537,17 +548,19 @@ Speed color coding: **≥50 green / ≥20 yellow / <20 red**.
 
 ### 5.3 `/settings` Editor
 
-`/settings` 打开插件设置编辑器；**编辑是暂存制**：`s` 保存 / `d` 放弃 / `Esc` 丢弃脏区退出。
-dsh-tui 自身区块（写入 settings.yaml 用户层，实时生效）共 20 个字段：
+`/settings` opens the plugin settings editor; **edits are staged**: `s` to
+save / `d` to discard / `Esc` discards the dirty draft on exit.
+The dsh-tui-en section itself (written to the user layer of settings.yaml,
+takes effect live) has 19 fields:
 
 | Field | Notes |
 |---|---|
-| lang | 界面语言 zh/en（DSH_TUI_LANG 钉死时不可改） |
-| whale | 开屏头部像素鲸鱼娘（默认开） |
-| diffLayout | Edit/Write diff 布局：auto（≥110 列双栏）/ split / unified |
-| thinkingFold | 思考块：preview（流式 2-3 行预览 + 落定折叠）/ full（展开到轮末） |
-| toolBackground | 工具卡背景强调：none / subtle / strong |
-| statusBar.* | 上表全部状态栏开关（compact/model/thinking/cwd/contextUsage/cache/tokens/cost/tps/gitBranch/sessionTitle/sessionId/mode/contextBar/activity/trajectory；statusBar.sessionId 是底栏显示开关，与 cordis 的启动 sessionId 无关） |
+| lang | UI language code (`en`; `zh` is a compatibility alias). Locked when `DSH_TUI_LANG` is pinned |
+| whale | The pixel whale header animation on the splash screen (on by default) |
+| diffLayout | Edit/Write diff layout: auto (two-column at ≥110 columns) / split / unified |
+| thinkingFold | Thinking blocks: preview (2-3 line streaming preview + folds once settled) / full (stays expanded to end of turn) |
+| toolBackground | Tool card background emphasis: none / subtle / strong |
+| statusBar.* | All status-bar toggles from the table above (compact/model/thinking/cwd/contextUsage/cache/tokens/tps/gitBranch/sessionTitle/mode/contextBar/activity/trajectory) |
 
 Namespaces without a declared TUI section are listed read-only; edit
 `~/.dsh/settings.yaml` by hand for those.
