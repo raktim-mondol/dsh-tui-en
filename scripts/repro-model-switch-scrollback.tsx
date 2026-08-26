@@ -183,9 +183,9 @@ const instance = await render(
   { stdout: stdoutObj, stdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 
-const SPLASH = '探索未至之境'
-const HIST0 = '历史问题 0：检查一下构建配置'
-const HIST1 = '历史回答 1：'
+const SPLASH = 'Explore the uncharted'
+const HIST0 = 'history question 0: check the build config'
+const HIST1 = 'history answer 1:'
 // boot 落定：轮询到 splash 与历史行都上屏再断言（原固定 1200ms 在慢
 // runner 上会断言到未画完的缓冲区）。
 await settle(() => countMarker(SPLASH) === 1 && countMarker(HIST0) === 1 && countMarker(HIST1) === 1)

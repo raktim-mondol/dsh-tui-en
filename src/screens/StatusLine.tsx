@@ -599,7 +599,8 @@ export function formatCacheHitRate(usage: UsageSnapshot | undefined): string | u
   return `${((usage.cacheRead / total) * 100).toFixed(1)}%`
 }
 
-function basename(path: string): string {
+function basename(path: string | undefined): string {
+  if (path === undefined || path.length === 0) return ''
   const parts = path.split(/[\\/]/)
   return parts[parts.length - 1] ?? path
 }

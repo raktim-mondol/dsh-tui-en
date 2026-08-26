@@ -9,6 +9,7 @@ import { settle } from './lib/term-test.mjs'
 const testHome = mkdtempSync(join(tmpdir(), 'dsh-tui-activity-home-'))
 process.env.HOME = testHome
 process.env.USERPROFILE = testHome
+process.env.DSH_TUI_LANG = 'en'
 const { createChannel } = await import('../lib/types/dsh-adapter/channel.js')
 const { apply: applyWorkingActivity } = await import('dsh-working-activity')
 

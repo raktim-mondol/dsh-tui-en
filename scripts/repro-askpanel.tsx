@@ -59,7 +59,7 @@ const app = await render(
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
 )
-await settle(() => screen().includes('自定义回答') && screen().includes('输入文字附带回答'))
+await settle(() => screen().includes('Custom answer') && screen().includes('Type text to attach an answer'))
 
 let failures = 0
 const results: string[] = []
@@ -76,7 +76,7 @@ check('hint says you can type an attached answer', s1.includes('Type text to att
 // 2. Type on the focused "I have one" option: text lands in the input row, the
 //    option list stays (no jump), and the label is attached.
 stdin.write('sk-test123')
-await settle(() => screen().includes('sk-test123') && screen().includes('（附加：我有）'))
+await settle(() => screen().includes('sk-test123') && screen().includes('(attached: I have one)'))
 const s2 = screen()
 check('typed text appears on the input row', s2.includes('sk-test123'))
 check('view does not jump (option list still visible)', s2.includes("I don't"))
@@ -97,12 +97,12 @@ app.rerender(
     question: { question: 'Anything else to add?', options: [{ label: 'Yes' }, { label: 'No' }] },
   }),
 )
-await settle(() => screen().includes('还有别的要说吗？'))
+await settle(() => screen().includes('Anything else to add?'))
 stdin.write('[B') // ↓
 stdin.write('[B') // ↓ → input row
 await sleep(200)
-stdin.write('随便说说')
-await settle(() => screen().includes('随便说说'))
+stdin.write('just rambling')
+await settle(() => screen().includes('just rambling'))
 const s4 = screen()
 check('inline edit on the input row (view still does not jump)', s4.includes('just rambling') && s4.includes('No'))
 stdin.write('\r')
@@ -124,11 +124,11 @@ app.rerender(
     },
   }),
 )
-await settle(() => screen().includes('要哪些口味？'))
+await settle(() => screen().includes('Which flavors do you want?'))
 stdin.write(' ') // check 甜
 await sleep(150)
-stdin.write('少放糖')
-await settle(() => screen().includes('少放糖'))
+stdin.write('less sugar')
+await settle(() => screen().includes('less sugar'))
 stdin.write('\r')
 await settle(() => answer !== undefined)
 const a3 = answer as { selected?: string[]; custom?: string } | undefined

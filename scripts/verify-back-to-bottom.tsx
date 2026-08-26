@@ -121,7 +121,7 @@ check('钉底无 pill', pillText() === null, `pill=${JSON.stringify(pillText())}
 await wheel(true, 6)
 {
   const p = pillText()
-  check('上滚后 pill 出现（回到底部）', p !== null && p.includes('回到底部'), `pill=${JSON.stringify(p)}`)
+  check('上滚后 pill 出现（回到底部）', p !== null && p.includes('back to bottom'), `pill=${JSON.stringify(p)}`)
 }
 // 追加一轮新消息（模拟流式落定）
 rows.push({ id: 17, kind: 'user', text: '问题 9' })
@@ -129,11 +129,11 @@ rows.push({ id: 18, kind: 'assistant', text: '回复 9 第 1 行\n回复 9 第 2
 emitChannel()
 await settle(() => {
   const p = pillText()
-  return p !== null && /2 条新消息/.test(p)
+  return p !== null && /2 new messages/.test(p)
 })
 {
   const p = pillText()
-  check('新消息后 pill 切计数', p !== null && /2 条新消息/.test(p), `pill=${JSON.stringify(p)}`)
+  check('新消息后 pill 切计数', p !== null && /2 new messages/.test(p), `pill=${JSON.stringify(p)}`)
 }
 
 // ── 3. End 键回底 ──

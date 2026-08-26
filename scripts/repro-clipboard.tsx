@@ -89,6 +89,7 @@ const channel: any = {
   tokens: { input: 1, output: 1 },
   cwd: '/tmp/demo',
   displayCwd: '/tmp/demo',
+  displayCwd: '/tmp/demo',
   gitBranch: 'main',
   working: false,
   spinnerMode: 'requesting',
@@ -132,13 +133,13 @@ try {
   check('Ctrl+V closes the help overlay before the read resolves', !screenHas('? for this help'))
 
   // 2. The stub clipboard text lands in the prompt.
-  await settle(() => screenHas('UI粘贴内容'))
-  check('clipboard text lands in the prompt', screenHas('UI粘贴内容'))
+  await settle(() => screenHas('pasted-content'))
+  check('clipboard text lands in the prompt', screenHas('pasted-content'))
 
   // 3. Busy latch released: a second Ctrl+V pastes again (doubled text).
   stdinObj.write('\x16')
-  await settle(() => screenHas('UI粘贴内容UI粘贴内容'))
-  check('second Ctrl+V pastes again (busy latch released)', screenHas('UI粘贴内容UI粘贴内容'))
+  await settle(() => screenHas('pasted-contentpasted-content'))
+  check('second Ctrl+V pastes again (busy latch released)', screenHas('pasted-contentpasted-content'))
 } finally {
   await instance.unmount()
   rmSync(stubDir, { recursive: true, force: true })

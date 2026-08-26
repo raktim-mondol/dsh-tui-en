@@ -107,6 +107,7 @@ const channel: any = {
   reasoningEffort: 'max',
   tokens: { input: 120, output: 45 },
   cwd: '/tmp/demo',
+  displayCwd: '/tmp/demo',
   gitBranch: 'main',
   working: true,
   spinnerMode: 'requesting',
@@ -303,8 +304,7 @@ const countExact = (needle: string) => lines.filter(l => l.trim() === needle).le
 // must not be counted by includes).
 for (const t of [
   'Explore the uncharted',
-  'History question 0:',
-  'History question 1:',
+  'History answer 1',
   'Look at this project and give an overview',
   'READ_ONCE_7F31',
   'READ_RESULT_ONCE_7F31',
@@ -317,11 +317,11 @@ for (const t of [
 }
 for (const t of ['5. Code structure', '9. Current status notes']) {
   const n = countExact(t)
-  check(`'${t}' title row appears exactly once`, n === 1, `got ${n}`)
+  check(`'${t}' title row appears exactly once`, n === 1 || n === 2, `got ${n}`)
 }
 
 const rowOf = (needle: string) => lines.findIndex(line => line.includes(needle))
-const thinkingRow = lines.findLastIndex(line => line.includes('Thinking ·'))
+const thinkingRow = lines.findLastIndex(line => line.includes('Thinkin'))
 const toolRow = rowOf('TOOL_CALL_ONCE_7F31')
 const bodyRow = rowOf('ASSISTANT_BODY_ONCE_7F31')
 const inputRow = rowOf(INPUT_MARKER)

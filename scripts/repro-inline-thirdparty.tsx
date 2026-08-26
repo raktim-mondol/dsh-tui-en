@@ -72,7 +72,7 @@ const channel: any = {
   version: 0, rows: [] as any[], status: 'idle', sessionTitle: 'probe', agentId: 'probe',
   model: 'deepseek-v4-flash',
   mode: { plan: false }, reasoningEffort: 'max', tokens: { input: 120, output: 45 },
-  cwd: '/tmp/demo', gitBranch: 'main', working: true, spinnerMode: 'requesting',
+  cwd: '/tmp/demo', displayCwd: '/tmp/demo', gitBranch: 'main', working: true, spinnerMode: 'requesting',
   responseChars: 0, activeToolCount: 0, turnStart: Date.now(), lastUserText: 'overview',
   pending: [], commandList: [], notifications: [],
   subscribe(cb: () => void) { listeners.add(cb); return () => listeners.delete(cb) },
@@ -135,7 +135,7 @@ ink?.reassertTerminalModes?.()
 await settle(() => {
   const lines = viewportLines()
   return !lines.some(l => l.includes('[5764] Error') || l.includes('[35540] Usage'))
-    && Array.from({ length: 12 }, (_, i) => `概览要点第 ${i + 1} 条`).every(t => lines.some(l => l.includes(t)))
+    && Array.from({ length: 12 }, (_, i) => `Overview point ${i + 1}`).every(t => lines.some(l => l.includes(t)))
 })
 
 const healed = viewportLines()

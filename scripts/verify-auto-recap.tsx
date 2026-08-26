@@ -211,8 +211,8 @@ const clickCell = (col: number, row: number) => {
 await settle(() => screenHas(term, 'AUTO_RECAP_SUMMARY'))
 check('挂载后灰行显示自动总结', screenHas(term, 'AUTO_RECAP_SUMMARY'))
 check('自动触发恰好一次 recapRecent', channel.recapCallCount === 1, String(channel.recapCallCount))
-check('手动面板未打开（无建议标题）', !screenHas(term, '建议标题'))
-check('回顾行带「回顾：」前缀', screenHas(term, '回顾：'))
+check('手动面板未打开（无Suggested title）', !screenHas(term, 'Suggested title'))
+check('回顾行带「Recap:」前缀', screenHas(term, 'Recap:'))
 {
   const line = findText(term, 'AUTO_RECAP_SUMMARY')
   // Divider 与回顾行之间隔了 marginTop 空行——向上找最近的非空行。
@@ -225,18 +225,18 @@ check('回顾行带「回顾：」前缀', screenHas(term, '回顾：'))
 const rowPos = findText(term, 'AUTO_RECAP_SUMMARY')
 check('灰行在视口内', rowPos !== null)
 if (rowPos !== null) hover(rowPos.col + 1, rowPos.row + 1)
-await settle(() => screenHas(term, '点击展开查看/应用'))
-check('hover 显示展开提示', screenHas(term, '点击展开查看/应用'))
+await settle(() => screenHas(term, 'Click to expand & apply'))
+check('hover 显示展开提示', screenHas(term, 'Click to expand & apply'))
 check('hover 显示关闭 chip', screenHas(term, '×'))
 
 // ── 3. 点击灰行：展开完整 RecapPanel ───────────────────────────────────
 const expandPos = findText(term, 'AUTO_RECAP_SUMMARY')
 if (expandPos !== null) clickCell(expandPos.col + 1, expandPos.row + 1)
-await settle(() => screenHas(term, '建议标题'))
-check('点击展开完整面板', screenHas(term, 'AUTO_RECAP_TITLE') && screenHas(term, '应用'))
-check('展开面板带标题栏', screenHas(term, '会话回顾'))
+await settle(() => screenHas(term, 'Suggested title'))
+check('点击展开完整面板', screenHas(term, 'AUTO_RECAP_TITLE') && screenHas(term, 'Apply'))
+check('展开面板带标题栏', screenHas(term, 'Session recap'))
 
-// ── 4. a 键应用建议标题（走 renameSession）────────────────────────────
+// ── 4. a 键应用Suggested title（走 renameSession）────────────────────────────
 stdin.write('a')
 await settle(() => channel.renameCalls.length === 1)
 check('按 a 应用标题走 renameSession', channel.renameCalls[0] === 'AUTO_RECAP_TITLE', JSON.stringify(channel.renameCalls))
@@ -244,7 +244,7 @@ check('会话标题已更新', channel.sessionTitle === 'AUTO_RECAP_TITLE', chan
 
 // ── 5. Esc 收起：回到灰行 ──────────────────────────────────────────────
 stdin.write('\x1b')
-await settle(() => !screenHas(term, '建议标题'))
+await settle(() => !screenHas(term, 'Suggested title'))
 check('Esc 收起回灰行', screenHas(term, 'AUTO_RECAP_SUMMARY'))
 
 // ── 6. 点击 × 关闭：灰行消失直到下次会话切换 ───────────────────────────
@@ -286,7 +286,7 @@ channel.emit()
 await settle(() => channel.recapCallCount === 3)
 await settle(() => screenHas(term, 'LONG_SUMMARY_TAIL'))
 check('长摘要完整显示（换行不截断）', screenHas(term, 'LONG_SUMMARY_TAIL'))
-check('回顾行仍带前缀', screenHas(term, '回顾：'))
+check('回顾行仍带前缀', screenHas(term, 'Recap:'))
 
 // ── 8. 失败静默：无活动不显示任何行 ────────────────────────────────────
 channel.recapResult = { summary: null, error: 'no activity' }
@@ -311,12 +311,12 @@ channel.autoRecapOnOpen = true
 channel.agentId = 'probe-5'
 channel.emit()
 await settle(() => channel.recapCallCount === 5)
-await settle(() => screenHas(term, '回顾：'))
+await settle(() => screenHas(term, 'Recap:'))
 check('重新开启后切会话恢复灰行', screenHas(term, 'AUTO_RECAP_SUMMARY'))
 stdin.write('继续')
 await settle(() => screenHas(term, '继续'))
 stdin.write('\r')
-await settle(() => !screenHas(term, '回顾：'))
+await settle(() => !screenHas(term, 'Recap:'))
 check('发送新消息后自动摘要消失', !screenHas(term, 'AUTO_RECAP_SUMMARY'))
 await new Promise(resolve => setTimeout(resolve, 200))
 check('发送消息不触发新的总结', channel.recapCallCount === 5, String(channel.recapCallCount))
@@ -327,7 +327,7 @@ channel.agentId = 'probe-6'
 channel.emit()
 await new Promise(resolve => setTimeout(resolve, 250))
 check('空会话不触发总结', channel.recapCallCount === 5, String(channel.recapCallCount))
-check('空会话无回顾行', !screenHas(term, '回顾：'))
+check('空会话无回顾行', !screenHas(term, 'Recap:'))
 
 await instance.unmount()
 setLang('zh')

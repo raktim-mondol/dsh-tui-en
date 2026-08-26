@@ -89,10 +89,10 @@ await mount({
   question: 'Which model provider do you want to add?',
   options: [{ label: 'Built-in provider' }, { label: 'Custom API endpoint' }],
   hideCustomInput: true,
-}, () => screen().includes('内置 provider') && !screen().includes('自定义回答'))
-check('1 hide: 无「自定义回答」输入行', !screen().includes('自定义回答'))
-check('1 hide: hint 无输入提示', !screen().includes('输入回答') && !screen().includes('输入文字附带回答'))
-check('1 hide: 选项照常渲染', screen().includes('内置 provider') && screen().includes('自定义 API 端点'))
+}, () => screen().includes('Built-in provider') && !screen().includes('Custom answer'))
+check('1 hide: 无「自定义回答」输入行', !screen().includes('Custom answer'))
+check('1 hide: hint 无输入提示', !screen().includes('Type answer') && !screen().includes('Type text to attach an answer'))
+check('1 hide: 选项照常渲染', screen().includes('Built-in provider') && screen().includes('Custom API endpoint'))
 
 // Tab/可打印字符「应被忽略」是状态不得改变的稳定性探针：轮询已成立条件会
 // 立即返回等于没测，键间保留固定窗口。
@@ -103,9 +103,9 @@ await sleep(100)
 stdin.write('x')     // printable characters should be ignored
 await sleep(100)
 stdin.write('\r')    // Enter 提交焦点项
-await settle(() => eq(answer, { selected: ['自定义 API 端点'] }))
+await settle(() => eq(answer, { selected: ['Custom API endpoint'] }))
 check('1 hide: Enter 只提交 selected，无 custom',
-  eq(answer, { selected: ['自定义 API 端点'] }), JSON.stringify(answer))
+  eq(answer, { selected: ['Custom API endpoint'] }), JSON.stringify(answer))
 
 // ── 2. Text-only question with no options + hideCustomInput (hide must be ignored)
 await mount({
@@ -113,8 +113,8 @@ await mount({
   hideCustomInput: true,
   // patchConsole 会把前面 check 消息（含「自定义回答」字样）渲染进终端，
   // 只盯它会立即返回——用新题独有的问题文本当挂载完成信号。
-}, () => screen().includes('输入 API key'))
-check('2 text-only: hide 被忽略，输入行仍在', screen().includes('自定义回答'))
+}, () => screen().includes('Enter your API key'))
+check('2 text-only: hide 被忽略，输入行仍在', screen().includes('Custom answer'))
 stdin.write('sk-secret')
 await settle(() => screen().includes('sk-secret'))
 stdin.write('\r')
@@ -129,8 +129,8 @@ await mount({
   multiSelect: true,
   // 上一屏已含「自定义回答」，settle 只盯它会立即返回——加新题独有的选项
   // 文本当挂载完成信号。
-}, () => screen().includes('deepseek-chat') && screen().includes('自定义回答'))
-check('3 multi: 输入行保留', screen().includes('自定义回答'))
+}, () => screen().includes('deepseek-chat') && screen().includes('Custom answer'))
+check('3 multi: 输入行保留', screen().includes('Custom answer'))
 stdin.write(' ')      // 勾选第一项
 await sleep(100)
 stdin.write('extra-model') // 输入行补充

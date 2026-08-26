@@ -432,22 +432,22 @@ const typeKeys = async (s: string, stepMs = 40) => {
   stdin.write('\x1b') // double-Esc (empty input) opens rewind
   await sleep(100)
   stdin.write('\x1b')
-  await settle(() => focusLineVisible('rewind 消息 29'))
+  await settle(() => focusLineVisible('rewind message 29'))
   // 焦点 0 = 最新用户消息；首项带 'last message' 描述（2 行）。
-  check('rewind 焦点 0 在屏（首项 2 行）', focusLineVisible('rewind 消息 29'))
-  check('rewind 首项描述行在屏', screenLines().some(l => l.includes('最近一条消息')))
+  check('rewind 焦点 0 在屏（首项 2 行）', focusLineVisible('rewind message 29'))
+  check('rewind 首项描述行在屏', screenLines().some(l => l.includes('last message')))
   check('rewind 打开缓冲区零增长', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('rewind focus 0')
   stdin.write('\x1b[A') // ↑ 回绕到末项 = 最老一条
-  await settle(() => focusLineVisible('rewind 消息 00'))
-  check('rewind ↑ 回绕末项焦点在屏', focusLineVisible('rewind 消息 00'))
+  await settle(() => focusLineVisible('rewind message 00'))
+  check('rewind ↑ 回绕末项焦点在屏', focusLineVisible('rewind message 00'))
   stdin.write('\x1b[B') // ↓ 回绕回 0
   await sleep(200)
   for (let i = 0; i < 15; i++) { stdin.write('\x1b[B'); await sleep(25) }
-  await settle(() => focusLineVisible('rewind 消息 14'))
-  // 索引 15 = rewind 消息 14（索引 0 是最新的 29）。
-  check('rewind ↓×15 焦点 15 在屏', focusLineVisible('rewind 消息 14'))
+  await settle(() => focusLineVisible('rewind message 14'))
+  // 索引 15 = rewind message 14（索引 0 是最新的 29）。
+  check('rewind ↓×15 焦点 15 在屏', focusLineVisible('rewind message 14'))
   dump('rewind focus 15')
   stdin.write('\x1b')
   await sleep(400)

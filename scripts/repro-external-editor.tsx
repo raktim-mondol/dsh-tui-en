@@ -97,6 +97,7 @@ const channel: any = {
   tokens: { input: 1, output: 1 },
   cwd: '/tmp/demo',
   displayCwd: '/tmp/demo',
+  displayCwd: '/tmp/demo',
   gitBranch: 'main',
   working: false,
   spinnerMode: 'requesting',
@@ -167,7 +168,7 @@ await writeParsed(term, '\x1b[?1049l')
 let roundTripped = false
 for (let i = 0; i < 100; i++) {
   await sleep(50)
-  if (screenHas('what is cordis EDITED')) { roundTripped = true; break }
+  if (screenHas('什么是cordis EDITED')) { roundTripped = true; break }
 }
 check('往返: 编辑结果回填输入框', roundTripped)
 // 让晚到乱码（FakeStdout 注入）与任何延迟副作用落定。
@@ -176,7 +177,7 @@ check('往返: 编辑结果回填输入框', roundTripped)
 await sleep(600)
 
 check('bug1: transcript history message still visible (full redraw)', screenHas('transcript-anchor'))
-check('bug2: input box content intact (not cleared by ESC)', screenHas('what is cordis EDITED'))
+check('bug2: input box content intact (not cleared by ESC)', screenHas('什么是cordis EDITED'))
 check('bug2: rewind picker not opened by a leftover double-Esc', !screenHas('Pick a message to rewind'))
 check('bug3: no terminal-response fragment leaked into the UI', !screenHas('48;93') && !screenHas('2453'))
 

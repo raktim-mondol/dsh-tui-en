@@ -706,7 +706,7 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
       { id: 'second', label: 'item two', description: 'with description' },
     ],
   })
-  await settle(() => screen().includes('挑一个') && screen().includes('第二项'))
+  await settle(() => screen().includes('pick one') && screen().includes('item two'))
   check('ui: select dialog renders title + options',
     screen().includes('pick one') && screen().includes('item two'), screen().slice(-200))
   stdin.write('\x1b[B')
@@ -723,13 +723,13 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
   const second = plugin.tuiDialogs.select({ title: '排队的选择', options: [{ id: 'only', label: '唯一' }] })
   await settle(() => screen().includes('确认一下') && screen().includes('要做吗'))
   check('ui: confirm renders with message + localized defaults',
-    screen().includes('please confirm') && screen().includes('do it?'), screen().slice(-200))
+    screen().includes('确认一下') && screen().includes('要做吗'), screen().slice(-200))
   check('ui: FIFO — second dialog still queued', dialogStore.getSnapshot()?.kind === 'confirm')
   stdin.write('\r') // Enter on Yes → true
   check('ui: confirm Enter resolves true', (await first) === true)
   await settle(() => screen().includes('排队的选择'))
   check('ui: queued select now active',
-    screen().includes('queued pick'), screen().slice(-200))
+    screen().includes('排队的选择'), screen().slice(-200))
   stdin.write('\x1b') // Esc cancels the select
   check('ui: Esc cancels → undefined', (await second) === undefined)
 }
@@ -741,7 +741,7 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
   check('ui: input dialog renders placeholder', screen().includes('占位提示'), screen().slice(-200))
   for (const ch of '你好') { stdin.write(ch); await sleep(60) }
   stdin.write('\r')
-  check('ui: input Enter resolves the typed text', (await pending) === 'hi')
+  check('ui: input Enter resolves the typed text', (await pending) === '你好')
 }
 
 // Input with initial: pre-filled, edited, submitted.
@@ -751,7 +751,7 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
   stdin.write('\x7f') // backspace removes 文
   await sleep(150)
   stdin.write('\r')
-  check('ui: input initial pre-fills and edits', (await pending) === 'origina')
+  check('ui: input initial pre-fills and edits', (await pending) === '原')
 }
 
 // Bracketed paste: a chunk that is all line breaks is TEXT, not an Enter
