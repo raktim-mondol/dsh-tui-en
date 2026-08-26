@@ -31,7 +31,7 @@ dsh-tui-en
 ```
 
 - `dsh-tui-en --resume`: restores the most recently selected session; on Windows
-  the repository's `dsh-tui-en-en.cmd` works the same way.
+  the repository's `dsh-tui-en.cmd` works the same way.
 - `dsh --profile dsh-tui`: a manual launch equivalent to `dsh-tui-en` (only this
   form supports `/update`).
 - Model requests require `DEEPSEEK_API_KEY`; use `/doctor` to self-check the

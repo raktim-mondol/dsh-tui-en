@@ -114,7 +114,7 @@ commands), then `dsh-tui-en` and `dsh --profile dsh-tui` are equivalent.
 > no manual step needed.
 
 `dsh-tui-en --resume` restores the most recently selected session; on Windows
-the repository's `dsh-tui-en-en.cmd` works the same way.
+the repository's `dsh-tui-en.cmd` works the same way.
 
 CLI subcommands (`dsh-tui-en help` prints the full usage):
 
@@ -127,7 +127,7 @@ CLI subcommands (`dsh-tui-en help` prints the full usage):
 
 `help`/`version` work even when dsh is missing or the profile is not initialized; `update` needs dsh (a missing dsh gets an install hint);
 every other argument is still forwarded verbatim to `dsh --profile dsh-tui`.
-The repository-root `dsh-tui-en-en.cmd` is a launch wrapper that goes straight to
+The repository-root `dsh-tui-en.cmd` is a launch wrapper that goes straight to
 `dsh --profile` and carries no subcommands — subcommands belong to the
 npm-installed `dsh-tui-en` command.
 

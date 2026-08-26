@@ -124,8 +124,8 @@ workspace. Change into the target project before starting it.
 On Windows, the checkout also provides:
 
 ```bat
-dsh-tui-en-en.cmd
-dsh-tui-en-en.cmd --resume
+dsh-tui-en.cmd
+dsh-tui-en.cmd --resume
 ```
 
 `--resume` reads `%USERPROFILE%\.dsh-tui\resume.txt` and restores the session

@@ -4,6 +4,10 @@
 Thanks for considering contributing to dsh-TUI! This guide is the shared
 development contract for humans and coding agents working on `@deepseek-harness-tui/dsh-tui`.
 
+This checkout is the English `dsh-tui-en` fork. After pulling
+[ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), follow
+[Upstream sync](upstream-sync.md). Do not strip every Chinese string.
+
 ## How To Contribute
 
 - **Report bugs** through the bug issue form: version, terminal environment,

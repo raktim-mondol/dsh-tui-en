@@ -10,7 +10,10 @@ changing anything; overall structure is in
 [docs/architecture.md](docs/architecture.md).
 
 The user-facing command is `dsh-tui-en`. The DSH profile name remains
-`dsh-tui`.
+`dsh-tui`. After merging
+[ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), follow
+[docs/upstream-sync.md](docs/upstream-sync.md). Do not strip every Chinese
+string.
 
 ## Repository layout
 
@@ -100,7 +103,7 @@ bounded tests — do not run them as a suite.
 - **Terminal width is display-cell width**, not JS string length.
 - **Docs are English**: keep README.md and the unsuffixed files under `docs/`
   in English. `docs/*.en.md` are upstream English counterparts kept to ease
-  merges.
+  merges. The merge overlay is [docs/upstream-sync.md](docs/upstream-sync.md).
 - **Secrets**: interactive launch reads `DEEPSEEK_API_KEY`; diagnostics may
   only report whether it is set.
 - **Git safety**: stage explicit paths only; do not `git add .` / `git add -A`;

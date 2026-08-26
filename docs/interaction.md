@@ -136,7 +136,7 @@ The list reads only bounded windows at each end of a session log and caches the
 result against the persistence layer's own change token, so opening it costs
 the same regardless of how long the history is or how large a session got.
 
-On Windows, `dsh-tui-en-en.cmd --resume` uses the session ID last written to
+On Windows, `dsh-tui-en.cmd --resume` uses the session ID last written to
 `~/.dsh-tui/resume.txt` (also dual-written to the old path
 `~/.dsh-cc/resume.txt` for older launchers that only read it).
 
