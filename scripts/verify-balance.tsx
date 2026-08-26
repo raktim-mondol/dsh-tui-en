@@ -13,7 +13,7 @@
  *  - 输入 /balance 触发恰好一次 balanceInfo，摘要行出现；
  *  - hover 摘要行展开明细（币种拆分、token/花费估算、刷新与关闭 chip）；
  *  - 点击摘要行重新查询；点击 × 关闭报告；
- *  - 失败态（认证失败）摘要与 hover 原因展示。
+ *  - 失败态（Authentication failed）摘要与 hover 原因展示。
  *
  * Run: node --import tsx/esm scripts/verify-balance.tsx
  */
@@ -432,24 +432,24 @@ await render(
 stdin.write('/balance')
 await settle(() => screenText(term).includes('/balance'))
 stdin.write('\r')
-await settle(() => screenHas(term, 'DeepSeek 余额 ¥110.00'))
-check('摘要行显示余额', screenHas(term, 'DeepSeek 余额 ¥110.00'))
+await settle(() => screenHas(term, 'DeepSeek balance ¥110.00'))
+check('摘要行显示余额', screenHas(term, 'DeepSeek balance ¥110.00'))
 check('触发恰好一次 balanceInfo', channel.balanceCalls === 1, String(channel.balanceCalls))
-check('摘要行不可用标记未出现', !screenHas(term, '查询失败'))
+check('摘要行不可用标记未出现', !screenHas(term, 'query failed'))
 
 // ── 2. hover 摘要行：明细与操作 chip 出现 ────────────────────────────────
-const summaryPos = findText(term, 'DeepSeek 余额 ¥110.00')
+const summaryPos = findText(term, 'DeepSeek balance ¥110.00')
 check('摘要行在视口内', summaryPos !== null)
 if (summaryPos !== null) {
   const cell = cellOf(term, summaryPos)
   hover(cell.col + 1, cell.row + 1)
 }
-await settle(() => screenHas(term, '总额 ¥110.00'))
-check('hover 显示币种拆分', screenHas(term, '总额 ¥110.00') && screenHas(term, '赠送 ¥10.00') && screenHas(term, '充值 ¥100.00'))
-check('hover 显示 token 与花费估算', screenHas(term, '本会话 tokens 1.2k in → 5.7k out · ≈¥'))
-check('hover 显示刷新 chip', screenHas(term, '点击刷新'))
+await settle(() => screenHas(term, 'total ¥110.00'))
+check('hover 显示币种拆分', screenHas(term, 'total ¥110.00') && screenHas(term, 'granted ¥10.00') && screenHas(term, 'topped up ¥100.00'))
+check('hover 显示 token 与花费估算', screenHas(term, 'Session tokens 1.2k in → 5.7k out · ≈¥'))
+check('hover 显示刷新 chip', screenHas(term, 'click to refresh'))
 check('hover 显示关闭 chip', screenHas(term, '×'))
-check('hover 显示口径说明', screenHas(term, '余额查询免费'))
+check('hover 显示口径说明', screenHas(term, 'balance queries are free'))
 
 // ── 3. 点击 × 关闭报告（在 hover 状态新鲜时进行） ───────────────────────
 {
@@ -459,30 +459,30 @@ check('hover 显示口径说明', screenHas(term, '余额查询免费'))
     const cell = cellOf(term, closePos)
     clickCell(cell.col + 1, cell.row + 1)
   }
-  await settle(() => !screenHas(term, 'DeepSeek 余额'))
-  check('点击 × 关闭报告', !screenHas(term, 'DeepSeek 余额'))
+  await settle(() => !screenHas(term, 'DeepSeek balance'))
+  check('点击 × 关闭报告', !screenHas(term, 'DeepSeek balance'))
 }
 
 // ── 4. 重新触发后点击摘要行：重新查询 ───────────────────────────────────
 stdin.write('/balance')
 await settle(() => screenText(term).includes('/balance'))
 stdin.write('\r')
-await settle(() => screenHas(term, 'DeepSeek 余额 ¥110.00'))
-check('重新触发后摘要恢复', screenHas(term, 'DeepSeek 余额 ¥110.00'))
+await settle(() => screenHas(term, 'DeepSeek balance ¥110.00'))
+check('重新触发后摘要恢复', screenHas(term, 'DeepSeek balance ¥110.00'))
 check('累计两次 balanceInfo', channel.balanceCalls === 2, String(channel.balanceCalls))
 {
-  const refreshPos = findText(term, 'DeepSeek 余额 ¥110.00')
+  const refreshPos = findText(term, 'DeepSeek balance ¥110.00')
   if (refreshPos !== null) {
     const cell = cellOf(term, refreshPos)
     hover(cell.col + 1, cell.row + 1)
-    await settle(() => screenHas(term, '点击刷新'))
+    await settle(() => screenHas(term, 'click to refresh'))
     clickCell(cell.col + 1, cell.row + 1)
   }
 }
 await settle(() => channel.balanceCalls >= 3)
 check('点击摘要行重新查询', channel.balanceCalls === 3, String(channel.balanceCalls))
-await settle(() => screenHas(term, 'DeepSeek 余额 ¥110.00'))
-check('刷新后摘要仍在', screenHas(term, 'DeepSeek 余额 ¥110.00'))
+await settle(() => screenHas(term, 'DeepSeek balance ¥110.00'))
+check('刷新后摘要仍在', screenHas(term, 'DeepSeek balance ¥110.00'))
 
 // ── 5. 失败态：认证失败摘要与 hover 原因（复用主实例） ──────────────────
 {
@@ -490,9 +490,9 @@ check('刷新后摘要仍在', screenHas(term, 'DeepSeek 余额 ¥110.00'))
   stdin.write('/balance')
   await settle(() => screenText(term).includes('/balance'))
   stdin.write('\r')
-  await settle(() => screenHas(term, '查询失败'))
-  check('失败态摘要', screenHas(term, 'DeepSeek 余额 · 查询失败'))
-  const failPos = findText(term, 'DeepSeek 余额 · 查询失败')
+  await settle(() => screenHas(term, 'query failed'))
+  check('失败态摘要', screenHas(term, 'DeepSeek balance · query failed'))
+  const failPos = findText(term, 'DeepSeek balance · query failed')
   if (failPos !== null) {
     const cell = cellOf(term, failPos)
     // stale-hover 抑制：鼠标停在同一位置时新状态不触发 onMouseEnter，
@@ -500,9 +500,9 @@ check('刷新后摘要仍在', screenHas(term, 'DeepSeek 余额 ¥110.00'))
     hover(1, 1)
     await sleep(100)
     hover(cell.col + 1, cell.row + 1)
-    await settle(() => screenHas(term, '认证失败'))
-    check('失败态 hover 显示原因', screenHas(term, '认证失败'))
-    check('失败态 hover 显示重试', screenHas(term, '点击重试'))
+    await settle(() => screenHas(term, 'Authentication failed'))
+    check('失败态 hover 显示原因', screenHas(term, 'Authentication failed'))
+    check('失败态 hover 显示重试', screenHas(term, 'click to retry'))
   } else {
     check('失败态 hover 显示原因', false, '摘要行不在视口')
   }

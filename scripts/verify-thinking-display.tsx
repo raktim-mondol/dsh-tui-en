@@ -190,9 +190,9 @@ stdin.write('/thinking')
 await settle(() => screenText().includes('/thinking'))
 stdin.write('\r')
 
-check('对话框明确这是思考过程显示设置', await settled(() => screenText().includes('思考过程显示')))
-check('对话框明确不改变模型思考行为', await settled(() => screenText().includes('不改变模型的思考行为')))
-check('隐藏项说明模型仍会照常思考', await settled(() => screenText().includes('模型仍会照常思考')))
+check('对话框明确这是思考过程显示设置', await settled(() => screenText().includes('Thinking display')))
+check('对话框明确不改变模型思考行为', await settled(() => screenText().includes('does not change model behavior')))
+check('隐藏项说明模型仍会照常思考', await settled(() => screenText().includes('will still think as usual')))
 
 stdin.write('\x1b[B')
 // 排序 sleep 保留：选中项移动只改高亮色，不改可见文本，屏上无可 settle 的内容。
@@ -201,8 +201,8 @@ stdin.write('\r')
 // 对话框盖住转录区时「思考行不可见」早已成立，settle 屏幕条件会提前返回；
 // 通知只在确认处理后才写入，才是确认已生效的信号——先断言它作为门，
 // 其余断言在门后读已落定状态。
-check('通知准确说明思考过程已隐藏', await settled(() => channel.notifications.includes('思考过程：隐藏')), JSON.stringify(channel.notifications))
-check('隐藏立即生效，不出现质量警告', !screenText().includes('可能降低质量'))
+check('通知准确说明思考过程已隐藏', await settled(() => channel.notifications.includes('Thinking display: hidden')), JSON.stringify(channel.notifications))
+check('隐藏立即生效，不出现质量警告', !screenText().includes('may reduce quality'))
 check('隐藏后思考行不可见', await settled(() => !screenText().includes('SECRET_REASONING_TRACE')))
 check('隐藏后模型 effort 保持不变', channel.reasoningEffort === 'max', channel.reasoningEffort)
 check('隐藏不调用 setEffort', channel.setEffortCalls.length === 0, JSON.stringify(channel.setEffortCalls))

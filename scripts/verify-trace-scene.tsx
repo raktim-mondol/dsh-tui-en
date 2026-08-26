@@ -240,8 +240,8 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   // frame that is still growing, and stale mid-animation frames would poison
   // every whole-buffer negative check later in this part. The cursor snapshot
   // `first` is taken only after every arrival condition has settled.
-  check('scene shows its title and totals', await settled(() => screen().includes('轨迹') && /\d+\s*轮/.test(screen())), screen().split('\n')[0]?.trim())
-  check('scene shows both view tabs', await settled(() => screen().includes('时序') && screen().includes('热点')))
+  check('scene shows its title and totals', await settled(() => screen().includes('Trajectory') && (/\d+\s*turns/.test(screen()) || /\d+\s*轮/.test(screen()))), screen().split('\n')[0]?.trim())
+  check('scene shows both view tabs', await settled(() => screen().includes('Timeline') && screen().includes('Hotspot')))
   check('ledger renders tool rows with names', await settled(() => screen().includes('read_file') && screen().includes('grep_repo')))
   check('ledger folds the burst run', await settled(() => /web_search\s*×4/.test(screen())), /web_search[^\n]*/.exec(screen())?.[0]?.trim())
   check('ledger surfaces the retry row', await settled(() => screen().includes('RATE_LIMIT') || screen().includes('RTY')))
@@ -375,7 +375,7 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
       check('Ctrl+T enters the alternate screen', await settled(() => term.buffer.active.type === 'alternate'),
         term.buffer.active.type)
       check('the conversation is no longer on screen', await settled(() => !screen().includes('conversation line 0')))
-      check('the scene is painted there', await settled(() => /[\u2500-\u259f]/.test(screen()) || screen().includes('时序')))
+      check('the scene is painted there', await settled(() => /[\u2500-\u259f]/.test(screen()) || screen().includes('Timeline')))
     } else {
       // Wait to be IN the scene before closing it (act-only wait → settle).
       await settle(() => term.buffer.active.type === 'alternate')
@@ -653,10 +653,10 @@ function makeChannel(overrides: Record<string, unknown> = {}): Record<string, un
   for (const value of instances.values()) instances.set(process.stdout, value)
 
   check('the startup tip teaches the trajectory key', await settled(() => /ctrl\+t|⌘t/.test(screen())), '')
-  // The script pins DSH_TUI_LANG=zh, so the hint reads `? 查看快捷键`.
+  // The script pins DSH_TUI_LANG=zh, but this fork still renders English chrome.
   check('the idle shortcuts hint appears exactly once',
-    await settled(() => (screen().match(/\? 查看快捷键/g) ?? []).length === 1),
-    `${(screen().match(/\? 查看快捷键/g) ?? []).length}`)
+    await settled(() => (screen().match(/\? for shortcuts/g) ?? []).length === 1),
+    `${(screen().match(/\? for shortcuts/g) ?? []).length}`)
 
   // B — the wake strip lives on the hint row, and every assertion below is
   // scoped to that row on purpose: the startup tip also names the key, so a

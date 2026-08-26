@@ -55,7 +55,7 @@ const app = await render(
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
 )
-await settle(() => screen().includes('占位'))
+await settle(() => screen().includes('placeholder'))
 
 let failures = 0
 const check = (name: string, ok: boolean, extra = '') => {
@@ -88,10 +88,10 @@ await mount({
   question: 'Which model provider do you want to add?',
   options: [{ label: 'Built-in provider' }, { label: 'Custom API endpoint' }],
   hideCustomInput: true,
-}, () => screen().includes('内置 provider') && !screen().includes('自定义回答'))
-check('1 hide: 无「自定义回答」输入行', await settled(() => !screen().includes('自定义回答')))
-check('1 hide: hint 无输入提示', await settled(() => !screen().includes('输入回答') && !screen().includes('输入文字附带回答')))
-check('1 hide: 选项照常渲染', await settled(() => screen().includes('内置 provider') && screen().includes('自定义 API 端点')))
+}, () => screen().includes('Built-in provider') && !screen().includes('Custom answer'))
+check('1 hide: 无「Custom answer」输入行', await settled(() => !screen().includes('Custom answer')))
+check('1 hide: hint 无输入提示', await settled(() => !screen().includes('Type answer') && !screen().includes('Type text to attach an answer')))
+check('1 hide: 选项照常渲染', await settled(() => screen().includes('Built-in provider') && screen().includes('Custom API endpoint')))
 
 // Tab/可打印字符「应被忽略」是状态不得改变的稳定性探针：轮询已成立条件会
 // 立即返回等于没测，键间保留固定窗口。
@@ -103,16 +103,16 @@ stdin.write('x')     // printable characters should be ignored
 await sleep(100)
 stdin.write('\r')    // Enter 提交焦点项
 check('1 hide: Enter 只提交 selected，无 custom',
-  await settled(() => eq(answer, { selected: ['自定义 API 端点'] })), JSON.stringify(answer))
+  await settled(() => eq(answer, { selected: ['Custom API endpoint'] })), JSON.stringify(answer))
 
 // ── 2. Text-only question with no options + hideCustomInput (hide must be ignored)
 await mount({
   question: 'Enter your API key',
   hideCustomInput: true,
-  // patchConsole 会把前面 check 消息（含「自定义回答」字样）渲染进终端，
+  // patchConsole 会把前面 check 消息（含「Custom answer」字样）渲染进终端，
   // 只盯它会立即返回——用新题独有的问题文本当挂载完成信号。
-}, () => screen().includes('输入 API key'))
-check('2 text-only: hide 被忽略，输入行仍在', await settled(() => screen().includes('自定义回答')))
+}, () => screen().includes('Enter your API key'))
+check('2 text-only: hide 被忽略，输入行仍在', await settled(() => screen().includes('Custom answer')))
 stdin.write('sk-secret')
 await settle(() => screen().includes('sk-secret'))
 stdin.write('\r')
@@ -124,10 +124,10 @@ await mount({
   question: 'Select the models to enable',
   options: [{ label: 'deepseek-chat' }, { label: 'deepseek-reasoner' }],
   multiSelect: true,
-  // 上一屏已含「自定义回答」，settle 只盯它会立即返回——加新题独有的选项
+  // 上一屏已含「Custom answer」，settle 只盯它会立即返回——加新题独有的选项
   // 文本当挂载完成信号。
-}, () => screen().includes('deepseek-chat') && screen().includes('自定义回答'))
-check('3 multi: 输入行保留', await settled(() => screen().includes('自定义回答')))
+}, () => screen().includes('deepseek-chat') && screen().includes('Custom answer'))
+check('3 multi: 输入行保留', await settled(() => screen().includes('Custom answer')))
 stdin.write(' ')      // 勾选第一项
 // 键间固定 pacing：空格勾选没有独有的可观测文本（提交结果由下方 settled
 // 断言兜底），保留小窗口保证勾选先于后续输入被处理。

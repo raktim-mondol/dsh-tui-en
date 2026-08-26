@@ -203,17 +203,17 @@ const panelHeader = (text: string): string =>
     rows: [],
     pushLocal: (title: string, lines: readonly string[]) => { localReports.push({ title, lines }) },
   }))
-  check('the startup context panel is on screen', await settled(() => /已加载上下文/.test(harness.screen())))
+  check('the startup context panel is on screen', await settled(() => /Context loaded/.test(harness.screen())))
   check('the collapsed panel claims Ctrl+P', await settled(() => panelHeader(harness.screen()).includes('Ctrl+P')), panelHeader(harness.screen()).trim())
 
   harness.stdin.write(CTRL_P)
-  check('Ctrl+P expands the panel before the first message', await settled(() => harness.screen().includes('你是 dsh')),
+  check('Ctrl+P expands the panel before the first message', await settled(() => harness.screen().includes('You are dsh')),
     harness.screen().split('\n')[0]?.trim() ?? '')
   check('the expanded details still point to /context', await settled(() => harness.screen().includes('/context')),
     harness.screen().split('\n').filter(line => line.includes('/context')).join(' | '))
 
   harness.stdin.write(CTRL_P)
-  check('Ctrl+P collapses the panel again', await settled(() => !harness.screen().includes('你是 dsh')),
+  check('Ctrl+P collapses the panel again', await settled(() => !harness.screen().includes('You are dsh')),
     panelHeader(harness.screen()).trim())
 
   harness.stdin.write(CTRL_T)
@@ -221,7 +221,7 @@ const panelHeader = (text: string): string =>
     harness.screen().split('\n')[0]?.trim())
 
   harness.stdin.write('q')
-  check('q returns to the context summary', await settled(() => /已加载上下文/.test(harness.screen())))
+  check('q returns to the context summary', await settled(() => /Context loaded/.test(harness.screen())))
 
   harness.stdin.write('/context\r')
   check('/context emits one local report', await settled(() => localReports.at(-1)?.title === '/context'))

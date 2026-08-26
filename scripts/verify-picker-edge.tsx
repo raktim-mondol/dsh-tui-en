@@ -125,7 +125,7 @@ async function mountAt(cols: number) {
   // 首帧：标题、页脚、焦点指示与选中勾都画出来才算挂载完成。
   await settle(() => {
     const lines = viewportLines(term, ROWS)
-    return lines.some(line => line.includes('模型')) && lines.some(line => line.includes('Enter'))
+    return lines.some(line => line.includes('Model') || line.includes('model')) && lines.some(line => line.includes('Enter'))
       && lines.some(line => line.includes('❯')) && lines.some(line => line.includes('✓'))
   })
   return { instance, frame, term }

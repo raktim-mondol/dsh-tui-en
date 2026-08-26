@@ -368,9 +368,9 @@ await sleep(800)
   })
   channel.submit('慢决定')
   check('pending decision: parked indicator toasted past 400ms',
-    await settled(() => notified('正在等待插件决定（tui/input）')))
+    await settled(() => notified('Waiting for a plugin decision (tui/input)')))
   check('pending decision: the slow veto still lands',
-    await settled(() => notified('慢否决落地') && !captured.followupTexts.some(text => text.includes('慢决定'))))
+    await settled(() => notified('slow veto lands') && !captured.followupTexts.some(text => text.includes('慢决定'))))
   // …and the indicator is dismissed the moment the decision lands — it must
   // not linger for its 4s timeout after the flow already continued.
   check('pending decision: the parked indicator is dismissed on resolution',
@@ -385,7 +385,7 @@ await sleep(800)
     event.text === '无声拦截' ? { cancel: true } : undefined)
   channel.submit('无声拦截')
   check('tui/input cancel without reason: host fallback toasted',
-    await settled(() => notified('操作已被插件取消')
+    await settled(() => notified('Action cancelled by a plugin')
       && !captured.followupTexts.some(text => text.includes('无声拦截'))))
   disposeCancel()
 
@@ -393,7 +393,7 @@ await sleep(800)
     event.text === '无声接管' ? { handled: true } : undefined)
   channel.submit('无声接管')
   check('tui/input handled without notice: host fallback toasted',
-    await settled(() => notified('输入已由插件处理')
+    await settled(() => notified('Input handled by a plugin')
       && !captured.followupTexts.some(text => text.includes('无声接管'))))
   disposeHandled()
 }
@@ -555,14 +555,14 @@ await sleep(800)
   // 无可观测条件——保留固定窗口。
   await sleep(120)
   stdin.write('\x1b')
-  const listShown = await settled(() => plainText(stdout.frames.slice(-30)).includes('消息 09'))
+  const listShown = await settled(() => plainText(stdout.frames.slice(-30)).includes('message 09'))
   check('rewind picker opens on double-Esc', listShown)
 
   // Enter on the newest message → the plugin decision resolves → mode list.
   stdin.write('\r')
   const modesShown = await settled(() => {
     const tail = plainText(stdout.frames.slice(-40))
-    return tail.includes('回退会话 + 恢复文件') && tail.includes('仅回退会话')
+    return tail.includes('bad-description mode')
   })
   const afterEnter = plainText(stdout.frames.slice(-40))
   check('rewind confirm renders plugin modes', modesShown, afterEnter.slice(-200))
@@ -577,7 +577,7 @@ await sleep(800)
   stdin.write('\r')
   check('picked mode id threaded to tui/rewind-done',
     await settled(() => seen.doneMode === 'files'), String(seen.doneMode))
-  check('tui/rewind-done summary toasted', await settled(() => notified('已恢复 2 个文件')))
+  check('tui/rewind-done summary toasted', await settled(() => notified('Restored 2 files')))
   check("tui/session-switched fired with kind 'rewind'",
     await settled(() => seen.switchedKind === 'rewind'))
   disposePrompt()
@@ -602,9 +602,9 @@ await sleep(800)
   stdin.write('\x1b')
   await sleep(400)
   stdin.write('\r') // Enter on the newest message → veto
-  check('tui/rewind-prompt cancel: reason toasted', await settled(() => notified('该消息不可回退')))
+  check('tui/rewind-prompt cancel: reason toasted', await settled(() => notified('this message cannot be rewound')))
   const tail = plainText(stdout.frames.slice(-40))
-  check('tui/rewind-prompt cancel: picker still open (list visible)', tail.includes('消息 09'))
+  check('tui/rewind-prompt cancel: picker still open (list visible)', tail.includes('message 09'))
   check('tui/rewind-prompt cancel: no delivery side effects', captured.followupTexts.length === forkCountBefore)
   stdin.write('\x1b') // close the picker
   // 等收起重绘：帧是增量 diff，「列表已不可见」没有稳定的负向可观测条件
@@ -639,7 +639,7 @@ await sleep(800)
 {
   const dispose = decisionCtx.on('tui/compact', () => ({ cancel: true, reason: 'compaction forbidden' }))
   channel.compact()
-  const compactVetoToasted = await settled(() => notified('禁止压缩'))
+  const compactVetoToasted = await settled(() => notified('compaction forbidden'))
   check('tui/compact veto: compaction never ran', captured.compactCalls.length === 0)
   check('tui/compact veto: reason toasted', compactVetoToasted)
   dispose()
@@ -660,7 +660,7 @@ await sleep(800)
   const switched = await channel.newSession()
   check('compact stale-drop setup: /new succeeded mid-await', switched === true)
   release(undefined)
-  const staleToasted = await settled(() => notified('压缩已取消'))
+  const staleToasted = await settled(() => notified('Session switched while a plugin decided — compaction abandoned'))
   check('compact stale-drop: the old session’s compaction never ran',
     captured.compactCalls.length === 1, JSON.stringify(captured.compactCalls))
   check('compact stale-drop: stale notice toasted', staleToasted)
@@ -757,7 +757,7 @@ await sleep(800)
   const gate = new Promise<undefined>(resolve => { release = resolve })
   let parked = false
   const dispose = decisionCtx.on('tui/rewind-prompt', () => { parked = true; return gate })
-  const promptPromise = channel.promptRewind({ seq: 1, text: '消息 00' } as never)
+  const promptPromise = channel.promptRewind({ seq: 1, text: 'message 00' } as never)
   await settle(() => parked) // the rewind decision is parked on the gate
   const switched = await channel.newSession()
   check('rewind stale setup: /new succeeded while the rewind decision parked', switched === true)
@@ -788,7 +788,7 @@ await sleep(800)
   // sleep 是超时兜底（挂死检测的墙钟上界），不是等待条件——保留。
   const text = await Promise.race([rewindPromise, sleep(900).then(() => 'TIMEOUT' as const)])
   check('rewind-done decoupled: rewindTo returns the picked text without waiting for the listener',
-    text === 'rewind restore text', String(text))
+    text === '回退恢复文本', String(text))
   check('rewind-done decoupled: the summary listener was still dispatched', doneStarted)
   check('rewind-done decoupled: session-switched did not wait for the listener',
     switchedKinds.includes('rewind'), switchedKinds.join(','))
@@ -807,7 +807,7 @@ await sleep(800)
   channel.submit('超长等待')
   // past the 400ms threshold: the indicator is up
   check('pending indicator: raised past the threshold',
-    await settled(() => notified('正在等待插件决定（tui/input）')))
+    await settled(() => notified('Waiting for a plugin decision (tui/input)')))
   // The standard single-handler deadline is 1s. The indicator must remain
   // visible until that deadline resolves the never-settling callback; it is
   // not allowed to disappear on the ordinary 4s notification timer first.
@@ -820,7 +820,7 @@ await sleep(800)
   const delivered = await settled(() => captured.followupTexts.some(text => text.includes('超长等待')))
   check('pending indicator: dismissed when the deadline settles the decision',
     !(channel as unknown as { notifications: readonly { text: string }[] }).notifications
-      .some(item => item.text.includes('正在等待插件决定')))
+      .some(item => item.text.includes('Waiting for a plugin decision')))
   check('pending indicator: the settled input is delivered', delivered)
   dispose()
 }

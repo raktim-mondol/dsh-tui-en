@@ -141,7 +141,7 @@ let healed: string[] = []
 await settled(() => {
   healed = viewportLines()
   return !healed.some(l => l.includes('[5764] Error') || l.includes('[35540] Usage'))
-    && Array.from({ length: 12 }, (_, i) => `概览要点第 ${i + 1} 条`).every(t => healed.some(l => l.includes(t)))
+    && Array.from({ length: 12 }, (_, i) => `Overview point ${i + 1}`).every(t => healed.some(l => l.includes(t)))
 })
 console.log('=== 自愈后对照（G=干净基准 H=重锚后） ===')
 let diffRows = 0

@@ -487,7 +487,6 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'pit-ctrl-c',
     group: 'pitfalls',
-    zh: 'Ctrl+C 工作时先中断；中断卡住再按强制退出；空闲连按两次退出',
     en: 'Ctrl+C interrupts while working; press again if the interrupt stalls to force-exit; double-tap when idle',
   },
   {

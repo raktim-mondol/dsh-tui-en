@@ -67,21 +67,21 @@ const check = (name: string, ok: boolean) => {
 }
 
 // 1. Initial render: the input row is visible INSIDE the option list.
-check('选项列表里直接可见「自定义回答」输入行', await settled(() => screen().includes('自定义回答')))
-check('提示行说明可直接输入', await settled(() => screen().includes('输入文字附带回答')))
+check('选项列表里直接可见「Custom answer」输入行', await settled(() => screen().includes('Custom answer')))
+check('提示行说明可直接输入', await settled(() => screen().includes('Type text to attach an answer')))
 
 // 2. Type on the focused "I have one" option: text lands in the input row, the
 //    option list stays (no jump), and the label is attached.
 stdin.write('sk-test123')
 check('输入内容出现在输入行', await settled(() => screen().includes('sk-test123')))
-check('视图不跳转（选项列表仍在）', await settled(() => screen().includes('我没有')))
-check('输入行标注附加标签「我有」', await settled(() => screen().includes('（附加：我有）')))
+check('视图不跳转（选项列表仍在）', await settled(() => screen().includes("I don't")))
+check('输入行标注附加标签「我有」', await settled(() => screen().includes('(attached: I have one)')))
 
 // 3. Enter right there → the answer carries BOTH the label and the text.
 stdin.write('\r')
 check('提交同时携带 selected + custom', await settled(() => {
   const a1 = answer as { selected?: string[]; custom?: string } | undefined
-  return a1?.selected?.join() === '我有' && a1?.custom === 'sk-test123'
+  return a1?.selected?.join() === 'I have one' && a1?.custom === 'sk-test123'
 }))
 
 // 4. Pure custom: focus the input row itself (↓↓) and type → no label.
@@ -98,12 +98,12 @@ stdin.write('[B') // ↓
 stdin.write('[B') // ↓ → input row
 // 焦点移动无可观测的纯文本条件（高亮为颜色，已被裁剪），保留固定 pacing。
 await sleep(200)
-stdin.write('随便说说')
-check('输入行内联编辑（视图仍不跳转）', await settled(() => screen().includes('随便说说') && screen().includes('没有')))
+stdin.write('just rambling')
+check('输入行内联编辑（视图仍不跳转）', await settled(() => screen().includes('just rambling') && screen().includes('No')))
 stdin.write('\r')
 check('输入行直接提交为纯自定义（无标签）', await settled(() => {
   const a2 = answer as { selected?: string[]; custom?: string } | undefined
-  return a2?.selected?.length === 0 && a2?.custom === '随便说说'
+  return a2?.selected?.length === 0 && a2?.custom === 'just rambling'
 }))
 
 // 5. Multi-select: Space checks an option, typing appends, Enter on the
@@ -129,7 +129,7 @@ await settle(() => screen().includes('less sugar'))
 stdin.write('\r')
 check('多选：勾选 + 文本一起提交', await settled(() => {
   const a3 = answer as { selected?: string[]; custom?: string } | undefined
-  return a3?.selected?.join() === '甜' && a3?.custom === '少放糖'
+  return a3?.selected?.join() === 'Sweet' && a3?.custom === 'less sugar'
 }))
 
 app.unmount()

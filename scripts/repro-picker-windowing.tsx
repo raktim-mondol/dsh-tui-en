@@ -346,7 +346,7 @@ const instance = await render(
   { stdout: new FakeStdout(), stdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 // boot 落定：转录尾行上屏即可开始逐键交互（原固定 1200ms）。
-await settle(() => screenLines().some(l => l.includes('rewind 消息 29')))
+await settle(() => screenLines().some(l => l.includes('rewind message 29')))
 
 // 逐键 stepMs 与各步 100–400ms 固定窗口为按键序列的 ordering pacing：
 // 浮层 key-ready / 关闭过渡无法用纯文本屏幕内容观测（同 repro-settings）。
@@ -429,18 +429,18 @@ const typeKeys = async (s: string, stepMs = 40) => {
   await sleep(100)
   stdin.write('\x1b')
   // 焦点 0 = 最新用户消息；首项带 'last message' 描述（2 行）。
-  check('rewind 焦点 0 在屏（首项 2 行）', await settled(() => focusLineVisible('rewind 消息 29')))
-  check('rewind 首项描述行在屏', await settled(() => screenLines().some(l => l.includes('最近一条消息'))))
+  check('rewind 焦点 0 在屏（首项 2 行）', await settled(() => focusLineVisible('rewind message 29')))
+  check('rewind 首项描述行在屏', await settled(() => screenLines().some(l => l.includes('last message'))))
   check('rewind 打开缓冲区零增长', term.buffer.active.length === bufBefore,
     `${bufBefore} → ${term.buffer.active.length}`)
   dump('rewind focus 0')
   stdin.write('\x1b[A') // ↑ 回绕到末项 = 最老一条
-  check('rewind ↑ 回绕末项焦点在屏', await settled(() => focusLineVisible('rewind 消息 00')))
+  check('rewind ↑ 回绕末项焦点在屏', await settled(() => focusLineVisible('rewind message 00')))
   stdin.write('\x1b[B') // ↓ 回绕回 0
   await sleep(200)
   for (let i = 0; i < 15; i++) { stdin.write('\x1b[B'); await sleep(25) }
   // 索引 15 = rewind 消息 14（索引 0 是最新的 29）。
-  check('rewind ↓×15 焦点 15 在屏', await settled(() => focusLineVisible('rewind 消息 14')))
+  check('rewind ↓×15 焦点 15 在屏', await settled(() => focusLineVisible('rewind message 14')))
   dump('rewind focus 15')
   stdin.write('\x1b')
   await sleep(400)

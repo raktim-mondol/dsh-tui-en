@@ -132,11 +132,11 @@ try {
   check('Ctrl+V closes the help overlay before the read resolves', await settled(() => !screenHas('? for this help')))
 
   // 2. The stub clipboard text lands in the prompt.
-  check('clipboard text lands in the prompt', await settled(() => screenHas('UI粘贴内容')))
+  check('clipboard text lands in the prompt', await settled(() => screenHas('pasted-content')))
 
   // 3. Busy latch released: a second Ctrl+V pastes again (doubled text).
   stdinObj.write('\x16')
-  check('second Ctrl+V pastes again (busy latch released)', await settled(() => screenHas('UI粘贴内容UI粘贴内容')))
+  check('second Ctrl+V pastes again (busy latch released)', await settled(() => screenHas('pasted-contentpasted-content')))
 } finally {
   await instance.unmount()
   rmSync(stubDir, { recursive: true, force: true })

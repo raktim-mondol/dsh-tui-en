@@ -706,7 +706,7 @@ const screen = (back = 30) => plainText(stdout.frames.slice(-back))
     ],
   })
   check('ui: select dialog renders title + options',
-    await settled(() => screen().includes('挑一个') && screen().includes('第二项')), screen().slice(-200))
+    await settled(() => screen().includes('pick one') && screen().includes('item two')), screen().slice(-200))
   stdin.write('\x1b[B')
   // 按键间 pacing：等上一键的编辑/选中态落地再发下一键，选中高亮是颜色，
   // ANSI 洗净后无可观测条件（本文件后续同类 sleep 同理）。

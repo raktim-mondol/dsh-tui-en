@@ -259,11 +259,11 @@ await settle(() => screenText().includes('/color red'))
 stdin.write('\r')
 // 渲染完成信号 = 通知上屏（React commit 后才可见）；这个门强于下方各断言
 // （屏上可见 ⇒ mock 已记录），并为下一条命令的按键 pacing——保留 settle。
-await settle(() => screenText().includes('会话颜色已设为 red'))
+await settle(() => screenText().includes('Session color set to red'))
 check('/color red 调用 setSessionColor', channel.setColorCalls.length === 1, JSON.stringify(channel.setColorCalls))
 check('setSessionColor 收到 red', channel.setColorCalls[0] === 'red', String(channel.setColorCalls[0]))
 check('会话状态记录颜色 red', channel.sessionColor === 'red', channel.sessionColor)
-check('通知说明已设置', channel.notifications.includes('会话颜色已设为 red'), JSON.stringify(channel.notifications))
+check('通知说明已设置', channel.notifications.includes('Session color set to red'), JSON.stringify(channel.notifications))
 check('边框重绘为会话红 #E5484D', await settled(() => borderFgColor() === 0xe5484d), `0x${borderFgColor()?.toString(16) ?? '?'}`)
 
 // ── 3. /color status 与未知色名 ────────────────────────────────────────
@@ -308,7 +308,7 @@ await sleep(200)
 stdin.write('\r')
 // 生效上屏是强于下方断言的门（屏上可见 ⇒ mock 已记录），并为后续按键
 // pacing——保留 settle。
-await settle(() => screenText().includes('会话颜色已设为 orange'), { timeoutMs: 10000 })
+await settle(() => screenText().includes('Session color set to orange'), { timeoutMs: 10000 })
 check('选择器 Enter 应用 orange', channel.setColorCalls.at(-1) === 'orange', JSON.stringify(channel.setColorCalls))
 check('选择器应用后关闭', await settled(() => !screenText().includes('● red') && !screenText().includes('● orange')))
 check('选择器设置后边框重绘为橙色 #F76B15', await settled(() => borderFgColor() === 0xf76b15), `0x${borderFgColor()?.toString(16) ?? '?'}`)
@@ -318,16 +318,16 @@ stdin.write('/recap')
 await settle(() => screenText().includes('/recap'))
 stdin.write('\r')
 check('recap 摘要渲染', await settled(() => screenText().includes('最近在修会话颜色与 recap')))
-check('建议标题渲染', await settled(() => screenText().includes('建议标题') && screenText().includes('会话标识 PR')))
-check('应用按钮渲染', await settled(() => screenText().includes('应用')))
+check('建议标题渲染', await settled(() => screenText().includes('Suggested title') && screenText().includes('会话标识 PR')))
+check('应用按钮渲染', await settled(() => screenText().includes('Apply')))
 
 stdin.write('a')
 check('按 a 应用标题走 renameSession', await settled(() => channel.renameCalls[0] === '会话标识 PR'), JSON.stringify(channel.renameCalls))
 check('会话标题已更新', channel.sessionTitle === '会话标识 PR', channel.sessionTitle)
-check('面板标记已应用', await settled(() => screenText().includes('已应用')))
+check('面板标记已应用', await settled(() => screenText().includes('Applied')))
 
 stdin.write('\x1b')
-check('Esc 关闭 recap 面板', await settled(() => !screenText().includes('建议标题')))
+check('Esc 关闭 recap 面板', await settled(() => !screenText().includes('Suggested title')))
 
 await instance.unmount()
 setLang('zh')
