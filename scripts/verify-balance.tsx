@@ -31,7 +31,7 @@ const [
   { settle, screenHas, findText, viewportLines, sleep },
   { stringWidth },
   { fetchBalance },
-  { estimateSessionCostCny, estimateSessionCostSplitCny, isDeepSeekOfficialProvider, isPeakHour, priceForModel },
+  { CNY_PER_USD, cnyToUsd, estimateSessionCostCny, estimateSessionCostSplitCny, isDeepSeekOfficialProvider, isPeakHour, priceForModel },
 ] = await Promise.all([
   import('node:stream'),
   import('react'),
@@ -236,6 +236,9 @@ const buckets = (peak: Partial<import('../src/deepseekPricing.js').CostTokenTota
   const cost = estimateSessionCostCny(buckets({ input: 1_000 }), 'gpt-4o')
   check('估算 未知模型 → undefined', cost === undefined, `cost=${cost}`)
 }
+{
+  check('cnyToUsd 7.2 peg', Math.abs(cnyToUsd(7.2) - 1) < 1e-12, `usd=${cnyToUsd(7.2)} peg=${CNY_PER_USD}`)
+}
 
 // --- deepseekPricing：官方 provider 判定 ---
 
@@ -432,21 +435,21 @@ await render(
 stdin.write('/balance')
 await settle(() => screenText(term).includes('/balance'))
 stdin.write('\r')
-await settle(() => screenHas(term, 'DeepSeek balance ¥110.00'))
-check('摘要行显示余额', screenHas(term, 'DeepSeek balance ¥110.00'))
+await settle(() => screenHas(term, 'DeepSeek balance $15.28'))
+check('摘要行显示余额', screenHas(term, 'DeepSeek balance $15.28'))
 check('触发恰好一次 balanceInfo', channel.balanceCalls === 1, String(channel.balanceCalls))
 check('摘要行不可用标记未出现', !screenHas(term, 'query failed'))
 
 // ── 2. hover 摘要行：明细与操作 chip 出现 ────────────────────────────────
-const summaryPos = findText(term, 'DeepSeek balance ¥110.00')
+const summaryPos = findText(term, 'DeepSeek balance $15.28')
 check('摘要行在视口内', summaryPos !== null)
 if (summaryPos !== null) {
   const cell = cellOf(term, summaryPos)
   hover(cell.col + 1, cell.row + 1)
 }
-await settle(() => screenHas(term, 'total ¥110.00'))
-check('hover 显示币种拆分', screenHas(term, 'total ¥110.00') && screenHas(term, 'granted ¥10.00') && screenHas(term, 'topped up ¥100.00'))
-check('hover 显示 token 与花费估算', screenHas(term, 'Session tokens 1.2k in → 5.7k out · ≈¥'))
+await settle(() => screenHas(term, 'total $15.28'))
+check('hover 显示币种拆分', screenHas(term, 'total $15.28') && screenHas(term, 'granted $1.39') && screenHas(term, 'topped up $13.89'))
+check('hover 显示 token 与花费估算', screenHas(term, 'Session tokens 1.2k in → 5.7k out · ≈$'))
 check('hover 显示刷新 chip', screenHas(term, 'click to refresh'))
 check('hover 显示关闭 chip', screenHas(term, '×'))
 check('hover 显示口径说明', screenHas(term, 'balance queries are free'))
@@ -467,11 +470,11 @@ check('hover 显示口径说明', screenHas(term, 'balance queries are free'))
 stdin.write('/balance')
 await settle(() => screenText(term).includes('/balance'))
 stdin.write('\r')
-await settle(() => screenHas(term, 'DeepSeek balance ¥110.00'))
-check('重新触发后摘要恢复', screenHas(term, 'DeepSeek balance ¥110.00'))
+await settle(() => screenHas(term, 'DeepSeek balance $15.28'))
+check('重新触发后摘要恢复', screenHas(term, 'DeepSeek balance $15.28'))
 check('累计两次 balanceInfo', channel.balanceCalls === 2, String(channel.balanceCalls))
 {
-  const refreshPos = findText(term, 'DeepSeek balance ¥110.00')
+  const refreshPos = findText(term, 'DeepSeek balance $15.28')
   if (refreshPos !== null) {
     const cell = cellOf(term, refreshPos)
     hover(cell.col + 1, cell.row + 1)
@@ -481,8 +484,8 @@ check('累计两次 balanceInfo', channel.balanceCalls === 2, String(channel.bal
 }
 await settle(() => channel.balanceCalls >= 3)
 check('点击摘要行重新查询', channel.balanceCalls === 3, String(channel.balanceCalls))
-await settle(() => screenHas(term, 'DeepSeek balance ¥110.00'))
-check('刷新后摘要仍在', screenHas(term, 'DeepSeek balance ¥110.00'))
+await settle(() => screenHas(term, 'DeepSeek balance $15.28'))
+check('刷新后摘要仍在', screenHas(term, 'DeepSeek balance $15.28'))
 
 // ── 5. 失败态：认证失败摘要与 hover 原因（复用主实例） ──────────────────
 {

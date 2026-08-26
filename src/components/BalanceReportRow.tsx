@@ -2,10 +2,24 @@ import React from 'react'
 import { Box, Text } from '../ui.js'
 import { Divider } from './design-system/Divider.js'
 import { t } from '../i18n.js'
-import type { BalanceResult } from '../deepseekBalance.js'
-import { estimateSessionCostSplitCny, isPeakHour, priceForModel } from '../deepseekPricing.js'
+import type { BalanceInfo, BalanceResult } from '../deepseekBalance.js'
+import { cnyToUsd, estimateSessionCostSplitUsd, isPeakHour, priceForModel } from '../deepseekPricing.js'
 import type { TokenUsage } from '../dsh-adapter/channel.js'
 import { formatTokens } from '../cc/format.js'
+
+/** Prefer a native USD wallet; otherwise convert a CNY wallet at the display peg. */
+function usdDisplayBalance(balances: readonly BalanceInfo[]): BalanceInfo | undefined {
+  const usd = balances.find(info => info.currency === 'USD')
+  if (usd !== undefined) return usd
+  const cny = balances.find(info => info.currency === 'CNY')
+  if (cny === undefined) return balances[0]
+  return {
+    currency: 'USD',
+    total: cnyToUsd(cny.total),
+    granted: cnyToUsd(cny.granted),
+    toppedUp: cnyToUsd(cny.toppedUp),
+  }
+}
 
 /**
  * `/balance` 余额报告行：Divider + 一行安静摘要，hover 展开明细
@@ -39,9 +53,7 @@ export function BalanceReportRow({
   const summary = (() => {
     if (result === null) return t('balance-summary-loading')
     if (!result.ok) return t('balance-summary-fail')
-    // 主币种：CNY 优先，否则第一项。
-    const primary = result.balances.find(info => info.currency === 'CNY')
-      ?? result.balances[0]
+    const primary = usdDisplayBalance(result.balances)
     if (primary === undefined) return t('balance-summary-fail')
     return t('balance-summary-ok', {
       total: primary.total.toFixed(2),
@@ -51,7 +63,7 @@ export function BalanceReportRow({
     })
   })()
 
-  const estimate = estimateSessionCostSplitCny(tokens, model)
+  const estimate = estimateSessionCostSplitUsd(tokens, model)
 
   const detailLines = (() => {
     if (result === null) return []
@@ -67,23 +79,24 @@ export function BalanceReportRow({
       })()
       return [reason, t('balance-fail-hint')]
     }
-    const lines = result.balances.map(info =>
-      t('balance-currency', {
-        currency: info.currency,
-        total: info.total.toFixed(2),
-        granted: info.granted.toFixed(2),
-        toppedUp: info.toppedUp.toFixed(2),
-      }),
-    )
-    // 当前计费时段 + 该时段单价（高峰=梁文峰，低谷=梁文谷）。
+    const display = usdDisplayBalance(result.balances)
+    const lines = display === undefined
+      ? []
+      : [t('balance-currency', {
+          currency: 'USD',
+          total: display.total.toFixed(2),
+          granted: display.granted.toFixed(2),
+          toppedUp: display.toppedUp.toFixed(2),
+        })]
+    // Current billing window + that window's list price (USD display).
     const price = priceForModel(model)
     if (price !== undefined) {
       const peakNow = isPeakHour()
       const rateIndex = peakNow ? 1 : 0
       lines.push(t('balance-current-rate', {
         name: peakNow ? t('cost-peak-name') : t('cost-idle-name'),
-        input: price.inputMiss[rateIndex].toFixed(1),
-        output: price.output[rateIndex].toFixed(1),
+        input: cnyToUsd(price.inputMiss[rateIndex]).toFixed(3),
+        output: cnyToUsd(price.output[rateIndex]).toFixed(3),
       }))
     }
     if (estimate !== undefined) {

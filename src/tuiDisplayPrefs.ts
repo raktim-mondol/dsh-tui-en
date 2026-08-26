@@ -27,8 +27,8 @@ export interface StatusBarConfig {
   cache: boolean
   /** Running input/output token totals. */
   tokens: boolean
-  /** Estimated session spend (≈¥, DeepSeek official pricing — only shown
-   *  for official DeepSeek providers whose model has a known price). */
+  /** Estimated session spend (USD converted from official CNY rates — only
+   *  shown for official DeepSeek providers whose model has a known price). */
   cost: boolean
   /** Live and recent output speed. */
   tps: boolean

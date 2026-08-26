@@ -177,3 +177,39 @@ export function estimateSessionCostCny(
 ): number | undefined {
   return estimateSessionCostSplitCny(tokens, model)?.total
 }
+
+/**
+ * Display FX for the English UI. Official DeepSeek list prices and the
+ * default balance unit are CNY; session cost and CNY-only balances are
+ * converted at this peg. Native USD balances from the API are shown as-is.
+ * This is not a live FX quote.
+ */
+export const CNY_PER_USD = 7.2
+
+export function cnyToUsd(cny: number): number {
+  return cny / CNY_PER_USD
+}
+
+export function formatUsd(usd: number, digits = 2): string {
+  return `$${usd.toFixed(digits)}`
+}
+
+export function estimateSessionCostSplitUsd(
+  tokens: CostTokenBuckets,
+  model: string,
+): { total: number; peak: number; idle: number } | undefined {
+  const split = estimateSessionCostSplitCny(tokens, model)
+  if (split === undefined) return undefined
+  return {
+    total: cnyToUsd(split.total),
+    peak: cnyToUsd(split.peak),
+    idle: cnyToUsd(split.idle),
+  }
+}
+
+export function estimateSessionCostUsd(
+  tokens: CostTokenBuckets,
+  model: string,
+): number | undefined {
+  return estimateSessionCostSplitUsd(tokens, model)?.total
+}
