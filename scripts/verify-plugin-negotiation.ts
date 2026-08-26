@@ -133,7 +133,7 @@ const overview = () => pluginsInfoLines('', { grants, host })
   check1("'host' never becomes a matrix row", rowOf('host') === undefined)
   check1("'undeclared' never becomes a matrix row", rowOf('undeclared') === undefined)
   check1('overflow note beyond the row cap',
-    lines.some(line => line.includes('more plugin(s) not shown')),
+    lines.some(line => /more plugins? not shown/.test(line)),
     `rows=${PLUGINS_MATRIX_MAX_ROWS}, plugins=${21 + 4}`)
 }
 
