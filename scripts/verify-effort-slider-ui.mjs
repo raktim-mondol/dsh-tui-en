@@ -24,7 +24,7 @@ const { Terminal: XTerm } = xtermHeadless
 import { render } from '../lib/types/ui.js'
 import { Chat } from '../lib/types/screens/Chat.js'
 import { setLang } from '../lib/types/i18n.js'
-import { settle, viewportLines } from './lib/term-test.mjs'
+import { settle, settled, sleep, viewportLines } from './lib/term-test.mjs'
 
 let failed = 0
 function check(name, ok, extra = '') {
@@ -32,8 +32,6 @@ function check(name, ok, extra = '') {
   if (!ok) failed += 1
 }
 process.exitCode = 0
-
-const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const term = new XTerm({ cols: 110, rows: 34, scrollback: 100, allowProposedApi: true })
 
@@ -202,6 +200,7 @@ const instance = await render(
   }),
   { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
 )
+// 启动固定窗保留：等 Chat 首帧与快捷键安装完成，无单一可轮询锚点。
 await sleep(700)
 
 // inline 模式下有 scrollback 时 getLine(0..rows) 直扫读的是缓冲区开头；
@@ -215,56 +214,44 @@ setLang('en')
 // Help owns Esc while it is visible; Chat's modal guard must not let the key
 // reach working cancellation or any hidden global shortcut.
 stdin.write('/help')
-await sleep(250)
+// 输入已落屏（补全菜单描述可见）再回车——等待后只操作不断言，用 settle。
+await settle(() => screen().includes('Show shortcuts and commands'))
 stdin.write('\r')
-await settle(() => /scroll|commands:/.test(screen()))
-check('en: Help opens before slider', /scroll|commands:/.test(screen()), '')
+check('en: Help opens before slider', await settled(() => /scroll|commands:/.test(screen())), '')
 stdin.write('\x1b')
-await settle(() => !/commands:/.test(screen()))
-check('en: Esc closes Help only', !/commands:/.test(screen()), '')
+check('en: Esc closes Help only', await settled(() => !/commands:/.test(screen())), '')
 
 // 1. /effort bare → slider opens with the current level (High) checked.
 stdin.write('/effort')
-await sleep(250)
+await settle(() => screen().includes('Adjust the reasoning effort'))
 stdin.write('\r')
-await settle(() => /Reasoning effort/.test(screen()))
-let s = screen()
-check('slider opens with Reasoning effort title', /Reasoning effort/.test(s), '')
-check('slider lists all three levels', /Off/.test(s) && /High/.test(s) && /Max/.test(s), '')
-check('current level marked', /High\s*✓/.test(s) || /✓/.test(s), '')
+check('slider opens with Reasoning effort title', await settled(() => /Reasoning effort/.test(screen())), '')
+check('slider lists all three levels', await settled(() => /Off/.test(screen()) && /High/.test(screen()) && /Max/.test(screen())), '')
+check('current level marked', await settled(() => /High\s*✓/.test(screen()) || /✓/.test(screen())), '')
 
 // 2. → moves focus and applies immediately.
 stdin.write('\x1b[C')
-await settle(() => channel.setEffortCalls.length === 1 && channel.setEffortCalls[0] === 'max')
-check('right arrow applied setEffort(max)', channel.setEffortCalls.length === 1 && channel.setEffortCalls[0] === 'max', JSON.stringify(channel.setEffortCalls))
-await settle(() => /max/.test(screen()))
-s = screen()
-check('statusline effort shows max', /max/.test(s), '')
+check('right arrow applied setEffort(max)', await settled(() => channel.setEffortCalls.length === 1 && channel.setEffortCalls[0] === 'max'), JSON.stringify(channel.setEffortCalls))
+check('statusline effort shows max', await settled(() => /max/.test(screen())), '')
 
 // 3. Esc closes.
 stdin.write('\x1b')
-await settle(() => !/Reasoning effort/.test(screen().slice(-4000)))
-s = screen()
-check('Esc closed the slider', !/Reasoning effort/.test(s.slice(-4000)), '')
+check('Esc closed the slider', await settled(() => !/Reasoning effort/.test(screen().slice(-4000))), '')
 
 // 4. /effort off → direct set + notify.
 stdin.write('/effort off')
-await sleep(200)
+// 输入已落屏再回车（此串无补全项，等输入框本身）。
+await settle(() => screen().includes('/effort off'))
 stdin.write('\r')
-await settle(() => channel.setEffortCalls.includes('off'))
-check('/effort off applied', channel.setEffortCalls.includes('off'), JSON.stringify(channel.setEffortCalls))
+check('/effort off applied', await settled(() => channel.setEffortCalls.includes('off')), JSON.stringify(channel.setEffortCalls))
 
 // 5. Shift+Tab cycles the mode; StatusLine shows the label.
 stdin.write('\x1b[Z')
-await settle(() => screen().includes('计划模式') || /plan mode/.test(screen()))
-s = screen()
-check('statusline shows mode label', /plan mode/.test(s), s.slice(-300))
+check('statusline shows mode label', await settled(() => screen().includes('计划模式') || /plan mode/.test(screen())), screen().slice(-300))
 stdin.write('\x1b[Z')
-await settle(() => channel.mode.id === 'full')
-check('second backtab → full', channel.mode.id === 'full', channel.mode.id)
+check('second backtab → full', await settled(() => channel.mode.id === 'full'), channel.mode.id)
 stdin.write('\x1b[Z')
-await settle(() => channel.modeIndex === 0)
-check('third backtab → default (no segment)', channel.modeIndex === 0, String(channel.modeIndex))
+check('third backtab → default (no segment)', await settled(() => channel.modeIndex === 0), String(channel.modeIndex))
 
 // 6. zh compat: `zh` is still a valid persisted language code, but this
 //    build's i18n dict is English-only, so the slider chrome (picker i18n
@@ -272,25 +259,21 @@ check('third backtab → default (no segment)', channel.modeIndex === 0, String(
 //    English text regardless.
 setLang('zh')
 stdin.write('/help')
-await sleep(250)
+// zh 下 /help 的补全描述是本地化文案（i18n cmd-desc-help），等英文永远不成立。
+await settle(() => screen().includes('查看快捷键与命令'))
 stdin.write('\r')
-await settle(() => /scroll|commands:/.test(screen()))
-check('zh: Help opens before slider', /scroll|commands:/.test(screen()), '')
+check('zh: Help opens before slider', await settled(() => /命令：/.test(screen())), '')
 stdin.write('\x1b')
-await settle(() => !/commands:/.test(screen()))
-check('zh: Esc closes Help only', !/commands:/.test(screen()), '')
+check('zh: Esc closes Help only', await settled(() => !/命令：/.test(screen())), '')
 stdin.write('/effort')
-await sleep(250)
+// /effort 暂无 cmd-desc-effort 键，zh 下补全描述回退英文；若日后补键需同步改这里。
+await settle(() => screen().includes('Adjust the reasoning effort'))
 stdin.write('\r')
-await settle(() => /Reasoning effort/.test(screen()))
-s = screen()
-check('zh: slider title stays English (compat)', s.includes('Reasoning effort'), '')
-check('zh: hint line stays English (compat)', s.includes('to adjust') && /Esc to don/.test(s), '')
+check('zh: slider title 推理强度', await settled(() => screen().includes('推理强度')), '')
+check('zh: hint line localized', await settled(() => screen().includes('调整') && screen().includes('完成')), '')
 // Read the xterm visible screen after the repaint, not the raw output backlog.
 stdin.write('\x1b')
-await settle(() => !/Reasoning effort/.test(screen()))
-s = screen()
-check('zh: Esc closed the slider', !s.includes('Reasoning effort'), '')
+check('zh: Esc closed the slider', await settled(() => !screen().includes('推理强度')), '')
 setLang('en')
 
 instance.unmount()

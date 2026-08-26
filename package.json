@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-harness-tui/dsh-tui",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Claude Code style interactive TUI front door for DeepSeek Harness agents, built on the ported Ink core.",
   "license": "MIT",
   "repository": {
@@ -19,7 +19,8 @@
     "#dsh-ecosystem-spec/tui-channel": "./dsh-ecosystem-spec/protocols/tui-channel.js"
   },
   "bin": {
-    "dsh-tui-en": "./bin/dsh-tui.js"
+    "dsh-tui": "./bin/dsh-tui.js",
+    "dst": "./bin/dsh-tui.js"
   },
   "main": "lib/types/index.js",
   "types": "lib/types/index.d.ts",
@@ -98,7 +99,7 @@
     "prompt:debug": "node scripts/read-prompt-debug.mjs",
     "tui": "node --import tsx/esm scripts/run.ts",
     "smoke": "node --import tsx/esm scripts/smoke.tsx",
-    "verify:build": "npm run verify:boundary && npm run verify:contract && npm run verify:herdr && npm run verify:manifest-deps && npm run verify:patch-surface && npm run verify:web-coexistence && npm run verify:plugin-spec && npm run verify:plugin-grants && npm run verify:plugin-storage && npm run verify:plugin-messages && npm run verify:plugin-ledger && npm run verify:plugin-commands && npm run verify:plugin-negotiation && npm run verify:plugin-lifecycle && npm run verify:packaged-presets && npm run verify:minimal-preset-tools && npm run verify:liangshen-bootstrap && npm run verify:wheel-selection && npm run verify:liangshen-instruction-hint && npm run verify:pointer-events && npm run verify:chat-overlay && npm run verify:i18n",
+    "verify:build": "npm run verify:boundary && npm run verify:contract && npm run verify:herdr && npm run verify:manifest-deps && npm run verify:patch-surface && npm run verify:web-coexistence && npm run verify:plugin-spec && npm run verify:plugin-grants && npm run verify:plugin-storage && npm run verify:plugin-messages && npm run verify:plugin-ledger && npm run verify:plugin-commands && npm run verify:plugin-negotiation && npm run verify:plugin-lifecycle && npm run verify:packaged-presets && npm run verify:history-search && npm run verify:skill-direct-invocation && npm run verify:minimal-preset-tools && npm run verify:liangshen-bootstrap && npm run verify:wheel-selection && npm run verify:liangshen-instruction-hint && npm run verify:pointer-events && npm run verify:chat-overlay && npm run verify:i18n && npm run verify:approval-visibility",
     "verify:boundary": "node --import tsx/esm scripts/verify-adapter-boundary.ts",
     "verify:i18n": "node --import tsx/esm scripts/verify-i18n.ts",
     "verify:contract": "node --import tsx/esm scripts/verify-upstream-contract.ts",
@@ -119,6 +120,7 @@
     "verify:bun-package": "node scripts/verify-bun-package.mjs",
     "verify:prompt-debug": "npm run build && node scripts/verify-prompt-debug.mjs",
     "verify:clipboard-image": "node --import tsx/esm scripts/verify-clipboard-image.ts",
+    "verify:history-search": "node --import tsx/esm scripts/verify-history-search.mjs",
     "verify:plugin-ledger": "node --import tsx/esm scripts/verify-plugin-ledger.ts",
     "verify:plugin-commands": "node --import tsx/esm scripts/verify-plugin-commands.ts",
     "verify:plugin-negotiation": "node --import tsx/esm scripts/verify-plugin-negotiation.ts",
@@ -128,8 +130,12 @@
     "verify:wheel-selection": "node --import tsx/esm scripts/verify-wheel-selection.ts",
     "verify:pointer-events": "node --import tsx/esm scripts/verify-pointer-events.ts",
     "verify:chat-overlay": "node --import tsx/esm scripts/verify-chat-overlay.ts",
+    "verify:approval-visibility": "node --import tsx/esm scripts/verify-approval-visibility.tsx",
+    "verify:skill-direct-invocation": "node --import tsx/esm scripts/verify-skill-direct-invocation.ts",
     "sync:profile": "node scripts/sync-profile.mjs",
-    "sync:profile:check": "node scripts/sync-profile.mjs --check"
+    "sync:profile:check": "node scripts/sync-profile.mjs --check",
+    "bundle:installer": "node scripts/make-installer-bundle.mjs",
+    "bundle:standalone": "node scripts/make-standalone-bundle.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -160,7 +166,92 @@
     "@deepseek-ai/dsh-workspace": "^0.1.0-rc.6 || ^0.1.1-rc.1",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-instructions": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-presets": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-atomic-write": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-commands": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-cordis-host-runner": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-invariants": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm-pi-ai": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-persona": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-skill": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-storage": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-storage-domain": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-storage-json": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-system-prompt": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-terminal": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-terminal-bash": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tool-ask-user": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tool-bash-persistent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tool-cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-user-approval": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-user-questions": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-workspace": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
   "dependencies": {
+    "@alcalzone/ansi-tokenize": "^0.3.0",
+    "@deepseek-harness-tui/dsh-auth": "link:./dsh-auth",
     "@dsh-std/command": "workspace:*",
     "@dsh-std/connection": "workspace:*",
     "@dsh-std/core": "workspace:*",
@@ -168,7 +259,7 @@
     "@dsh-std/messages": "workspace:*",
     "@dsh-std/presentation": "workspace:*",
     "@dsh-std/storage": "workspace:*",
-    "@alcalzone/ansi-tokenize": "^0.3.0",
+    "@earendil-works/pi-ai": "^0.82.1",
     "auto-bind": "^4.0.0 || ^5.0.0",
     "bidi-js": "^1.0.0",
     "chalk": "^5.0.0",
@@ -176,9 +267,7 @@
     "cli-highlight": "^2.1.11",
     "code-excerpt": "^3.0.0 || ^4.0.0",
     "diff": "^8.0.4",
-    "@deepseek-harness-tui/dsh-auth": "link:./dsh-auth",
     "dsh-working-activity": "^0.3.3",
-    "@earendil-works/pi-ai": "^0.82.1",
     "emoji-regex": "^10.0.0",
     "figures": "^6.1.0",
     "get-east-asian-width": "^1.0.0",
@@ -259,6 +348,7 @@
     "@types/react-reconciler": "^0.33.0",
     "@types/semver": "^7.0.0",
     "@xterm/headless": "^6.0.0",
+    "tar": "^7.5.22",
     "tsx": "^4.0.0",
     "typescript": "^6.0.3",
     "yaml": "^2.9.0"

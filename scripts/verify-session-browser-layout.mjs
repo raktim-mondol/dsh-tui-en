@@ -33,6 +33,7 @@ import React from 'react'
 import { render, ThemeProvider } from '../lib/types/ui.js'
 import { SessionBrowser } from '../lib/types/screens/SessionBrowser.js'
 import { setLang } from '../lib/types/i18n.js'
+import { sleep } from './lib/term-test.mjs'
 
 const { Terminal } = xtermPkg
 
@@ -41,8 +42,6 @@ function check(name, ok, extra = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}${extra ? `  (${extra})` : ''}`)
   if (!ok) failed += 1
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
 const summary = (over) => ({
   id: 'id',
   kind: { kind: 'root' },
@@ -131,9 +130,11 @@ function frame(term) {
 
 // Widths span the two-column split threshold (100) and the narrow tiers;
 // heights span "comfortable" down to "barely enough for the chrome".
-// 6 rows is the floor by construction: the chrome is six lines, so that is
-// the shortest terminal where every region still has somewhere to be.
-const SIZES = [[180, 44], [120, 30], [110, 34], [99, 24], [80, 20], [60, 14], [46, 10], [40, 8], [52, 6]]
+// 7 rows is the floor by construction: the chrome is six lines (header,
+// three-row search card, notice slot, hints) and a rename/confirm row can
+// add one more, so that is the shortest terminal where every region still
+// has somewhere to be.
+const SIZES = [[180, 44], [120, 30], [110, 34], [99, 24], [80, 20], [60, 14], [46, 10], [40, 8], [52, 7]]
 const KEYS = [
   ['\t', 'preview on'],
   ['\x13', 'runs revealed'],
@@ -162,6 +163,8 @@ for (const lang of ['zh', 'en']) {
       ),
       { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
     )
+    // 固定窗口（原因见下方 "Fixed sleeps kept on purpose" 注释）：断言是
+    // 布局不变量，空帧/旧帧上也成立，轮询会立即返回、测不到新帧。
     await sleep(620)
 
     const inspect = (label) => {
@@ -207,11 +210,13 @@ for (const lang of ['zh', 'en']) {
     stdout.columns = wide[0]
     stdout.rows = wide[1]
     stdout.emit('resize')
+    // 固定窗口（同上）：resize 重绘前后不变量都成立，无可轮询的转变条件。
     await sleep(260)
     inspect(`resized to ${wide[0]}x${wide[1]}`)
 
     instance.unmount()
     term.dispose()
+    // 卸载收尾 pacing：让 unmount 的异步清理在下一轮挂载前排空。
     await sleep(20)
   }
 }

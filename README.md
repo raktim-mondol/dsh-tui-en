@@ -25,12 +25,33 @@ mounted as a Cordis plugin and provides a Claude Code-style conversation, tool,
 session, and fullscreen terminal experience while continuing to use the
 official DSH agent, model, tool, session, and persistence services.
 
-The project does not patch DeepSeek Harness core. Installing the plugin enables
-the interface, and removing it leaves no core modifications behind.
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" valign="middle" width="50%">
+        <img src="screenshots/wechat-official.png" alt="DeepSeek Harness 官方公众号推文收录 dsh-TUI" width="480">
+        <br>
+        <strong>DeepSeek Harness 官方公众号推文收录</strong>
+      </td>
+      <td align="center" valign="middle" width="50%">
+        <a href="https://dshfind.com/ccch1mneyyy/dsh-TUI"><img src="https://dshfind.com/api/card/ccch1mneyyy/dsh-TUI?lang=zh" alt="dsh-TUI on dshfind" width="420"></a>
+        <br>
+        <strong>dshfind 插件目录收录</strong>
+        <br><br>
+        <a href="https://trendshift.io/repositories/146168" title="GitHub Trending 日榜 #7 · TypeScript 口径"><img alt="Trendshift" src="https://trendshift.io/api/badge/trendshift/repositories/146168/daily?language=TypeScript"></a>
+         <br>
+        <strong>dshfind Github Treding榜第七 </strong>
+      </td>
+    </tr>
+  </table>
+</div>
 
-> Status: public beta. It is suitable for daily use and extension work. Read
-> [Architecture and limitations](docs/architecture.md) before relying on its
-> permission model or terminal-specific behavior.
+## 核心能力
+
+  - **终端交互**：低资源占用，长会话稳定可靠；多种主题切换，样式美观，实时显示工作状态、TPS、缓存命中率等
+    推理等级、输入/输出 token 与 Git/会话信息；终端卡多行命令可经 `/settings` 折叠为首行 + 计数提示（Ctrl+O 或点击卡片展开）。
+  - **功能全面**：`/resume`、`/new`、`/compact`、`/export`、`/btw`，模型热切换，原生subagent，会话fork，自动更新；可在vs code中[以vscode插件形式启动](docs/vscode.md)，已上架 VS Code Marketplace。
+  - **扩展丰富**：原生浏览器交互，compter use等大量附属功能性扩展
 
 <p align="center">
   <a href="https://dshfind.com/en/plugins/ccch1mneyyy/dsh-TUI"><img src="https://dshfind.com/api/card/ccch1mneyyy/dsh-TUI?lang=en" alt="dsh-TUI on dshfind"></a>

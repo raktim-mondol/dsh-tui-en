@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dsh-tui-en — two-mode delegating launcher (0.9.2).
+ * dsh-tui — 双态启动器（delegating launcher，0.9.3）。
  *
  * The same file plays one of two roles depending on where it lives:
  *
@@ -35,13 +35,29 @@
  * both `en` and `zh` print English.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+if (process.platform === 'win32' && process.env.DSH_TUI_STANDALONE_BINARY) {
+  try {
+    const oldBinary = `${process.env.DSH_TUI_STANDALONE_BINARY}.old`
+    if (existsSync(oldBinary)) rmSync(oldBinary, { force: true })
+  } catch {
+    // Best effort cleanup.
+  }
+}
+
 const here = dirname(fileURLToPath(import.meta.url))
 const ownDir = dirname(here)
+
+/**
+ * Read and parse a JSON file safely.
+ *
+ * @param {string} p - File path to parse.
+ * @returns {any} Parsed JSON content or undefined.
+ */
 const readJson = p => {
   try {
     return JSON.parse(readFileSync(p, 'utf8'))
@@ -54,11 +70,15 @@ const ownVersion = ownPackage?.name === '@deepseek-harness-tui/dsh-tui' ? ownPac
 const PACKAGE = '@deepseek-harness-tui/dsh-tui'
 const PROFILE = 'dsh-tui'
 
-// --- inlined small utilities (see file header: zero lib deps is part of the migration contract) ---
-// Minimal equivalent of lib/types/utils/shellQuote.js: cmd.exe joins
-// arguments with spaces and does not escape them, so any argument
-// containing spaces/quotes must be quoted as a whole (with inner quotes
-// and backslashes escaped).
+// --- 内联小工具（见文件头：零 lib 依赖是迁移契约的一部分）---------------------
+// 与 lib/types/utils/shellQuote.js 同语义的最小实现：cmd.exe 以空格拼接参数
+// 且不做转义，含空格/引号的参数必须整体加引号（内层引号与反斜杠转义）。
+/**
+ * Quote an array of arguments for cmd.exe.
+ *
+ * @param {string[]} args - Argument tokens.
+ * @returns {string[]} Quoted argument tokens.
+ */
 const shellQuote = args =>
   args.map(arg => {
     const s = String(arg)
@@ -213,7 +233,7 @@ const MSG = {
   },
   helpText: {
     en:
-      `Usage: dsh-tui-en [command] [options] [path|url]\n\n` +
+      `Usage: dsh-tui|dst [command] [options] [path|url]\n\n` +
       `Commands:\n` +
       `  update                 Update the ${PROFILE} profile to the latest release\n` +
       `  doctor                 Pre-flight environment checks (dsh/pnpm/profile/key)\n` +
@@ -225,7 +245,7 @@ const MSG = {
       `  <path|url>             Open with the given workspace target\n\n` +
       `Any other argument is forwarded to \`dsh --profile ${PROFILE}\`.`,
     zh:
-      `用法：dsh-tui [命令] [选项] [路径|URL]\n\n` +
+      `用法：dsh-tui|dst [命令] [选项] [路径|URL]\n\n` +
       `命令：\n` +
       `  update                 将 ${PROFILE} profile 升级到最新版本\n` +
       `  doctor                 启动前环境诊断（dsh/pnpm/profile/密钥）\n` +

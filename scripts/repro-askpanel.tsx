@@ -8,7 +8,7 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, viewportLines }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, settled, sleep, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -34,7 +34,6 @@ class FakeStdin extends PassThrough {
 }
 const stdout = new FakeStdout()
 const stdin = new FakeStdin()
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 /** The real terminal screen, line by line. */
 function screen(): string {
   return viewportLines(term, ROWS).join('\n')
@@ -59,7 +58,6 @@ const app = await render(
   }),
   { stdout, stdin, stderr: new FakeStdout(), debug: true, exitOnCtrlC: false },
 )
-await settle(() => screen().includes('Custom answer') && screen().includes('Type text to attach an answer'))
 
 let failures = 0
 const results: string[] = []
@@ -69,24 +67,22 @@ const check = (name: string, ok: boolean) => {
 }
 
 // 1. Initial render: the input row is visible INSIDE the option list.
-const s1 = screen()
-check('option list shows the Custom answer input row', s1.includes('Custom answer'))
-check('hint says you can type an attached answer', s1.includes('Type text to attach an answer'))
+check('选项列表里直接可见「自定义回答」输入行', await settled(() => screen().includes('自定义回答')))
+check('提示行说明可直接输入', await settled(() => screen().includes('输入文字附带回答')))
 
 // 2. Type on the focused "I have one" option: text lands in the input row, the
 //    option list stays (no jump), and the label is attached.
 stdin.write('sk-test123')
-await settle(() => screen().includes('sk-test123') && screen().includes('(attached: I have one)'))
-const s2 = screen()
-check('typed text appears on the input row', s2.includes('sk-test123'))
-check('view does not jump (option list still visible)', s2.includes("I don't"))
-check('input row shows attached label I have one', s2.includes('(attached: I have one)'))
+check('输入内容出现在输入行', await settled(() => screen().includes('sk-test123')))
+check('视图不跳转（选项列表仍在）', await settled(() => screen().includes('我没有')))
+check('输入行标注附加标签「我有」', await settled(() => screen().includes('（附加：我有）')))
 
 // 3. Enter right there → the answer carries BOTH the label and the text.
 stdin.write('\r')
-await settle(() => answer !== undefined)
-const a1 = answer as { selected?: string[]; custom?: string } | undefined
-check('submit carries both selected + custom', a1?.selected?.join() === 'I have one' && a1?.custom === 'sk-test123')
+check('提交同时携带 selected + custom', await settled(() => {
+  const a1 = answer as { selected?: string[]; custom?: string } | undefined
+  return a1?.selected?.join() === '我有' && a1?.custom === 'sk-test123'
+}))
 
 // 4. Pure custom: focus the input row itself (↓↓) and type → no label.
 answer = undefined
@@ -100,15 +96,15 @@ app.rerender(
 await settle(() => screen().includes('Anything else to add?'))
 stdin.write('[B') // ↓
 stdin.write('[B') // ↓ → input row
+// 焦点移动无可观测的纯文本条件（高亮为颜色，已被裁剪），保留固定 pacing。
 await sleep(200)
-stdin.write('just rambling')
-await settle(() => screen().includes('just rambling'))
-const s4 = screen()
-check('inline edit on the input row (view still does not jump)', s4.includes('just rambling') && s4.includes('No'))
+stdin.write('随便说说')
+check('输入行内联编辑（视图仍不跳转）', await settled(() => screen().includes('随便说说') && screen().includes('没有')))
 stdin.write('\r')
-await settle(() => answer !== undefined)
-const a2 = answer as { selected?: string[]; custom?: string } | undefined
-check('input-row submit is pure custom (no label)', a2?.selected?.length === 0 && a2?.custom === 'just rambling')
+check('输入行直接提交为纯自定义（无标签）', await settled(() => {
+  const a2 = answer as { selected?: string[]; custom?: string } | undefined
+  return a2?.selected?.length === 0 && a2?.custom === '随便说说'
+}))
 
 // 5. Multi-select: Space checks an option, typing appends, Enter on the
 //    option row carries checked labels + text.
@@ -126,15 +122,18 @@ app.rerender(
 )
 await settle(() => screen().includes('Which flavors do you want?'))
 stdin.write(' ') // check 甜
+// 勾选状态无可观测的纯文本条件（勾选标记依赖样式渲染），保留固定 pacing。
 await sleep(150)
 stdin.write('less sugar')
 await settle(() => screen().includes('less sugar'))
 stdin.write('\r')
-await settle(() => answer !== undefined)
-const a3 = answer as { selected?: string[]; custom?: string } | undefined
-check('multi-select: checked label + text submitted together', a3?.selected?.join() === 'Sweet' && a3?.custom === 'less sugar')
+check('多选：勾选 + 文本一起提交', await settled(() => {
+  const a3 = answer as { selected?: string[]; custom?: string } | undefined
+  return a3?.selected?.join() === '甜' && a3?.custom === '少放糖'
+}))
 
 app.unmount()
+// unmount 后输出 flush 无可观测条件，保留固定 pacing。
 await sleep(100)
 console.log(results.join('\n'))
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)

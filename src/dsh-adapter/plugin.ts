@@ -24,10 +24,10 @@ import { readPresetPref } from '../presetPrefs.js'
 import { composePreset, filterMinimalPresetTools, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf } from './presets.js'
 import { ensurePackagedPresets } from './packaged-presets.js'
 import { ensureLegacySessionEventTypes } from './compat/index.js'
-import { clearResumeTarget, writeResumeTarget } from '../sessionHistory.js'
+import { clearResumeTarget, resumeTargetFromArgv, writeResumeTarget } from '../sessionHistory.js'
 import { resolveSessionCwd } from '../utils/workspaceRoot.js'
-import { beginRestartAttempt, checkForTuiUpdate, installedTuiVersion, isBootDeadlockTarget, isVersionNewer, logRestartEvent, resolveDshProfileName, resolveTuiUpdateTarget, restartTui, updateTuiAndRestart, writeHandoffNotice } from '../update.js'
-import { getLang, isLang, LANGS, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js'
+import { beginRestartAttempt, checkForTuiUpdate, installedTuiVersion, isBootDeadlockTarget, isStandaloneRuntime, isVersionNewer, logRestartEvent, resolveDshProfileName, resolveTuiUpdateTarget, restartTui, updateTuiAndRestart, writeHandoffNotice } from '../update.js'
+import { getLang, isLang, resolveStartupLang, setLang, t, writeLangPref } from '../i18n.js'
 import { DEFAULT_STATUS_BAR, normalizeScrollGutter, normalizeStatusBar, normalizeToolBackground, type ScrollGutterMode, type StatusBarConfig, type ToolBackground } from '../tuiDisplayPrefs.js'
 import {
   draftComboConflicts,
@@ -46,7 +46,7 @@ import { getHostStatusStore, type TuiStatusRuntime } from './status.js'
 import { getHostShortcuts, type TuiShortcutRuntime } from './shortcuts.js'
 import { attachSessionToWorkspace } from './workspace.js'
 import { createLocalWorkspaceRuntime, getHostWorkspaceRuntime } from './workspaces.js'
-import { getHostSettingsSections, type TuiSettingsField, type TuiSettingsSectionsRuntime } from './settings-sections.js'
+import { getHostSettingsSections, getLocalSettingsSectionsHost, type TuiSettingsField, type TuiSettingsSectionsRuntime } from './settings-sections.js'
 import { withHostRootCapability } from './host-access.js'
 import { render, ThemeProvider, AlternateScreen } from '../ui.js'
 import instances from '../ink/instances.js'
@@ -390,9 +390,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const sessionCwd = initialWorkspace?.cwd ?? resolveSessionCwd(config.cwd)
   const meta = { cwd: sessionCwd }
+  // Launch-time resume target: the env handoff (launchers like naive-dsh) wins;
+  // `dsh --profile tui` forwards `--resume` verbatim instead, so fall back to
+  // parsing the forwarded app args (parity with the standalone bin).
+  const launchSessionId = config.sessionId ?? resumeTargetFromArgv(process.argv.slice(2))
   const { agent, handle, agentPreset, route: createdRoute } = await resolveAgent(
     ctx,
-    config.sessionId,
+    launchSessionId,
     configuredRoute,
     startupRoute,
     meta,
@@ -459,6 +463,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     thinkingFold: config.thinkingFold,
     toolBackground: config.toolBackground,
     scrollGutter: config.scrollGutter,
+    foldTerminalCommand: config.foldTerminalCommand,
     promptSessionLabel: config.promptSessionLabel,
     statusBar: config.statusBar,
     handle,
@@ -498,6 +503,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         thinkingFold: Schema.union(['preview', 'full']).default('preview'),
         toolBackground: Schema.union(['none', 'subtle', 'strong']).default('none'),
         scrollGutter: Schema.union(['timeline', 'scrollbar', 'hidden']).default('timeline'),
+        // No default on purpose (same rule as `fullscreen` below): a schema
+        // default here would come back from scope.get()/watch() and shadow
+        // an explicit cordis.yml `foldTerminalCommand: true` while the
+        // settings user layer is unset — applyDisplay's
+        // `?? config.foldTerminalCommand ?? false` already supplies the
+        // default and keeps cordis.yml decisive.
+        foldTerminalCommand: Schema.boolean(),
         promptSessionLabel: Schema.boolean().default(false),
         statusBar: Schema.object({
           compact: Schema.boolean().default(DEFAULT_STATUS_BAR.compact),
@@ -547,6 +559,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       thinkingFold?: 'preview' | 'full'
       toolBackground?: ToolBackground
       scrollGutter?: ScrollGutterMode
+      foldTerminalCommand?: boolean
       promptSessionLabel?: boolean
       statusBar?: Partial<StatusBarConfig>
       shortcuts?: Partial<Record<ShortcutActionId, string>>
@@ -586,6 +599,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       channel.setThinkingFold(value.thinkingFold ?? config.thinkingFold ?? 'preview')
       channel.setToolBackground(normalizeToolBackground(value.toolBackground ?? config.toolBackground))
       channel.setScrollGutter(normalizeScrollGutter(value.scrollGutter ?? config.scrollGutter))
+      channel.setFoldTerminalCommand(value.foldTerminalCommand ?? config.foldTerminalCommand ?? false)
       channel.setPromptSessionLabel(value.promptSessionLabel ?? config.promptSessionLabel ?? false)
       channel.setStatusBar(normalizeStatusBar(value.statusBar ?? config.statusBar))
     }
@@ -738,10 +752,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       },
     }
   })
-  const settingsSections = getHostSettingsSections(
-    ctx.get('tuiSettingsSections') as TuiSettingsSectionsRuntime | undefined,
-  )
-  if (settingsSections !== undefined) {
+  // Prefer the composition's sections service; fall back to the in-package
+  // local host. Real compositions have been observed disposing the whole
+  // dsh-tui-* host-seam insert list right after load (issue #557), which
+  // left this registration silently skipped and /settings read-only.
+  // channel.ts reads through the same fallback, so both sides meet in the
+  // same registry either way.
+  {
+    const settingsSections = getHostSettingsSections(
+      ctx.get('tuiSettingsSections') as TuiSettingsSectionsRuntime | undefined,
+    ) ?? getLocalSettingsSectionsHost()
     const unregister = settingsSections.register({
       ns: 'dsh-tui',
       title: 'dsh-tui',
@@ -826,6 +846,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           ],
         },
         {
+          path: ['foldTerminalCommand'],
+          label: 'Fold terminal command',
+          descriptions: { zh: '折叠终端命令' },
+          hint: 'Terminal cards (Bash/PowerShell): collapse a multi-line command header to its first line + count; Ctrl+O or a click expands it.',
+          hintDescriptions: { zh: '终端卡（Bash/PowerShell）：多行命令头部折叠为首行 + 计数；Ctrl+O 或点击卡片展开。' },
+          kind: 'boolean',
+          format(value: unknown): string {
+            // Unset in settings.yaml: show the effective resolution (cordis.yml
+            // → off) instead of a blank — same rule as `fullscreen`'s field.
+            return String(typeof value === 'boolean' ? value : config.foldTerminalCommand === true)
+          },
+        },
+        {
           path: ['promptSessionLabel'],
           label: 'Session name chip',
           descriptions: { zh: '会话名标签' },
@@ -892,6 +925,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           path: ['statusBar', 'tokens'],
           label: 'Show token totals',
           hint: 'Show running input and output token totals.',
+          group: 'status-bar',
+          kind: 'boolean',
+        },
+        {
+          path: ['statusBar', 'cost'],
+          label: 'Show session cost estimate',
+          descriptions: { zh: '显示本会话花费估算' },
+          hint: 'Show the estimated session spend (≈¥) next to the token totals. Only appears for official DeepSeek providers whose model has a known price; the estimate follows the official per-million-token rates (peak/idle hours) and is not a bill.',
+          hintDescriptions: { zh: '在 Token 总量旁显示本会话花费估算（≈¥）。仅在使用 DeepSeek 官方 API key 且模型有已知单价时显示；按官方每百万 token 单价（高峰/空闲时段）估算，非账单。' },
           group: 'status-bar',
           kind: 'boolean',
         },
@@ -1007,10 +1049,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   // Positional command-line arguments are the initial prompt (issue #53):
   // `dsh-tui "run the tests"` forwards positionals through the dsh CLI,
-  // which mounts them as ctx.cmdlineArgs. Submit once the channel exists —
+  // which mounts them as ctx.cmdlineArgs. The service shape drifted across
+  // dsh-cmdline builds — `{ get() }` is the current contract, older builds
+  // exposed `{ args }` — so read both. Submit once the channel exists;
   // delivery goes through the normal pending/inbox chain, so no special
   // timing is needed; flag-shaped leftovers are not prompt text.
-  const cmdlineArgs = (ctx as { cmdlineArgs?: { args?: readonly string[] } }).cmdlineArgs?.args
+  const cmdline = (ctx as { cmdlineArgs?: { get?: () => readonly string[]; args?: readonly string[] } }).cmdlineArgs
+  const cmdlineArgs = cmdline?.get?.() ?? cmdline?.args
   const initialPrompt = cmdlineArgs?.filter(arg => !arg.startsWith('-')).join(' ').trim()
   if (initialPrompt) channel.submit(initialPrompt)
   // Attach the stderr reporter to the live channel and flush anything a
@@ -1069,11 +1114,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         } catch {
           // Resume persistence is best effort and must never block an update.
         }
+        const hintText = isStandaloneRuntime()
+          ? t('update-standalone-starting')
+          : t('update-starting')
         void finishExit(
           ctx,
           instance,
           bootedFullscreen,
-          'Updating @deepseek-harness-tui/dsh-tui and restarting…',
+          hintText,
           undefined,
           () => runUpdate(ctx, profile, channel.agentId, updateTargetVersion),
         )
@@ -1201,7 +1249,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           }
           updateTargetVersion = target.latest
         }
-        channel.notify(t('update-starting'))
+        if (isStandaloneRuntime()) {
+          channel.notify(t('update-standalone-starting'))
+        } else {
+          channel.notify(t('update-starting'))
+        }
         updateRequested = true
         handleExit()
       })
@@ -1245,8 +1297,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // command remains available regardless of network access.
   void checkForTuiUpdate().then((update) => {
     if (update === undefined || exited || updateRequested) return
+    const key = update.isStandalone ? 'update-standalone-available' : 'update-available'
     channel.notify(
-      t('update-available', { current: update.current, latest: update.latest }),
+      t(key, { current: update.current, latest: update.latest }),
       { color: 'warning', timeoutMs: 12000 },
     )
   })
@@ -1347,10 +1400,16 @@ async function resolveAgent(
         route: resumeRoute ?? recordedModelRoute(resumed.agent.session.events),
       }
     } catch (error) {
-      // No artifact (first run / cleared storage) or persistence not
-      // mounted: fall through to a fresh session, but stay loud in the log.
-      ctx.logger.warn(
-        `dsh-tui: resume of "${requestedSessionId}" failed: ${error instanceof Error ? error.message : String(error)}`,
+      // A launch-time --resume is an explicit request: silently substituting a
+      // fresh session presents a cold conversation as the resumed one (the
+      // "resume did nothing" failure mode — the warn below never reached a
+      // terminal). Fail the boot loudly instead; the loader surfaces this to
+      // stderr. The in-session /resume picker has its own error path.
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `dsh-tui: cannot resume session "${requestedSessionId}": ${reason} — ` +
+        'the stored log is unreadable or corrupt; no fresh session was started instead. ' +
+        'Drop --resume to start fresh, or repair the session log first.',
       )
     }
   }
@@ -1456,12 +1515,17 @@ type InkShutdownState = {
    * lingering parent stops racing the restarted TUI for keypresses.
    */
   detachStdinForHandoff?: () => void
+  /** Drain pending stdin bytes; the exit funnel re-drains after cleanup. */
+  drainStdin?: () => void
   frontFrame?: { cursor?: { x: number; y: number } }
   displayCursor?: { x: number; y: number } | null
 }
 
-/** Finish terminal I/O before handing control to a process-level exit action. */
-async function finishExit(
+/**
+ * Finish terminal I/O before handing control to a process-level exit action.
+ * Exported for scripts/verify-shutdown-fallback.
+ */
+export async function finishExit(
   ctx: Context,
   instance: Awaited<ReturnType<typeof render>> | undefined,
   fullscreen: boolean,
@@ -1478,9 +1542,29 @@ async function finishExit(
     // ENABLE_MOUSE_TRACKING after DISABLE_MOUSE_TRACKING had been sent).
     const fromMap = readInkShutdownState(instances.get(process.stdout))
     const fromHandle = instance === undefined ? undefined : readInkShutdownState(instance)
-    const runtime = fromMap ?? fromHandle
+    // A handle that exposes neither detach hook is not an Ink runtime we can
+    // latch (e.g. the fake render handles in shutdown regressions) — treat it
+    // as a lookup miss so the full-unmount fallback below can still run.
+    const runtime = fromMap ?? (
+      fromHandle?.detachForShutdown === undefined && fromHandle?.detachStdinForHandoff === undefined
+        ? undefined
+        : fromHandle
+    )
     if (runtime === undefined) {
       ctx.logger.debug('dsh-tui: Ink runtime unavailable during shutdown; using generic terminal cleanup')
+      if (instance !== undefined) {
+        ctx.logger.debug('dsh-tui: Ink shutdown using full unmount as the terminal-restore fallback')
+        // Lookup-miss (custom stdout embedders / detach-less handles): the
+        // registry cannot hand us the detach hooks, so run the full Ink
+        // unmount first. It restores raw mode, alt screen and listeners
+        // synchronously before the notice below is written — the process
+        // must never hand a broken terminal back to the shell.
+        try {
+          instance.unmount()
+        } catch {
+          ctx.logger.debug('dsh-tui: Ink shutdown unmount fallback failed; continuing with generic terminal cleanup')
+        }
+      }
     } else if (fromMap === undefined) {
       ctx.logger.debug('dsh-tui: Ink runtime resolved from the render handle (instances map missed); detaching')
     }
@@ -1511,6 +1595,16 @@ async function finishExit(
     ].join('')
     const suffix = notice === undefined ? '' : `${notice}\n`
     await writeStream(process.stdout, `${cleanup}\r\n${suffix}`)
+    // Re-drain AFTER the cleanup sequences have landed (#507): terminal
+    // replies and mouse packets already in flight when the exit started
+    // keep arriving while cleanup is being written — the detach-time drain
+    // cannot see them. Unconsumed at process exit they land in the shell's
+    // input queue (DECRPM/DA1/XTVERSION garbage pasted into the prompt).
+    // 150ms settle covers reply RTT on slow links (ssh/ghostty is #522's
+    // environment; 50ms proved too tight there) while staying well inside
+    // the exit window the user already waits through.
+    await new Promise<void>(resolve => setTimeout(resolve, 150))
+    runtime?.drainStdin?.()
     if (stderrNotice !== undefined) {
       await writeStream(process.stderr, `\n${stderrNotice}\n`)
     }
@@ -1525,6 +1619,7 @@ function readInkShutdownState(value: unknown): InkShutdownState | undefined {
   const candidate = value as Record<string, unknown>
   if (candidate.detachForShutdown !== undefined && typeof candidate.detachForShutdown !== 'function') return undefined
   if (candidate.detachStdinForHandoff !== undefined && typeof candidate.detachStdinForHandoff !== 'function') return undefined
+  if (candidate.drainStdin !== undefined && typeof candidate.drainStdin !== 'function') return undefined
   if (candidate.frontFrame !== undefined && !isFrameState(candidate.frontFrame)) return undefined
   if (candidate.displayCursor !== undefined && candidate.displayCursor !== null && !isCursorState(candidate.displayCursor)) return undefined
   return value as InkShutdownState

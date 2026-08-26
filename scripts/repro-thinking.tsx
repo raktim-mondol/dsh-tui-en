@@ -22,7 +22,7 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { render }, { Chat }, { QuestionStore }, { Terminal: XTerm }, fs, { writeParsed, viewportLines }] =
+const [{ PassThrough, Writable }, React, { render }, { Chat }, { QuestionStore }, { Terminal: XTerm }, fs, { writeParsed, viewportLines, sleep }] =
   await Promise.all([
     import('node:stream'),
     import('react'),
@@ -126,8 +126,9 @@ const instance = await render(
   },
 )
 
-// Let the first paint settle
-await new Promise(r => setTimeout(r, 500))
+// 启动稳定：让 spinner 先空转若干 50ms 动画帧——动画重绘本身是被测对象，
+// 固定墙钟 pacing 是场景的一部分，无可轮询的完成条件。
+await sleep(500)
 
 // Stream text for ~6s while thinking stays on. The body avoids the word
 // 'thinking' and any isolated ASCII 't' so ghost asserts stay unambiguous.
@@ -141,11 +142,13 @@ const CHUNKS = [
 ]
 for (const chunk of CHUNKS) {
   pushChunk(chunk)
-  await new Promise(r => setTimeout(r, 120))
+  // 120ms 是场景 pacing：流式增长与 50ms 动画帧交错才能诱发残影，
+  // 不是在等某个可观测状态。
+  await sleep(120)
 }
 
-// Let the spinner idle a few more frames
-await new Promise(r => setTimeout(r, 800))
+// 再让 spinner 空转几帧（墙钟 pacing：残影需要多帧重绘才会显形）
+await sleep(800)
 
 const byteStream = stdout.frames.join('')
 try { instance.unmount() } catch {}

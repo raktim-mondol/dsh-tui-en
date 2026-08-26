@@ -14,7 +14,7 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, viewportLines }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, settled, sleep, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -40,7 +40,6 @@ class FakeStdin extends PassThrough {
 }
 const stdout = new FakeStdout()
 const stdin = new FakeStdin()
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 function screen(): string {
   return viewportLines(term, ROWS).join('\n')
 }
@@ -89,10 +88,10 @@ await mount({
   question: 'Which model provider do you want to add?',
   options: [{ label: 'Built-in provider' }, { label: 'Custom API endpoint' }],
   hideCustomInput: true,
-}, () => screen().includes('Built-in provider') && !screen().includes('Custom answer'))
-check('1 hide: 无「自定义回答」输入行', !screen().includes('Custom answer'))
-check('1 hide: hint 无输入提示', !screen().includes('Type answer') && !screen().includes('Type text to attach an answer'))
-check('1 hide: 选项照常渲染', screen().includes('Built-in provider') && screen().includes('Custom API endpoint'))
+}, () => screen().includes('内置 provider') && !screen().includes('自定义回答'))
+check('1 hide: 无「自定义回答」输入行', await settled(() => !screen().includes('自定义回答')))
+check('1 hide: hint 无输入提示', await settled(() => !screen().includes('输入回答') && !screen().includes('输入文字附带回答')))
+check('1 hide: 选项照常渲染', await settled(() => screen().includes('内置 provider') && screen().includes('自定义 API 端点')))
 
 // Tab/可打印字符「应被忽略」是状态不得改变的稳定性探针：轮询已成立条件会
 // 立即返回等于没测，键间保留固定窗口。
@@ -103,9 +102,8 @@ await sleep(100)
 stdin.write('x')     // printable characters should be ignored
 await sleep(100)
 stdin.write('\r')    // Enter 提交焦点项
-await settle(() => eq(answer, { selected: ['Custom API endpoint'] }))
 check('1 hide: Enter 只提交 selected，无 custom',
-  eq(answer, { selected: ['Custom API endpoint'] }), JSON.stringify(answer))
+  await settled(() => eq(answer, { selected: ['自定义 API 端点'] })), JSON.stringify(answer))
 
 // ── 2. Text-only question with no options + hideCustomInput (hide must be ignored)
 await mount({
@@ -113,14 +111,13 @@ await mount({
   hideCustomInput: true,
   // patchConsole 会把前面 check 消息（含「自定义回答」字样）渲染进终端，
   // 只盯它会立即返回——用新题独有的问题文本当挂载完成信号。
-}, () => screen().includes('Enter your API key'))
-check('2 text-only: hide 被忽略，输入行仍在', screen().includes('Custom answer'))
+}, () => screen().includes('输入 API key'))
+check('2 text-only: hide 被忽略，输入行仍在', await settled(() => screen().includes('自定义回答')))
 stdin.write('sk-secret')
 await settle(() => screen().includes('sk-secret'))
 stdin.write('\r')
-await settle(() => eq(answer, { selected: [], custom: 'sk-secret' }))
 check('2 text-only: 文本照常提交',
-  eq(answer, { selected: [], custom: 'sk-secret' }), JSON.stringify(answer))
+  await settled(() => eq(answer, { selected: [], custom: 'sk-secret' })), JSON.stringify(answer))
 
 // ── 3. Multi-select without hide (the model-selection question shape): default behavior does not regress
 await mount({
@@ -129,16 +126,17 @@ await mount({
   multiSelect: true,
   // 上一屏已含「自定义回答」，settle 只盯它会立即返回——加新题独有的选项
   // 文本当挂载完成信号。
-}, () => screen().includes('deepseek-chat') && screen().includes('Custom answer'))
-check('3 multi: 输入行保留', screen().includes('Custom answer'))
+}, () => screen().includes('deepseek-chat') && screen().includes('自定义回答'))
+check('3 multi: 输入行保留', await settled(() => screen().includes('自定义回答')))
 stdin.write(' ')      // 勾选第一项
+// 键间固定 pacing：空格勾选没有独有的可观测文本（提交结果由下方 settled
+// 断言兜底），保留小窗口保证勾选先于后续输入被处理。
 await sleep(100)
 stdin.write('extra-model') // 输入行补充
 await settle(() => screen().includes('extra-model'))
 stdin.write('\r')
-await settle(() => eq(answer, { selected: ['deepseek-chat'], custom: 'extra-model' }))
 check('3 multi: 勾选 + 自定义补充同时生效',
-  eq(answer, { selected: ['deepseek-chat'], custom: 'extra-model' }), JSON.stringify(answer))
+  await settled(() => eq(answer, { selected: ['deepseek-chat'], custom: 'extra-model' })), JSON.stringify(answer))
 
 app.unmount()
 console.log(failures === 0 ? '\nAll hide-custom-input checks passed' : `\n${failures} check(s) FAILED`)

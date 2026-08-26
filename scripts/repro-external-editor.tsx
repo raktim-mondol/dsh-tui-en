@@ -77,10 +77,10 @@ class FakeStdin extends PassThrough {
   unref() { return this }
 }
 const stdinObj = new FakeStdin()
-// 等待/读屏走公共辅助（issue #532）：settle 轮询到预期状态再断言——固定
-// sleep 在慢 runner 上会断言到旧屏幕；inline 模式有 scrollback 时视口从
-// baseY 起，getLine(0..ROWS) 直扫会混入已滚出的行。
-const { sleep, settle, writeParsed } = termTest
+// 等待/读屏走公共辅助（issue #532）：异步状态断言用 settled——等待与断言
+// 共用同一谓词；固定 sleep 在慢 runner 上会断言到旧屏幕；inline 模式有
+// scrollback 时视口从 baseY 起，getLine(0..ROWS) 直扫会混入已滚出的行。
+const { sleep, settled, writeParsed } = termTest
 const screenHas = (s: string): boolean => termTest.screenHas(term, s)
 
 const listeners = new Set<() => void>()
@@ -134,6 +134,7 @@ const instance = await render(
   <Chat channel={channel} questionStore={new QuestionStore()} onExit={() => {}} />,
   { stdout: new FakeStdout(), stdin: stdinObj, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
+// 启动固定窗保留：FakeStdout 丢弃全部帧，无可轮询观察点（后续断言各有兜底）。
 await sleep(600)
 
 let failed = 0
@@ -146,31 +147,27 @@ const check = (name: string, ok: boolean, extra = '') => {
 // target — it's the one that goes blank), and a draft in the input box.
 channel.rows.push({ id: rowId++, kind: 'user', text: 'transcript-anchor-history-message' })
 bump()
-await settle(() => screenHas('transcript-anchor'))
-check('预备: transcript 历史消息可见', screenHas('transcript-anchor'))
+check('预备: transcript 历史消息可见', await settled(() => screenHas('transcript-anchor')))
 
 stdinObj.write('什么是cordis')
-await settle(() => screenHas('什么是cordis'))
-check('预备: 草稿已入输入框', screenHas('什么是cordis'))
+check('预备: 草稿已入输入框', await settled(() => screenHas('什么是cordis')))
 
 // Ctrl+G → fake editor (writes to disk and exits after 600ms)
 stdinObj.write('\x07')
+// sleep 保留：编辑器会话期间界面无变化（终端已交接），注入必须落在
+// 600ms 会话窗口内——真实墙钟 pacing，无可轮询的完成条件。
 await sleep(250)
 // Leftover bytes during the handoff session: without drain/suppression, a
 // double-Esc after resume = clear input, then Esc on empty input = open the rewind picker.
 stdinObj.write('\x1b\x1b')
+// sleep 保留：同上，会话窗口内的 pacing，无可观测条件。
 await sleep(100)
 // 模拟 nvim 的 rmcup：终端被弹回主屏，随后我们的 2J 将落在主屏上。
 // write 回调在 xterm 解析完毕后触发，保证与后续 2J 的先后顺序。
 await writeParsed(term, '\x1b[?1049l')
 
-// Wait for the fill-back to complete (editor's 600ms disk write + round trip)
-let roundTripped = false
-for (let i = 0; i < 100; i++) {
-  await sleep(50)
-  if (screenHas('什么是cordis EDITED')) { roundTripped = true; break }
-}
-check('往返: 编辑结果回填输入框', roundTripped)
+// 等回填完成（编辑器 600ms 写盘 + 往返）
+check('往返: 编辑结果回填输入框', await settled(() => screenHas('什么是cordis EDITED'), { timeoutMs: 5000 }))
 // 让晚到乱码（FakeStdout 注入）与任何延迟副作用落定。
 // 稳定性探针（不得改变）：下面的 bug1-3 断言的是"东西仍在/没被触发"，
 // 对已成立条件轮询会立即返回等于没测——保留固定窗口。
@@ -183,8 +180,7 @@ check('bug3: no terminal-response fragment leaked into the UI', !screenHas('48;9
 
 // Liveness: normal input must work again once the suppression window has passed
 stdinObj.write('X')
-await settle(() => screenHas('什么是cordis EDITEDX'))
-check('活性: 抑制窗口结束后输入正常', screenHas('什么是cordis EDITEDX'))
+check('活性: 抑制窗口结束后输入正常', await settled(() => screenHas('什么是cordis EDITEDX')))
 
 if (savedEditor === undefined) delete process.env.EDITOR
 else process.env.EDITOR = savedEditor
