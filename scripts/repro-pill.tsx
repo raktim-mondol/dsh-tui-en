@@ -116,7 +116,7 @@ check('at bottom: no pill initially', pillText() === '', JSON.stringify(pillText
 // scroll well up, then 8 new rows arrive
 wheel('up', 6)
 // 滚离底部的可观测条件：最后一条消息移出视口。
-await settle(() => !screenHas(term, '消息 30:'))
+await settle(() => !screenHas(term, 'message 30:'))
 addRows(8)
 check('pill appears with the new-message count', await settled(() => /8 new messages/.test(pillText())), pillText())
 

@@ -223,10 +223,10 @@ check('切换后模型名生效', await settled(() => channel.model === 'deepsee
 check('切换后 splash 恰好一份', countMarker(SPLASH) === 1, `实际 ${countMarker(SPLASH)}`)
 check('切换后历史行恰好一份', countMarker(HIST0) === 1 && countMarker(HIST1) === 1,
   `问题=${countMarker(HIST0)} 回答=${countMarker(HIST1)}`)
-check('历史问题 1 恰好一份', countMarker('历史问题 1：检查一下构建配置') === 1,
-  `实际 ${countMarker('历史问题 1：检查一下构建配置')}`)
-check('历史片段 0-8 恰好一份', countMarker('第 0-8 条历史回答要点') === 1,
-  `实际 ${countMarker('第 0-8 条历史回答要点')}`)
+check('历史问题 1 恰好一份', countMarker('history question 1: check the build config') === 1,
+  `实际 ${countMarker('history question 1: check the build config')}`)
+check('历史片段 0-8 恰好一份', countMarker('history answer point 0-8') === 1,
+  `实际 ${countMarker('history answer point 0-8')}`)
 
 // ---- Switch once more: confirm deposits don't grow linearly with switch count ---
 await typeKeys('/model')

@@ -259,21 +259,20 @@ check('third backtab → default (no segment)', await settled(() => channel.mode
 //    English text regardless.
 setLang('zh')
 stdin.write('/help')
-// zh 下 /help 的补全描述是本地化文案（i18n cmd-desc-help），等英文永远不成立。
-await settle(() => screen().includes('查看快捷键与命令'))
+// This fork keeps English chrome even after setLang('zh').
+await settle(() => screen().includes('/help'))
 stdin.write('\r')
-check('zh: Help opens before slider', await settled(() => /命令：/.test(screen())), '')
+check('zh: Help opens before slider', await settled(() => /scroll|commands:/.test(screen())), '')
 stdin.write('\x1b')
-check('zh: Esc closes Help only', await settled(() => !/命令：/.test(screen())), '')
+check('zh: Esc closes Help only', await settled(() => !/commands:/.test(screen())), '')
 stdin.write('/effort')
-// /effort 暂无 cmd-desc-effort 键，zh 下补全描述回退英文；若日后补键需同步改这里。
 await settle(() => screen().includes('Adjust the reasoning effort'))
 stdin.write('\r')
-check('zh: slider title 推理强度', await settled(() => screen().includes('推理强度')), '')
-check('zh: hint line localized', await settled(() => screen().includes('调整') && screen().includes('完成')), '')
+check('zh: slider title stays English (compat)', await settled(() => screen().includes('Reasoning effort')), '')
+check('zh: hint line stays English (compat)', await settled(() => screen().includes('to adjust') && /Esc to don/.test(screen())), '')
 // Read the xterm visible screen after the repaint, not the raw output backlog.
 stdin.write('\x1b')
-check('zh: Esc closed the slider', await settled(() => !screen().includes('推理强度')), '')
+check('zh: Esc closed the slider', await settled(() => !screen().includes('Reasoning effort')), '')
 setLang('en')
 
 instance.unmount()
