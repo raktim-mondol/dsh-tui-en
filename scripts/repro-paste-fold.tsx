@@ -188,9 +188,9 @@ try {
   }
 
   // 4. Typing NEVER expands the block (CC behavior): the char lands after
-  //    the chip and the block stays folded; Backspace removes it ('tail' /
-  //    'zzctrl' are markers unique to typed text — 'x'/'ab' would
-  //    false-positive on the splash logo / leftover text); Esc expands;
+  //    the chip and the block stays folded; Backspace removes it ('zzty' /
+  //    'zzctrl' are markers unique to typed text — 'tail' matches startup
+  //    tips that contain "detail", and 'x'/'ab' hit the splash); Esc expands;
   //    Enter submits. Batch Backspace (several keys in one stdin read)
   //    must delete one char per key even with a block present.
   stdinObj.write('zzctrl')
@@ -200,11 +200,11 @@ try {
     await settled(() => screenHas('zzc') && !screenHas('zzctrl') && screenHas('▸ 12 lines')))
   stdinObj.write('\x7f'.repeat(3))
   await settle(() => !screenHas('zzc'))
-  stdinObj.write('tail')
-  check('typing keeps the block folded', await settled(() => screenHas('▸ 12 lines') && screenHas('tail')))
+  stdinObj.write('zzty')
+  check('typing keeps the block folded', await settled(() => screenHas('▸ 12 lines') && screenHas('zzty')))
   stdinObj.write('\x7f'.repeat(4))
   check('Backspace removes the typed char, block stays folded',
-    await settled(() => screenHas('▸ 12 lines') && !screenHas('tail')))
+    await settled(() => screenHas('▸ 12 lines') && !screenHas('zzty')))
   stdinObj.write('\x1b')
   check('Esc expands the block (does not clear)', await settled(() => screenHas('EIGHTH_MARKER') && !screenHas('▸ 12 lines')))
   // Esc on the EXPANDED big input folds it back into a block — the toggle
